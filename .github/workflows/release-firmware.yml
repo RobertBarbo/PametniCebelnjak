@@ -29,8 +29,34 @@ jobs:
           VERSION=$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' include/version.h)
           test "v$VERSION" = "$GITHUB_REF_NAME"
 
-      - name: Pripravi razvojno Firebase konfiguracijo za CI
-        run: cp include/secrets.example.h include/secrets.h
+      - name: Pripravi varno Wi-Fi konfiguracijo za CI
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          ssid = os.environ["WIFI_SSID"]
+          password = os.environ["WIFI_PASSWORD"]
+          if not ssid or not password:
+              raise SystemExit("Manjkajo GitHub Actions secrets WIFI_SSID ali WIFI_PASSWORD.")
+
+          template = Path("include/secrets.example.h").read_text(encoding="utf-8")
+          database_url = re.search(r'#define FIREBASE_DATABASE_URL "([^"]+)"', template).group(1)
+          config = "\n".join((
+              "#pragma once",
+              "",
+              f"#define WIFI_SSID {json.dumps(ssid)}",
+              f"#define WIFI_PASSWORD {json.dumps(password)}",
+              f"#define FIREBASE_DATABASE_URL {json.dumps(database_url)}",
+              "",
+          ))
+          Path("include/secrets.h").write_text(config, encoding="utf-8")
+          PY
 
       - name: Prevedi firmware
         run: pio run
@@ -62,8 +88,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            .pio/build/esp32-s3-devkitm-1/firmware.bin#firmware.bin \
-            manifest.json#manifest.json \
-            --title "Firmware $GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              .pio/build/esp32-s3-devkitm-1/firmware.bin#firmware.bin \
+              manifest.json#manifest.json \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              .pio/build/esp32-s3-devkitm-1/firmware.bin#firmware.bin \
+              manifest.json#manifest.json \
+              --title "Firmware $GITHUB_REF_NAME" \
+              --generate-notes
+          fi

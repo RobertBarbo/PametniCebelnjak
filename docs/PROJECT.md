@@ -32,6 +32,8 @@ Cloud pogled potrebuje HTTP strežnik za razvoj; podrobna navodila so v `web/REA
 
 Nova firmware izdaja se objavi prek GitHub Actions ob potisku taga oblike `vMAJOR.MINOR.PATCH-beta.N`. Workflow preveri, da se tag ujema z `FIRMWARE_VERSION`, prevede `firmware.bin`, izračuna SHA-256 in v GitHub Release doda `firmware.bin` ter `manifest.json`.
 
+Pred objavo OTA izdaje v GitHub repozitoriju nastavi skrivnosti **Settings → Secrets and variables → Actions**: `WIFI_SSID` in `WIFI_PASSWORD`. Workflow iz njiju ustvari začasni `include/secrets.h` samo na GitHub runnerju; lokalna datoteka in poverilnice ne prideta v Git.
+
 Cloud nadzorna plošča preveri najnovejši GitHub Release in ob novejši verziji ponudi gumba **Posodobi napravo** in **Prezri**. Prezrta izdaja se shrani le v brskalnik. Potrjen gumb zapiše ukaz v Firebase; ESP32 ga preveri vsakih 30 sekund, prenese manifest, primerja verzijo, preveri velikost in SHA-256 ter sliko zapiše v neaktivno OTA particijo. Ob uspehu se naprava ponovno zažene.
 
 Privzeta 8 MB particijska tabela vsebuje `app0` in `app1`, zato podpira varno menjavo OTA slike. Trenutna beta uporablja HTTPS povezavo do GitHub Release in SHA-256 preverjanje datoteke. Pred produkcijsko uporabo je treba Firebase pravila omejiti na avtenticirane uporabnike in dodati preverjanje podpisa OTA slike oziroma zaupanja vredno potrdilo strežnika.

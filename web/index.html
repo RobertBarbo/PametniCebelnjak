@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="sl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#173c2b" />
+    <title>Pametni čebelnjak</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="vendor/highcharts.js" defer></script>
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <main class="dashboard">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Panj 1 · živ pogled</p>
+          <h1>Pametni čebelnjak</h1>
+          <p class="subtitle">Meritve, stanje naprave in zgodovina panja.</p>
+        </div>
+        <div class="connection-status" id="connection-status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span id="connection-text">Povezovanje s Firebase …</span>
+        </div>
+      </header>
+
+      <section aria-labelledby="latest-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Zadnja meritev</p>
+            <h2 id="latest-heading">Stanje v panju</h2>
+          </div>
+          <p id="last-measurement-time" class="muted">Čakam na podatke …</p>
+        </div>
+
+        <div class="metrics-grid">
+          <article class="metric-card temperature-card">
+            <span class="metric-icon" aria-hidden="true">◒</span>
+            <p>Temperatura</p>
+            <strong><span id="temperature-value">—</span><small>°C</small></strong>
+          </article>
+          <article class="metric-card humidity-card">
+            <span class="metric-icon" aria-hidden="true">◈</span>
+            <p>Relativna vlaga</p>
+            <strong><span id="humidity-value">—</span><small>%</small></strong>
+          </article>
+          <article class="metric-card weight-card">
+            <span class="metric-icon" aria-hidden="true">⚖</span>
+            <p>Teža panja</p>
+            <strong><span id="weight-value">—</span><small>kg</small></strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="history-section" aria-labelledby="history-heading">
+        <div class="section-heading history-heading">
+          <div>
+            <p class="eyebrow">Zgodovina</p>
+            <h2 id="history-heading">Potek meritev</h2>
+          </div>
+          <button class="date-range-trigger" id="date-range-trigger" type="button" aria-haspopup="dialog">
+            <span>Začetek – konec</span>
+            <strong id="date-range-value">Nastavljam obdobje …</strong>
+          </button>
+        </div>
+        <div class="chart-card">
+          <div id="measurement-chart" aria-label="Graf meritev panja" role="img"></div>
+          <p id="history-summary" class="chart-summary">Čakam na zgodovino meritev …</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="device-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Naprava</p>
+            <h2 id="device-heading">ESP32-S3 in pomnilnik</h2>
+          </div>
+        </div>
+        <div class="status-grid">
+          <article class="status-card">
+            <p>IP naslov</p>
+            <strong id="ip-address">—</strong>
+          </article>
+          <article class="status-card">
+            <p>Wi-Fi signal</p>
+            <strong id="wifi-signal">—</strong>
+          </article>
+          <article class="status-card">
+            <p>Uptime</p>
+            <strong id="uptime">—</strong>
+          </article>
+          <article class="status-card device-state-card" id="device-state-card">
+            <p>ESP32 stanje</p>
+            <strong id="device-online-status">Čakam na stanje …</strong>
+            <small id="device-last-seen">—</small>
+          </article>
+          <article class="status-card">
+            <p>Firmware</p>
+            <strong id="firmware-version">—</strong>
+          </article>
+          <article class="status-card sd-card">
+            <p>SD kartica</p>
+            <strong id="sd-status">—</strong>
+            <small id="sd-status-detail">Čakam na stanje …</small>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <dialog class="date-range-dialog" id="date-range-dialog" aria-labelledby="date-range-dialog-title">
+      <form class="date-range-picker" method="dialog">
+        <header class="date-range-dialog-header">
+          <p id="date-range-dialog-title">Začetek – konec</p>
+          <strong id="date-range-dialog-value">—</strong>
+        </header>
+        <div class="date-range-picker-body">
+          <nav class="range-presets" aria-label="Hitre izbire obdobja">
+            <button type="button" data-preset="today">Danes</button>
+            <button type="button" data-preset="yesterday">Včeraj</button>
+            <button type="button" data-preset="week">Ta teden</button>
+            <button type="button" data-preset="month">Ta mesec</button>
+            <button type="button" data-preset="year">To leto</button>
+            <button type="button" data-preset="hour">Zadnja ura</button>
+            <button type="button" data-preset="hours12">Zadnjih 12 ur</button>
+            <button type="button" data-preset="hours24">Zadnjih 24 ur</button>
+            <button type="button" data-preset="days7">Zadnjih 7 dni</button>
+            <button type="button" data-preset="days30">Zadnjih 30 dni</button>
+          </nav>
+          <section class="calendar-panel" aria-label="Koledar za izbiro obdobja">
+            <div class="calendar-navigation">
+              <button id="calendar-previous" type="button" aria-label="Prejšnji mesec">‹</button>
+              <strong id="calendar-month-label">—</strong>
+              <button id="calendar-next" type="button" aria-label="Naslednji mesec">›</button>
+            </div>
+            <div class="calendar-weekdays" aria-hidden="true">
+              <span>Pon</span><span>Tor</span><span>Sre</span><span>Čet</span><span>Pet</span><span>Sob</span><span>Ned</span>
+            </div>
+            <div class="calendar-days" id="calendar-days"></div>
+            <div class="time-range-inputs">
+              <label>Čas od<input id="range-start-time" type="time" required /></label>
+              <label>Čas do<input id="range-end-time" type="time" required /></label>
+            </div>
+          </section>
+        </div>
+        <footer class="date-range-dialog-actions">
+          <button class="secondary-action" id="date-range-cancel" type="button">Prekliči</button>
+          <button class="primary-action" id="date-range-apply" type="button">Izberi</button>
+        </footer>
+      </form>
+    </dialog>
+  </body>
+</html>

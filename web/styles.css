@@ -1,0 +1,574 @@
+:root {
+  color-scheme: light;
+  --canvas: #f4f1e8;
+  --surface: #ffffff;
+  --ink: #19352a;
+  --muted: #66756e;
+  --border: #dce4dc;
+  --forest: #173c2b;
+  --leaf: #2f7851;
+  --sun: #e6a32d;
+  --sky: #317da4;
+  --danger: #bd4c43;
+  --shadow: 0 16px 40px rgb(31 64 44 / 9%);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 0 0, rgb(96 150 107 / 18%), transparent 28rem),
+    var(--canvas);
+}
+
+.dashboard {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 4rem) 0;
+}
+
+.hero,
+.section-heading,
+.history-heading,
+.connection-status {
+  display: flex;
+  align-items: center;
+}
+
+.hero,
+.section-heading {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.hero {
+  margin-bottom: clamp(2rem, 5vw, 4rem);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  margin-top: 0.25rem;
+  font-size: clamp(2rem, 6vw, 4.4rem);
+  line-height: 0.95;
+  letter-spacing: -0.07em;
+}
+
+h2 {
+  font-size: clamp(1.25rem, 3vw, 1.65rem);
+  letter-spacing: -0.035em;
+}
+
+.eyebrow {
+  color: var(--leaf);
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.subtitle,
+.muted,
+.chart-summary,
+.status-card small {
+  color: var(--muted);
+}
+
+.subtitle {
+  margin-top: 0.85rem;
+  font-size: clamp(1rem, 2vw, 1.15rem);
+}
+
+.connection-status {
+  flex: none;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 650;
+  background: rgb(255 255 255 / 72%);
+}
+
+.status-dot {
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 50%;
+  background: var(--sun);
+}
+
+.connection-status.connected .status-dot,
+.sd-card.ok::before {
+  background: var(--leaf);
+}
+
+.connection-status.error .status-dot,
+.sd-card.error::before {
+  background: var(--danger);
+}
+
+section + section {
+  margin-top: clamp(2.5rem, 6vw, 5rem);
+}
+
+.section-heading {
+  margin-bottom: 1.15rem;
+}
+
+.metrics-grid,
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.metric-card,
+.status-card,
+.chart-card {
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.metric-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 11rem;
+  padding: 1.25rem;
+}
+
+.metric-card::after {
+  position: absolute;
+  inset: auto -1.8rem -2.9rem auto;
+  width: 8rem;
+  height: 8rem;
+  border-radius: 50%;
+  content: "";
+  opacity: 0.14;
+}
+
+.temperature-card::after { background: var(--sun); }
+.humidity-card::after { background: var(--sky); }
+.weight-card::after { background: var(--leaf); }
+
+.metric-icon {
+  display: grid;
+  width: 2.2rem;
+  height: 2.2rem;
+  place-items: center;
+  border-radius: 0.75rem;
+  color: var(--surface);
+  font-size: 1.25rem;
+}
+
+.temperature-card .metric-icon { background: var(--sun); }
+.humidity-card .metric-icon { background: var(--sky); }
+.weight-card .metric-icon { background: var(--leaf); }
+
+.metric-card p,
+.status-card p {
+  margin-top: 1.3rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.07em;
+}
+
+.metric-card small {
+  margin-left: 0.25rem;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.date-range-trigger {
+  display: grid;
+  min-width: min(100%, 22rem);
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.date-range-trigger span {
+  color: var(--leaf);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.date-range-trigger strong {
+  margin-top: 0.16rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.chart-card {
+  height: clamp(20rem, 52vw, 29rem);
+  padding: clamp(0.8rem, 2vw, 1.3rem);
+}
+
+#measurement-chart {
+  height: calc(100% - 2rem);
+}
+
+.chart-summary {
+  margin: 0.85rem 0 0.1rem;
+  font-size: 0.84rem;
+}
+
+.status-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.status-card {
+  min-height: 8.4rem;
+  padding: 1.15rem;
+}
+
+.status-card strong {
+  display: block;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+  font-size: 1.1rem;
+  letter-spacing: -0.025em;
+}
+
+.status-card small {
+  display: block;
+  margin-top: 0.55rem;
+  line-height: 1.35;
+}
+
+.sd-card::before {
+  display: inline-block;
+  width: 0.56rem;
+  height: 0.56rem;
+  margin-right: 0.42rem;
+  border-radius: 50%;
+  content: "";
+  background: var(--sun);
+}
+
+.device-state-card::before {
+  display: inline-block;
+  width: 0.56rem;
+  height: 0.56rem;
+  margin-right: 0.42rem;
+  border-radius: 50%;
+  content: "";
+  background: var(--sun);
+}
+
+.device-state-card.online::before {
+  background: var(--leaf);
+}
+
+.device-state-card.offline::before {
+  background: var(--danger);
+}
+
+.date-range-dialog {
+  width: min(52rem, calc(100% - 1.25rem));
+  max-height: min(46rem, calc(100% - 1.25rem));
+  padding: 0;
+  border: 1px solid #505b55;
+  border-radius: 1.7rem;
+  color: #f3f5f4;
+  background: #1c1f1d;
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 48%);
+}
+
+.date-range-dialog::backdrop {
+  background: rgb(0 0 0 / 56%);
+}
+
+.date-range-picker {
+  display: grid;
+  min-height: 38rem;
+  grid-template-rows: auto 1fr auto;
+}
+
+.date-range-dialog-header {
+  padding: 1.35rem 1.5rem 1rem;
+  border-bottom: 3px solid #00a6d4;
+  background: #343735;
+}
+
+.date-range-dialog-header p {
+  color: #00b4e5;
+  font-size: 0.85rem;
+}
+
+.date-range-dialog-header strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: #f3f5f4;
+  font-size: clamp(1rem, 3vw, 1.35rem);
+}
+
+.date-range-picker-body {
+  display: grid;
+  grid-template-columns: minmax(11rem, 0.8fr) minmax(0, 1.8fr);
+}
+
+.range-presets {
+  display: grid;
+  align-content: start;
+  padding: 1rem 0;
+  border-right: 1px solid #3d4540;
+}
+
+.range-presets button,
+.calendar-navigation button,
+.calendar-day,
+.secondary-action,
+.primary-action {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.range-presets button {
+  padding: 0.72rem 1.35rem;
+  color: #e6e9e7;
+  text-align: left;
+  background: transparent;
+}
+
+.range-presets button:hover,
+.range-presets button:focus-visible {
+  color: white;
+  background: #343b37;
+}
+
+.calendar-panel {
+  padding: 1.25rem;
+}
+
+.calendar-navigation {
+  display: grid;
+  grid-template-columns: 2.75rem 1fr 2.75rem;
+  align-items: center;
+  text-align: center;
+}
+
+.calendar-navigation strong {
+  font-size: 1.15rem;
+  text-transform: capitalize;
+}
+
+.calendar-navigation button {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  color: #f3f5f4;
+  font-size: 2rem;
+  line-height: 1;
+  background: transparent;
+}
+
+.calendar-navigation button:hover,
+.calendar-navigation button:focus-visible {
+  background: #343b37;
+}
+
+.calendar-weekdays,
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.28rem;
+  margin-top: 1.25rem;
+  text-align: center;
+}
+
+.calendar-weekdays {
+  color: #9da7a1;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.calendar-days {
+  min-height: 14.3rem;
+}
+
+.calendar-day {
+  position: relative;
+  min-height: 2.35rem;
+  border-radius: 0.7rem;
+  color: #f3f5f4;
+  background: transparent;
+}
+
+.calendar-day:hover,
+.calendar-day:focus-visible {
+  outline: 2px solid #00a6d4;
+  outline-offset: -2px;
+}
+
+.calendar-day.in-range {
+  border-radius: 0;
+  background: #075a75;
+}
+
+.calendar-day.range-start,
+.calendar-day.range-end {
+  border-radius: 1.2rem;
+  color: white;
+  background: #00a6d4;
+}
+
+.calendar-day.today:not(.range-start):not(.range-end) {
+  color: #5bd8f9;
+}
+
+.time-range-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1.2rem;
+}
+
+.time-range-inputs label {
+  display: grid;
+  gap: 0.35rem;
+  color: #f3f5f4;
+  font-size: 0.9rem;
+}
+
+.time-range-inputs input {
+  width: 100%;
+  padding: 0.68rem;
+  border: 1px solid #5b6560;
+  border-radius: 0.65rem;
+  color: #f3f5f4;
+  font: inherit;
+  background: #343735;
+  color-scheme: dark;
+}
+
+.date-range-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.8rem;
+  padding: 1rem 1.35rem;
+  border-top: 1px solid #3d4540;
+}
+
+.secondary-action,
+.primary-action {
+  padding: 0.72rem 1.1rem;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.secondary-action {
+  color: #42c7ec;
+  background: transparent;
+}
+
+.primary-action {
+  color: white;
+  background: #00a6d4;
+}
+
+@media (max-width: 850px) {
+  .metrics-grid,
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-card:last-child {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 580px) {
+  .dashboard {
+    width: min(100% - 1.25rem, 1180px);
+  }
+
+  .hero,
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .connection-status {
+    align-self: flex-start;
+  }
+
+  .date-range-trigger {
+    width: 100%;
+  }
+
+  .metrics-grid,
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-card:last-child {
+    grid-column: auto;
+  }
+
+  .metric-card {
+    min-height: 8.6rem;
+  }
+
+  .date-range-dialog {
+    max-height: calc(100% - 0.75rem);
+    border-radius: 1.2rem;
+  }
+
+  .date-range-picker {
+    min-height: 0;
+  }
+
+  .date-range-picker-body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .range-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.5rem;
+    border-right: 0;
+    border-bottom: 1px solid #3d4540;
+  }
+
+  .range-presets button {
+    padding: 0.5rem;
+    font-size: 0.82rem;
+  }
+
+  .calendar-panel {
+    padding: 1rem;
+  }
+
+  .time-range-inputs {
+    grid-template-columns: 1fr;
+  }
+}

@@ -163,9 +163,9 @@ async function checkForFirmwareRelease() {
   try {
     const response = await fetch(GITHUB_LATEST_RELEASE_URL, { headers: { Accept: "application/vnd.github+json" } });
     if (response.status === 404) {
-      elements.otaLabel.textContent = "Ni objavljene OTA izdaje";
+      elements.otaLabel.textContent = "OTA izdaja ni javno dosegljiva";
       elements.otaVersion.textContent = "—";
-      elements.otaDetail.textContent = "Ko bo GitHub Release objavljen, se bo prikazal tukaj.";
+      elements.otaDetail.textContent = "Preveri GitHub Release in javni dostop do repozitorija.";
       elements.otaActions.hidden = true;
       return;
     }

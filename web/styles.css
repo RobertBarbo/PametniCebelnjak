@@ -324,6 +324,10 @@ section + section {
   gap: 0.65rem;
 }
 
+.ota-actions[hidden] {
+  display: none;
+}
+
 .secondary-button,
 .primary-button {
   padding: 0.7rem 0.95rem;

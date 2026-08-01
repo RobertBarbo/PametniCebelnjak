@@ -29,6 +29,9 @@ jobs:
           VERSION=$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' include/version.h)
           test "v$VERSION" = "$GITHUB_REF_NAME"
 
+      - name: Pripravi razvojno Firebase konfiguracijo za CI
+        run: cp include/secrets.example.h include/secrets.h
+
       - name: Prevedi firmware
         run: pio run
 

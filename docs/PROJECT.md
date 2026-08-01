@@ -28,6 +28,21 @@ Lokalni ESP32 pogled je dosegljiv na `http://IP-ESP32/`. Izpis IP naslova je v s
 
 Cloud pogled potrebuje HTTP strežnik za razvoj; podrobna navodila so v `web/README.md`. Datoteka `web/firebase-config.js` je lokalna konfiguracija in ne sodi v Git.
 
+## OTA firmware
+
+Nova firmware izdaja se objavi prek GitHub Actions ob potisku taga oblike `vMAJOR.MINOR.PATCH-beta.N`. Workflow preveri, da se tag ujema z `FIRMWARE_VERSION`, prevede `firmware.bin`, izračuna SHA-256 in v GitHub Release doda `firmware.bin` ter `manifest.json`.
+
+Cloud nadzorna plošča preveri najnovejši GitHub Release in ob novejši verziji ponudi gumba **Posodobi napravo** in **Prezri**. Prezrta izdaja se shrani le v brskalnik. Potrjen gumb zapiše ukaz v Firebase; ESP32 ga preveri vsakih 30 sekund, prenese manifest, primerja verzijo, preveri velikost in SHA-256 ter sliko zapiše v neaktivno OTA particijo. Ob uspehu se naprava ponovno zažene.
+
+Privzeta 8 MB particijska tabela vsebuje `app0` in `app1`, zato podpira varno menjavo OTA slike. Trenutna beta uporablja HTTPS povezavo do GitHub Release in SHA-256 preverjanje datoteke. Pred produkcijsko uporabo je treba Firebase pravila omejiti na avtenticirane uporabnike in dodati preverjanje podpisa OTA slike oziroma zaupanja vredno potrdilo strežnika.
+
+Za objavo izdaje po uspešnem pushu na `main` uporabi:
+
+```powershell
+git tag v0.1.0-beta.6
+git push origin v0.1.0-beta.6
+```
+
 ## Firebase podatkovni model
 
 ```text
@@ -61,6 +76,17 @@ Cloud pogled potrebuje HTTP strežnik za razvoj; podrobna navodila so v `web/REA
       uptime_minutes
       uptime_total_minutes
       last_seen_timestamp
+    ota/
+      state
+      current_version
+      target_version
+      message
+      updated_at
+  commands/
+    firmware_update/
+      action
+      target_version
+      requested_at
 ```
 
 ## SD dnevnik

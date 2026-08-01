@@ -1,0 +1,66 @@
+name: Objavi OTA firmware
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Prevzemi izvorno kodo
+        uses: actions/checkout@v6
+
+      - name: Namesti Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Namesti PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Preveri Git tag verzijo
+        run: |
+          VERSION=$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' include/version.h)
+          test "v$VERSION" = "$GITHUB_REF_NAME"
+
+      - name: Prevedi firmware
+        run: pio run
+
+      - name: Ustvari OTA manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          firmware = Path(".pio/build/esp32-s3-devkitm-1/firmware.bin")
+          version = os.environ["RELEASE_TAG"].removeprefix("v")
+          repository = os.environ["REPOSITORY"]
+          manifest = {
+              "version": version,
+              "firmware_url": f"https://github.com/{repository}/releases/download/{os.environ['RELEASE_TAG']}/firmware.bin",
+              "sha256": hashlib.sha256(firmware.read_bytes()).hexdigest(),
+              "size": firmware.stat().st_size,
+          }
+          Path("manifest.json").write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+          PY
+
+      - name: Objavi GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            .pio/build/esp32-s3-devkitm-1/firmware.bin#firmware.bin \
+            manifest.json#manifest.json \
+            --title "Firmware $GITHUB_REF_NAME" \
+            --generate-notes

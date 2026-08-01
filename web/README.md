@@ -23,6 +23,10 @@ Lokalni graf bere `/measurements.csv` na SD kartici. Izbirnik podpira hitra obdo
 
 Datoteke ne odpiraj neposredno prek `file://`, ker brskalniški ES moduli potrebujejo HTTP strežnik.
 
+## OTA v cloud pogledu
+
+Cloud pogled preveri najnovejši GitHub Release repozitorija in pokaže novo verzijo firmware-a. Gumb **Posodobi napravo** pošlje Firebase ukaz; ESP32 ga preveri v največ 30 sekundah, preveri GitHub manifest in se po uspešni namestitvi ponovno zažene. Gumb **Prezri** različico skrije samo v trenutnem brskalniku.
+
 ## Highcharts
 
 Grafi uporabljajo lokalno kopijo `vendor/highcharts.js`, ki se skupaj z ostalimi datotekami naloži v LittleFS. Zato lokalni pogled za prikaz grafov ne potrebuje interneta. Pred produkcijsko ali komercialno uporabo preveri licenco Highcharts.

@@ -1,5 +1,7 @@
 const HIVE_PATH = "hives/panj_1";
 const DEVICE_ONLINE_TIMEOUT_SECONDS = 150;
+const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
+const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 
 const elements = {
   connectionStatus: document.querySelector("#connection-status"),
@@ -27,6 +29,14 @@ const elements = {
   calendarDays: document.querySelector("#calendar-days"),
   startTime: document.querySelector("#range-start-time"),
   endTime: document.querySelector("#range-end-time"),
+  otaSection: document.querySelector("#ota-section"),
+  otaLabel: document.querySelector("#ota-label"),
+  otaVersion: document.querySelector("#ota-version"),
+  otaDetail: document.querySelector("#ota-detail"),
+  otaDeviceStatus: document.querySelector("#ota-device-status"),
+  otaActions: document.querySelector("#ota-actions"),
+  otaInstall: document.querySelector("#ota-install"),
+  otaIgnore: document.querySelector("#ota-ignore"),
 };
 
 let chart;
@@ -39,6 +49,10 @@ let appliedRange;
 let draftRange;
 let calendarMonth;
 let selectingRangeEnd = false;
+let firebaseDatabase;
+let latestFirmwareVersion = "";
+let availableOtaRelease;
+let otaCommandPending = false;
 
 function setConnectionState(text, state = "connected") {
   elements.connectionStatus.className = `connection-status ${state}`;
@@ -61,6 +75,21 @@ function formatDateTime(record) {
 
 function formatDate(date, options) {
   return new Intl.DateTimeFormat("sl-SI", options).format(date);
+}
+
+function compareFirmwareVersions(candidateVersion, currentVersion) {
+  const parseVersion = (version) => {
+    const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
+    if (!match) return null;
+    return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Number.MAX_SAFE_INTEGER : Number(match[4])];
+  };
+  const candidate = parseVersion(candidateVersion);
+  const current = parseVersion(currentVersion);
+  if (!candidate || !current) return 0;
+  for (let index = 0; index < candidate.length; index += 1) {
+    if (candidate[index] !== current[index]) return candidate[index] > current[index] ? 1 : -1;
+  }
+  return 0;
 }
 
 function formatRange(range) {
@@ -104,6 +133,98 @@ function renderSDStatus(status) {
   elements.sdCard.classList.toggle("error", hasError);
   elements.sdStatus.textContent = isPresent ? "Zaznana" : "Ni zaznana";
   elements.sdStatusDetail.textContent = hasError ? "Po petih poskusih ni bila zaznana." : `${status?.initialization_failures ?? 0} neuspelih inicializacij`;
+}
+
+function renderFirmwareVersion(status) {
+  latestFirmwareVersion = status?.version ?? "";
+  elements.firmwareVersion.textContent = latestFirmwareVersion || "—";
+  if (!isLocalDashboard && latestFirmwareVersion) checkForFirmwareRelease();
+}
+
+function renderOtaDeviceStatus(status) {
+  if (!status?.state) return;
+  const target = status.target_version ? ` ${status.target_version}` : "";
+  elements.otaDeviceStatus.textContent = `${status.state}${target}: ${status.message ?? ""}`.trim();
+}
+
+function showOtaAvailability(release) {
+  availableOtaRelease = release;
+  const ignoredVersion = localStorage.getItem(OTA_IGNORE_STORAGE_KEY);
+  const isIgnored = ignoredVersion === release.version;
+  elements.otaLabel.textContent = isIgnored ? "Posodobitev prezrta" : "Na voljo je nova različica";
+  elements.otaVersion.textContent = `v${release.version}`;
+  elements.otaDetail.textContent = release.name || "Nova firmware izdaja je pripravljena na GitHub Releases.";
+  elements.otaActions.hidden = isIgnored;
+  if (isIgnored) elements.otaDeviceStatus.textContent = "Prezrto v tem brskalniku.";
+}
+
+async function checkForFirmwareRelease() {
+  if (!latestFirmwareVersion || isLocalDashboard) return;
+  try {
+    const response = await fetch(GITHUB_LATEST_RELEASE_URL, { headers: { Accept: "application/vnd.github+json" } });
+    if (response.status === 404) {
+      elements.otaLabel.textContent = "Ni objavljene OTA izdaje";
+      elements.otaVersion.textContent = "—";
+      elements.otaDetail.textContent = "Ko bo GitHub Release objavljen, se bo prikazal tukaj.";
+      elements.otaActions.hidden = true;
+      return;
+    }
+    if (!response.ok) throw new Error("GitHub Release ni dosegljiv");
+
+    const release = await response.json();
+    const releaseVersion = String(release.tag_name ?? "").replace(/^v/, "");
+    if (compareFirmwareVersions(releaseVersion, latestFirmwareVersion) > 0) {
+      showOtaAvailability({ version: releaseVersion, name: release.name });
+    } else {
+      availableOtaRelease = undefined;
+      elements.otaLabel.textContent = "Firmware je posodobljen";
+      elements.otaVersion.textContent = `v${latestFirmwareVersion}`;
+      elements.otaDetail.textContent = "Na GitHub Releases ni novejše različice.";
+      elements.otaActions.hidden = true;
+    }
+  } catch (error) {
+    console.error(error);
+    elements.otaLabel.textContent = "Preverjanje OTA ni uspelo";
+    elements.otaVersion.textContent = "—";
+    elements.otaDetail.textContent = "GitHub Release trenutno ni dosegljiv.";
+    elements.otaActions.hidden = true;
+  }
+}
+
+async function requestFirmwareUpdate() {
+  if (!firebaseDatabase || !availableOtaRelease || otaCommandPending) return;
+  if (!window.confirm(`Ali želiš napravo posodobiti na verzijo ${availableOtaRelease.version}? Med prenosom se bo naprava ponovno zagnala.`)) return;
+
+  otaCommandPending = true;
+  elements.otaInstall.disabled = true;
+  elements.otaIgnore.disabled = true;
+  elements.otaDeviceStatus.textContent = "OTA ukaz pošiljam napravi …";
+  try {
+    const { ref, set } = firebaseDatabase;
+    await set(ref(firebaseDatabase.database, `${HIVE_PATH}/commands/firmware_update`), {
+      action: "install",
+      target_version: availableOtaRelease.version,
+      requested_at: Math.floor(Date.now() / 1000),
+    });
+    elements.otaDeviceStatus.textContent = "Ukaz je poslan. ESP32 ga preveri v največ 30 sekundah.";
+  } catch (error) {
+    console.error(error);
+    elements.otaDeviceStatus.textContent = "Pošiljanje OTA ukaza ni uspelo.";
+    otaCommandPending = false;
+    elements.otaInstall.disabled = false;
+    elements.otaIgnore.disabled = false;
+  }
+}
+
+function ignoreFirmwareUpdate() {
+  if (!availableOtaRelease) return;
+  localStorage.setItem(OTA_IGNORE_STORAGE_KEY, availableOtaRelease.version);
+  showOtaAvailability(availableOtaRelease);
+}
+
+function initializeOtaControls() {
+  elements.otaInstall.addEventListener("click", requestFirmwareUpdate);
+  elements.otaIgnore.addEventListener("click", ignoreFirmwareUpdate);
 }
 
 function getBucketSeconds(range) {
@@ -371,13 +492,14 @@ async function useLocalDataSource() {
   const response = await fetch("/api/status", { cache: "no-store" });
   if (!response.ok) throw new Error("Lokalni API ni dosegljiv");
   isLocalDashboard = true;
+  elements.otaSection.hidden = true;
 
   async function refreshStatus() {
     const status = await (await fetch("/api/status", { cache: "no-store" })).json();
     renderLatestMeasurement(status.latest);
     renderDeviceStatus(status.device, true);
     renderSDStatus(status.sd_card);
-    elements.firmwareVersion.textContent = status.firmware?.version ?? "—";
+    renderFirmwareVersion(status.firmware);
     setConnectionState("Lokalna povezava z ESP32");
   }
 
@@ -402,16 +524,19 @@ async function useFirebaseDataSource() {
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js"),
     import("./firebase-config.js"),
   ]);
-  const { endAt, getDatabase, onValue, orderByKey, query, ref, startAt } = databaseModule;
+  const { endAt, getDatabase, onValue, orderByKey, query, ref, set, startAt } = databaseModule;
   const database = getDatabase(initializeApp(configModule.firebaseConfig));
+  firebaseDatabase = { database, ref, set };
+  elements.otaSection.hidden = false;
 
   onValue(ref(database, ".info/connected"), (snapshot) => {
-    setConnectionState(snapshot.val() === true ? "Povezano v Firebase" : "Brez povezave s Firebase", snapshot.val() === true ? "connected" : "error");
+    setConnectionState(snapshot.val() === true ? "Povezano v Cloud" : "Brez povezave s Cloud", snapshot.val() === true ? "connected" : "error");
   }, showDataError);
   onValue(ref(database, `${HIVE_PATH}/latest`), (snapshot) => renderLatestMeasurement(snapshot.val()), showDataError);
   onValue(ref(database, `${HIVE_PATH}/status/device`), (snapshot) => renderDeviceStatus(snapshot.val()), showDataError);
   onValue(ref(database, `${HIVE_PATH}/status/sd_card`), (snapshot) => renderSDStatus(snapshot.val()), showDataError);
-  onValue(ref(database, `${HIVE_PATH}/status/firmware`), (snapshot) => { elements.firmwareVersion.textContent = snapshot.val()?.version ?? "—"; }, showDataError);
+  onValue(ref(database, `${HIVE_PATH}/status/firmware`), (snapshot) => renderFirmwareVersion(snapshot.val()), showDataError);
+  onValue(ref(database, `${HIVE_PATH}/status/ota`), (snapshot) => renderOtaDeviceStatus(snapshot.val()), showDataError);
 
   refreshHistory = async () => {
     stopHistoryListener?.();
@@ -429,6 +554,7 @@ async function useFirebaseDataSource() {
 
 async function startDashboard() {
   initializeDateRangePicker();
+  initializeOtaControls();
   createChart();
   setInterval(() => {
     if (latestDeviceStatus) renderDeviceStatus(latestDeviceStatus);

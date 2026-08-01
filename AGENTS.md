@@ -19,6 +19,8 @@
 - `include/secrets.h` in `firebase.md` sta lokalni datoteki; njunih vrednosti ne vpisuj v sledeno izvorno kodo ali dokumentacijo.
 - Firebase poti ostanejo pod `/hives/panj_1/` dokler projekt ne dobi podpore za več panjev.
 - Ob zagonu firmware pošlje svojo verzijo na `/hives/panj_1/status/firmware`.
+- OTA firmware se izdaja iz GitHub Release workflowa ob tagu `vMAJOR.MINOR.PATCH-beta.N`; Git tag se mora ujemati z `FIRMWARE_VERSION`.
+- ESP32 sprejme OTA samo po Firebase ukazu in po preverjanju SHA-256 iz GitHub `manifest.json`; firmware datoteke ne dodajaj v Git repozitorij.
 
 ## Verzije in dokumentacija
 

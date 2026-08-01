@@ -272,6 +272,85 @@ section + section {
   background: var(--sun);
 }
 
+.ota-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.35rem;
+  border: 1px solid #b8d5c3;
+  border-radius: 1.25rem;
+  color: var(--ink);
+  background: linear-gradient(135deg, #eff8f1, var(--surface));
+  box-shadow: var(--shadow);
+}
+
+.ota-label,
+.ota-detail,
+.ota-card small {
+  margin: 0;
+}
+
+.ota-label {
+  color: var(--leaf);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.ota-card strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: clamp(1.3rem, 3vw, 1.75rem);
+}
+
+.ota-detail {
+  margin-top: 0.25rem;
+  color: var(--muted);
+}
+
+.ota-card small {
+  display: block;
+  margin-top: 0.65rem;
+  color: var(--muted);
+}
+
+.ota-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.secondary-button,
+.primary-button {
+  padding: 0.7rem 0.95rem;
+  border-radius: 0.75rem;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.secondary-button {
+  border: 1px solid var(--border);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.primary-button {
+  border: 1px solid var(--forest);
+  color: var(--surface);
+  background: var(--forest);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .device-state-card::before {
   display: inline-block;
   width: 0.56rem;
@@ -541,6 +620,15 @@ section + section {
   .date-range-dialog {
     max-height: calc(100% - 0.75rem);
     border-radius: 1.2rem;
+  }
+
+  .ota-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ota-actions {
+    justify-content: flex-start;
   }
 
   .date-range-picker {

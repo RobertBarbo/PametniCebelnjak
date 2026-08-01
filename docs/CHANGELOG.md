@@ -2,6 +2,15 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-beta.6] - 2026-08-01
+
+### Added
+
+- OTA posodobitev ESP32 firmware-a iz GitHub Release manifesta po potrditvi v Firebase cloud pogledu.
+- Preverjanje verzije, velikosti datoteke in SHA-256 pred zapisom OTA slike v neaktivno particijo.
+- Cloud kartico za prikaz nove GitHub Release verzije z možnostjo potrditve ali prezrtja posodobitve.
+- GitHub Actions workflow za prevod firmware-a, generiranje `manifest.json` in objavo GitHub Release ob verzijskem tagu.
+
 ## [0.1.0-beta.5] - 2026-08-01
 
 ### Added

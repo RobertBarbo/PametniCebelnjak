@@ -3,12 +3,15 @@
 #include <Arduino.h>
 #include <esp_timer.h>
 #include <FirebaseClient.h>
+#include <HTTPClient.h>
 #include <LittleFS.h>
 #include <SD.h>
 #include <SPI.h>
+#include <Update.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
+#include <mbedtls/sha256.h>
 #include <time.h>
 
 #include "secrets.h"
@@ -20,6 +23,7 @@ namespace {
 constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10'000;
 constexpr uint32_t SD_STATUS_INTERVAL_MS = 60'000;
 constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60'000;
+constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30'000;
 constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;
 
 // Firebase struktura za en panj; ob podpori več panjev se spremeni skupni koren poti.
@@ -28,7 +32,13 @@ constexpr char HISTORY_DATABASE_PATH[] = "/hives/panj_1/measurements";
 constexpr char SD_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/sd_card";
 constexpr char DEVICE_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/device";
 constexpr char FIRMWARE_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/firmware";
+constexpr char OTA_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/ota";
+constexpr char OTA_COMMAND_DATABASE_PATH[] = "/hives/panj_1/commands/firmware_update";
 constexpr char SD_LOG_PATH[] = "/measurements.csv";
+
+// GitHub Release vedno vsebuje manifest.json in firmware.bin za najnovejšo izdajo.
+constexpr char OTA_MANIFEST_URL[] = "https://github.com/RobertBarbo/PametniCebelnjak/releases/latest/download/manifest.json";
+constexpr size_t OTA_DOWNLOAD_BUFFER_SIZE = 2048;
 
 constexpr int SD_CS_PIN = 10;
 constexpr int SD_MOSI_PIN = 11;
@@ -66,8 +76,16 @@ struct HistoryBucket {
   uint16_t count;
 };
 
+struct FirmwareManifest {
+  char version[24];
+  String firmwareUrl;
+  char sha256[65];
+  size_t size;
+};
+
 // Firebase uporablja asinhrone zahteve, da beleženje ne ustavi glavne zanke.
 WiFiClientSecure sslClient;
+WiFiClientSecure otaClient;
 using AsyncClient = AsyncClientClass;
 AsyncClient asyncClient(sslClient);
 SPIClass sdSpi(FSPI);
@@ -80,13 +98,17 @@ RealtimeDatabase database;
 uint32_t lastMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
+uint32_t lastFirmwareCommandCheckMillis = 0;
 bool sdCardReady = false;
 uint8_t sdInitializationFailures = 0;
 bool sdErrorReported = false;
 bool firmwareVersionReported = false;
+bool firmwareCommandPending = false;
 Measurement latestMeasurement{};
 bool hasLatestMeasurement = false;
 HistoryBucket localHistoryBuckets[MAX_LOCAL_HISTORY_BUCKETS]{};
+
+void processFirmwareUpdateCommand(const String &payload);
 
 // Obdelava zaključkov vseh asinhronih Firebase zahtev.
 void processData(AsyncResult &result)
@@ -103,10 +125,18 @@ void processData(AsyncResult &result)
     if (result.uid() == "updateFirmwareVersion") {
       firmwareVersionReported = false;
     }
+    if (result.uid() == "readFirmwareUpdateCommand") {
+      firmwareCommandPending = false;
+    }
     return;
   }
 
   if (result.available()) {
+    if (result.uid() == "readFirmwareUpdateCommand") {
+      firmwareCommandPending = false;
+      processFirmwareUpdateCommand(result.payload());
+      return;
+    }
     Firebase.printf("Firebase write complete: %s\n", result.uid().c_str());
   }
 }
@@ -159,6 +189,244 @@ Uptime getUptime()
       (totalMinutes / 60ULL) % 24ULL,
       totalMinutes % 60ULL,
   };
+}
+
+// --- OTA posodobitve --------------------------------------------------------
+
+bool extractJsonString(const String &json, const char *key, String &value)
+{
+  const String keyPrefix = String('"') + key + "\":";
+  const int keyPosition = json.indexOf(keyPrefix);
+  if (keyPosition < 0) return false;
+
+  const int valueStart = json.indexOf('"', keyPosition + keyPrefix.length());
+  if (valueStart < 0) return false;
+  const int valueEnd = json.indexOf('"', valueStart + 1);
+  if (valueEnd < 0) return false;
+  value = json.substring(valueStart + 1, valueEnd);
+  return true;
+}
+
+bool extractJsonSize(const String &json, const char *key, size_t &value)
+{
+  const String keyPrefix = String('"') + key + "\":";
+  const int keyPosition = json.indexOf(keyPrefix);
+  if (keyPosition < 0) return false;
+
+  const int valueStart = keyPosition + keyPrefix.length();
+  const int valueEnd = json.indexOf(',', valueStart);
+  const String number = json.substring(valueStart, valueEnd < 0 ? json.length() : valueEnd);
+  const unsigned long parsed = strtoul(number.c_str(), nullptr, 10);
+  if (parsed == 0) return false;
+  value = parsed;
+  return true;
+}
+
+bool parseFirmwareManifest(const String &json, FirmwareManifest &manifest)
+{
+  String version;
+  String sha256;
+  if (!extractJsonString(json, "version", version) || !extractJsonString(json, "firmware_url", manifest.firmwareUrl) ||
+      !extractJsonString(json, "sha256", sha256) || !extractJsonSize(json, "size", manifest.size) ||
+      version.length() >= sizeof(manifest.version) || sha256.length() != 64) {
+    return false;
+  }
+
+  version.toCharArray(manifest.version, sizeof(manifest.version));
+  sha256.toLowerCase();
+  sha256.toCharArray(manifest.sha256, sizeof(manifest.sha256));
+  return true;
+}
+
+bool isNewerFirmwareVersion(const char *candidateVersion, const char *currentVersion)
+{
+  int candidateMajor;
+  int candidateMinor;
+  int candidatePatch;
+  int candidateBeta;
+  int currentMajor;
+  int currentMinor;
+  int currentPatch;
+  int currentBeta;
+  const int candidateParts = sscanf(candidateVersion, "%d.%d.%d-beta.%d", &candidateMajor, &candidateMinor,
+                                    &candidatePatch, &candidateBeta);
+  const int currentParts = sscanf(currentVersion, "%d.%d.%d-beta.%d", &currentMajor, &currentMinor,
+                                  &currentPatch, &currentBeta);
+  if (candidateParts != 4 || currentParts != 4) return false;
+
+  if (candidateMajor != currentMajor) return candidateMajor > currentMajor;
+  if (candidateMinor != currentMinor) return candidateMinor > currentMinor;
+  if (candidatePatch != currentPatch) return candidatePatch > currentPatch;
+  return candidateBeta > currentBeta;
+}
+
+void reportOtaStatus(const char *state, const char *targetVersion, const char *message)
+{
+  char jsonPayload[320];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"state\":\"%s\",\"current_version\":\"%s\",\"target_version\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
+           state, FIRMWARE_VERSION, targetVersion, message, static_cast<unsigned long>(time(nullptr)));
+  object_t otaStatus(jsonPayload);
+  database.set(asyncClient, OTA_STATUS_DATABASE_PATH, otaStatus, processData, "updateOtaStatus");
+}
+
+void clearFirmwareUpdateCommand()
+{
+  database.remove(asyncClient, OTA_COMMAND_DATABASE_PATH, processData, "clearFirmwareUpdateCommand");
+}
+
+bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
+{
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(15'000);
+  if (!http.begin(otaClient, OTA_MANIFEST_URL)) {
+    errorMessage = "Povezave do OTA manifesta ni bilo mogoče odpreti.";
+    return false;
+  }
+
+  const int responseCode = http.GET();
+  if (responseCode != HTTP_CODE_OK) {
+    errorMessage = "Manifest OTA ni dosegljiv.";
+    http.end();
+    return false;
+  }
+
+  const bool manifestValid = parseFirmwareManifest(http.getString(), manifest);
+  http.end();
+  if (!manifestValid) {
+    errorMessage = "Manifest OTA ima neveljavno obliko.";
+    return false;
+  }
+  return true;
+}
+
+String sha256ToHex(const uint8_t hash[32])
+{
+  char hexHash[65];
+  for (size_t index = 0; index < 32; ++index) {
+    snprintf(hexHash + index * 2, 3, "%02x", hash[index]);
+  }
+  return String(hexHash);
+}
+
+bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorMessage)
+{
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(20'000);
+  if (!http.begin(otaClient, manifest.firmwareUrl)) {
+    errorMessage = "Povezave do firmware datoteke ni bilo mogoče odpreti.";
+    return false;
+  }
+
+  const int responseCode = http.GET();
+  if (responseCode != HTTP_CODE_OK) {
+    errorMessage = "Firmware datoteka ni dosegljiva.";
+    http.end();
+    return false;
+  }
+
+  if (http.getSize() > 0 && static_cast<size_t>(http.getSize()) != manifest.size) {
+    errorMessage = "Velikost firmware datoteke se ne ujema z manifestom.";
+    http.end();
+    return false;
+  }
+
+  if (!Update.begin(manifest.size, U_FLASH)) {
+    errorMessage = "Za OTA ni dovolj prostora v neaktivni particiji.";
+    http.end();
+    return false;
+  }
+
+  mbedtls_sha256_context sha256Context;
+  mbedtls_sha256_init(&sha256Context);
+  mbedtls_sha256_starts(&sha256Context, 0);
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t buffer[OTA_DOWNLOAD_BUFFER_SIZE];
+  size_t downloaded = 0;
+
+  while (downloaded < manifest.size) {
+    const size_t available = stream->available();
+    if (available == 0) {
+      if (!http.connected()) break;
+      delay(1);
+      continue;
+    }
+
+    const size_t bytesToRead = min(available, min(sizeof(buffer), manifest.size - downloaded));
+    const size_t bytesRead = stream->readBytes(buffer, bytesToRead);
+    if (bytesRead == 0 || Update.write(buffer, bytesRead) != bytesRead) {
+      Update.abort();
+      mbedtls_sha256_free(&sha256Context);
+      http.end();
+      errorMessage = "Zapis OTA firmware-a ni uspel.";
+      return false;
+    }
+    mbedtls_sha256_update(&sha256Context, buffer, bytesRead);
+    downloaded += bytesRead;
+  }
+
+  uint8_t actualHash[32];
+  mbedtls_sha256_finish(&sha256Context, actualHash);
+  mbedtls_sha256_free(&sha256Context);
+  http.end();
+
+  if (downloaded != manifest.size || sha256ToHex(actualHash) != manifest.sha256) {
+    Update.abort();
+    errorMessage = "SHA-256 firmware datoteke se ne ujema z manifestom.";
+    return false;
+  }
+
+  if (!Update.end(true)) {
+    errorMessage = "Zaključek OTA posodobitve ni uspel.";
+    return false;
+  }
+  return true;
+}
+
+void processFirmwareUpdateCommand(const String &payload)
+{
+  if (payload == "null" || payload.length() == 0) return;
+
+  String action;
+  String targetVersion;
+  if (!extractJsonString(payload, "action", action) || !extractJsonString(payload, "target_version", targetVersion)) {
+    reportOtaStatus("error", "", "Neveljaven OTA ukaz.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  if (action == "ignore") {
+    reportOtaStatus("ignored", targetVersion.c_str(), "Posodobitev je bila prezrta.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  if (action != "install" || !isNewerFirmwareVersion(targetVersion.c_str(), FIRMWARE_VERSION)) {
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  reportOtaStatus("installing", targetVersion.c_str(), "Prenašam in preverjam firmware.");
+  FirmwareManifest manifest{};
+  String errorMessage;
+  if (!loadFirmwareManifest(manifest, errorMessage) || String(manifest.version) != targetVersion ||
+      !isNewerFirmwareVersion(manifest.version, FIRMWARE_VERSION) ||
+      !downloadAndInstallFirmware(manifest, errorMessage)) {
+    reportOtaStatus("error", targetVersion.c_str(), errorMessage.c_str());
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  // Novo sliko aktivira šele Update.end(true); ob naslednjem zagonu firmware pošlje novo verzijo v Firebase.
+  ESP.restart();
+}
+
+void requestFirmwareUpdateCommand()
+{
+  firmwareCommandPending = true;
+  database.get(asyncClient, OTA_COMMAND_DATABASE_PATH, processData, false, "readFirmwareUpdateCommand");
 }
 
 // --- SD kartica -------------------------------------------------------------
@@ -520,6 +788,7 @@ void setup()
   initializeLocalWebServer();
   initializeTime();
   sslClient.setInsecure();
+  otaClient.setInsecure();
 
   initializeApp(asyncClient, app, getAuth(noAuth));
   app.getApp<RealtimeDatabase>(database);
@@ -550,6 +819,13 @@ void loop()
       (lastDeviceStatusMillis == 0 || currentMillis - lastDeviceStatusMillis >= DEVICE_STATUS_INTERVAL_MS)) {
     lastDeviceStatusMillis = currentMillis;
     updateDeviceStatus();
+  }
+
+  if (app.ready() && time(nullptr) >= MIN_VALID_UNIX_TIMESTAMP && !firmwareCommandPending &&
+      (lastFirmwareCommandCheckMillis == 0 ||
+       currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
+    lastFirmwareCommandCheckMillis = currentMillis;
+    requestFirmwareUpdateCommand();
   }
 
   if (app.ready() && currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {

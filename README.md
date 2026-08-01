@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.6`
+**Različica:** `0.1.0-beta.7`
 
 ## Trenutne funkcije
 
@@ -47,7 +47,7 @@ Ko na GitHubu ustvariš prazen repozitorij brez začetnih datotek, v tej mapi za
 git remote add origin https://github.com/UPORABNIK/Pametni_Cebelnjak.git
 git branch -M main
 git add .
-git commit -m "Initial release: 0.1.0-beta.6"
+git commit -m "Initial release: 0.1.0-beta.7"
 git push -u origin main
 ```
 

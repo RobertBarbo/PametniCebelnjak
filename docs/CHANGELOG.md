@@ -2,6 +2,12 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-beta.7] - 2026-08-01
+
+### Changed
+
+- Testna OTA izdaja za preverjanje GitHub Release, Firebase ukaza in posodobitve naprave prek cloud nadzorne plošče.
+
 ## [0.1.0-beta.6] - 2026-08-01
 
 ### Added

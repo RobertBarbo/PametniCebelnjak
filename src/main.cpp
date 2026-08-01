@@ -20,10 +20,10 @@
 namespace {
 
 // Časovni intervali posameznih opravil v glavni zanki.
-constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10'000;
-constexpr uint32_t SD_STATUS_INTERVAL_MS = 60'000;
-constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60'000;
-constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30'000;
+constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10000;
+constexpr uint32_t SD_STATUS_INTERVAL_MS = 60000;
+constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
+constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
 constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;
 
 // Firebase struktura za en panj; ob podpori več panjev se spremeni skupni koren poti.
@@ -50,7 +50,7 @@ constexpr char NTP_SERVER_1[] = "pool.ntp.org";
 constexpr char NTP_SERVER_2[] = "time.google.com";
 constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 366;
 constexpr time_t MAX_LOCAL_HISTORY_DURATION_SECONDS = 366 * 24 * 60 * 60;
-constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1'700'000'000;
+constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;
 
 struct Measurement {
   float temperatureC;
@@ -182,7 +182,7 @@ void initializeTime()
 
 Uptime getUptime()
 {
-  const uint64_t totalMinutes = static_cast<uint64_t>(esp_timer_get_time()) / (60ULL * 1'000'000ULL);
+  const uint64_t totalMinutes = static_cast<uint64_t>(esp_timer_get_time()) / (60ULL * 1000000ULL);
   return {
       totalMinutes,
       totalMinutes / (24ULL * 60ULL),
@@ -279,7 +279,7 @@ bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
 {
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(15'000);
+  http.setTimeout(15000);
   if (!http.begin(otaClient, OTA_MANIFEST_URL)) {
     errorMessage = "Povezave do OTA manifesta ni bilo mogoče odpreti.";
     return false;
@@ -314,7 +314,7 @@ bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorM
 {
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(20'000);
+  http.setTimeout(20000);
   if (!http.begin(otaClient, manifest.firmwareUrl)) {
     errorMessage = "Povezave do firmware datoteke ni bilo mogoče odpreti.";
     return false;

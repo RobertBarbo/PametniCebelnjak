@@ -1,0 +1,75 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "device_secrets": {
+      "$deviceId": {
+        ".read": false,
+        ".write": "auth == null && newData.hasChildren(['activation_code']) && newData.child('activation_code').isString() && newData.child('activation_code').val().length == 8 && (!data.exists() || data.child('activation_code').val() === newData.child('activation_code').val())",
+        "activation_code": {
+          ".validate": "newData.isString() && newData.val().length == 8"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "device_claims": {
+      "$deviceId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid && ((!data.exists() && newData.hasChildren(['activation_code', 'requested_at']) && newData.child('activation_code').isString() && newData.child('requested_at').isNumber() && !root.child('devices').child($deviceId).child('owner_uid').exists() && root.child('device_secrets').child($deviceId).child('activation_code').exists() && newData.child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()) || (data.exists() && !newData.exists()))"
+        }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "profile": {
+          ".write": "auth != null && auth.uid === $uid"
+        },
+        "devices": {
+          "$deviceId": {
+            ".write": "auth != null && auth.uid === $uid && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid"
+          }
+        }
+      }
+    },
+    "devices": {
+      "$deviceId": {
+        ".read": "auth != null && data.child('owner_uid').val() === auth.uid",
+        "owner_uid": {
+          ".write": "auth != null && !data.exists() && newData.val() === auth.uid && root.child('device_claims').child($deviceId).child(auth.uid).child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()"
+        },
+        "latest": {
+          ".write": "auth == null"
+        },
+        "measurements": {
+          "$timestamp": {
+            ".write": "auth == null"
+          }
+        },
+        "status": {
+          "device": {
+            ".write": "auth == null"
+          },
+          "sd_card": {
+            ".write": "auth == null"
+          },
+          "firmware": {
+            ".write": "auth == null"
+          },
+          "ota": {
+            ".write": "auth == null"
+          }
+        },
+        "commands": {
+          "firmware_update": {
+            ".read": "auth == null || (auth != null && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)",
+            ".write": "(auth != null && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid) || (auth == null && !newData.exists())"
+          }
+        }
+      }
+    }
+  }
+}

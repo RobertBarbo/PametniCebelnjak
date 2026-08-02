@@ -2,6 +2,46 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## Unreleased
+
+### Added
+
+- Firebase Authentication v cloud nadzorni plošči z e-pošto/geslom in Google prijavo.
+- Prevzem več naprav z `device_id` in aktivacijsko kodo ter izbirnik uporabnikovih naprav.
+- Firebase Realtime Database pravila za zasebnost podatkov po `owner_uid`.
+
+### Changed
+
+- ESP32 pripravi zaseben aktivacijski zapis za Firebase-only beta registracijo.
+- ESP32 obnovi isti aktivacijski zapis po ročnem brisanju Firebase baze.
+- ESP32 po uspešni NTP sinhronizaciji takoj zapiše časovno veljavno prvo meritev na SD kartico in v Firebase.
+- Lokalni pogled skrije cloud prijavo, registracijo naprav in OTA upravljanje ter jasno prikaže aktivacijsko kodo naprave.
+- ESP32 postopno sinhronizira zgodovino meritev s SD kartice v Firebase brez uporabe Cloud Storage.
+
+### Fixed
+
+- CSS zdaj dosledno upošteva atribut `hidden`, zato se cloud obrazci ne prikažejo v lokalnem pogledu.
+- Firebase povratni klici ne uporabljajo več stack-potratnega formatiranega izpisa, ki je povzročal ponovni zagon ESP32-S3.
+- Ob zagonu se prva meritev z veljavnim NTP časom ne podvoji več v istem časovnem trenutku.
+
+## [0.1.0-beta.8] - 2026-08-02
+
+### Added
+
+- Wi-Fi provisioning prek lokalne nadzorne plošče in trajno shranjevanje omrežnih podatkov v NVS.
+- Zaščiten AP kot samodejni rezervni lokalni dostop ob prvi namestitvi ali nedosegljivem Wi-Fi-ju.
+- Trajni `device_id` na osnovi identitete ESP32 in prikaz ID-ja v lokalni ter cloud nadzorni plošči.
+- Dokumentiran varen načrt za prijavo uporabnikov, registracijo naprav in več naprav na uporabnika.
+
+### Changed
+
+- OTA GitHub Actions gradi enoten firmware brez `secrets.h` in brez Wi-Fi poverilnic v CI.
+- Meritve se ob nedosegljivem cloudu še vedno zapisujejo lokalno na SD kartico.
+
+### Removed
+
+- Predloga `include/secrets.example.h` in odvisnost firmwarea od trdo vpisanih Wi-Fi poverilnic.
+
 ## [0.1.0-beta.7] - 2026-08-01
 
 ### Changed

@@ -1,36 +1,39 @@
-# Lokalna nadzorna plošča
+# Nadzorna plošča
 
-Nadzorna plošča v tej mapi ima dva načina: na ESP32 se iz LittleFS streže prek lokalnega IP naslova in bere lokalna API-ja; drugje neposredno bere Firebase Realtime Database za `hives/panj_1`.
+Mapa vsebuje isti odzivni vmesnik za dva načina:
 
-## Lokalni ESP32 pogled
+- **lokalni ESP32 pogled** iz LittleFS prek lokalnega IP-ja ali AP-ja;
+- **cloud pogled** prek Firebase Authentication in Realtime Database za lastne naprave uporabnika.
+
+## Lokalni ESP32 pogled brez interneta
 
 1. Naloži firmware z `pio run -t upload`.
 2. Naloži to mapo v LittleFS z `pio run -t uploadfs`.
-3. V serijskem monitorju poišči izpis `Local dashboard: http://.../` in ta naslov odpri v brskalniku na istem Wi-Fi omrežju.
+3. Brez nastavljenega Wi-Fi-ja se na telefonu poveži na odprti AP `Cebelnjak-XXXXXX`; podatki AP-ja so v serijskem monitorju. Odprt AP je začasen samo za beta testiranje.
+4. Odpri `http://192.168.4.1/`, izberi najdeno Wi-Fi omrežje ali ga vpiši ročno. ESP32 povezavo preveri brez ponovnega zagona in podatke shrani šele po uspehu.
 
-Lokalni graf bere `/measurements.csv` na SD kartici. Izbirnik podpira hitra obdobja ali poljuben začetni in končni datum z uro; lokalni API sprejme obdobje do 366 dni in podatke ustrezno časovno združi. Po grafu povleci z miško ali prstom za X-zoomiranje.
+Lokalni obrazec ima tudi gumb za brisanje shranjenega Wi-Fi-ja. Po potrditvi se ESP32 odklopi od domačega omrežja in znova odpre svoj AP.
 
-## Zagon lokalno
+Lokalni pogled ne prikazuje cloud prijave ali obrazca za registracijo. Aktivacijska koda je vidna na kartici **Aktivacijska koda** ob stanju naprave; uporabi se skupaj z ID-jem naprave v cloud pogledu.
 
-1. Preveri lokalno datoteko `firebase-config.js`. Za novo razvojno okolje kopiraj `firebase-config.example.js` v `firebase-config.js` in vpiši Firebase spletno konfiguracijo.
-2. Iz korena projekta zaženi lokalni strežnik:
+Lokalni graf bere `/measurements.csv` prek `/api/history`. Highcharts je priložen v `vendor/highcharts.js`, zato za graf ne potrebuje interneta. Izbirnik podpira hitra obdobja, začetek in konec z uro ter X-zoomiranje.
 
-   ```powershell
-   py -m http.server 8080 --directory web
-   ```
+## Cloud razvojni pogled
 
-3. Odpri `http://localhost:8080`.
+Za lokalni preizkus cloud pogleda kopiraj `firebase-config.example.js` v lokalni `firebase-config.js`, vpiši Firebase spletno konfiguracijo in zaženi:
 
-Datoteke ne odpiraj neposredno prek `file://`, ker brskalniški ES moduli potrebujejo HTTP strežnik.
+```powershell
+py -m http.server 8080 --directory web
+```
 
-## OTA v cloud pogledu
+Nato odpri `http://localhost:8080`. Datoteka `firebase-config.js` je lokalna in se ne objavi v Git. V Firebase Console pred uporabo omogoči Email/Password in Google prijavo.
 
-Cloud pogled preveri najnovejši GitHub Release repozitorija in pokaže novo verzijo firmware-a. Gumb **Posodobi napravo** pošlje Firebase ukaz; ESP32 ga preveri v največ 30 sekundah, preveri GitHub manifest in se po uspešni namestitvi ponovno zažene. Gumb **Prezri** različico skrije samo v trenutnem brskalniku.
+Po prijavi cloud pogled prebere samo `/users/{uid}/devices`. Napravo registriraš z njenim ID-jem in aktivacijsko kodo iz lokalne ESP32 strani; nato jo lahko izbereš v seznamu. Celoten postopek je v `../docs/FIREBASE_AUTH_SETUP.md`.
 
-## Highcharts
+## OTA
 
-Grafi uporabljajo lokalno kopijo `vendor/highcharts.js`, ki se skupaj z ostalimi datotekami naloži v LittleFS. Zato lokalni pogled za prikaz grafov ne potrebuje interneta. Pred produkcijsko ali komercialno uporabo preveri licenco Highcharts.
+Cloud pogled preveri najnovejši javni GitHub Release. Nova različica ponudi gumba **Posodobi napravo** in **Prezri**. Potrditev zapiše ukaz v trenutno razvojno Firebase pot; ESP32 ga preveri v največ 30 sekundah, preveri manifest in se nato po uspešni namestitvi ponovno zažene.
 
-## Firebase pravila
+## Produkcija
 
-Za prikaz podatkov mora imeti spletni odjemalec dovoljenje za branje poti `/hives/panj_1`. Razvojna javna pravila niso primerna za produkcijo; pred objavo na Firebase Hostingu dodamo Firebase Authentication in omejena varnostna pravila.
+Ta Firebase-only beta loči uporabnike pri branju podatkov, vendar anonimnega ESP32 zapisa ne more kriptografsko potrditi. Pred produkcijo dodaj avtentikacijo naprave ali zaupanja vreden backend po načrtu v `../docs/DEVICE_OWNERSHIP.md`.

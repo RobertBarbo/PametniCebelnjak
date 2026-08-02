@@ -5,35 +5,38 @@
 #include <FirebaseClient.h>
 #include <HTTPClient.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <SD.h>
 #include <SPI.h>
 #include <Update.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
+#include <esp_system.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
 
-#include "secrets.h"
+#include "project_config.h"
 #include "version.h"
 
 namespace {
 
 // Časovni intervali posameznih opravil v glavni zanki.
-constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10000;
+constexpr uint32_t MEASUREMENT_INTERVAL_MS = 5 * 60 * 1000;
 constexpr uint32_t SD_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
+constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = MEASUREMENT_INTERVAL_MS;
+constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 1500;
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
+constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 10000;
+constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;
 constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;
+constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;
 
-// Firebase struktura za en panj; ob podpori več panjev se spremeni skupni koren poti.
-constexpr char LATEST_DATABASE_PATH[] = "/hives/panj_1/latest";
-constexpr char HISTORY_DATABASE_PATH[] = "/hives/panj_1/measurements";
-constexpr char SD_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/sd_card";
-constexpr char DEVICE_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/device";
-constexpr char FIRMWARE_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/firmware";
-constexpr char OTA_STATUS_DATABASE_PATH[] = "/hives/panj_1/status/ota";
-constexpr char OTA_COMMAND_DATABASE_PATH[] = "/hives/panj_1/commands/firmware_update";
+// Firebase poti se ob zagonu sestavijo iz trajnega device_id naprave.
+constexpr char DEVICE_DATABASE_ROOT[] = "/devices";
+constexpr size_t DATABASE_PATH_LENGTH = 96;
 constexpr char SD_LOG_PATH[] = "/measurements.csv";
 
 // GitHub Release vedno vsebuje manifest.json in firmware.bin za najnovejšo izdajo.
@@ -51,6 +54,18 @@ constexpr char NTP_SERVER_2[] = "time.google.com";
 constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 366;
 constexpr time_t MAX_LOCAL_HISTORY_DURATION_SECONDS = 366 * 24 * 60 * 60;
 constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;
+constexpr char DEVICE_SETTINGS_NAMESPACE[] = "device";
+constexpr char WIFI_SETTINGS_NAMESPACE[] = "wifi";
+constexpr char DEVICE_ID_KEY[] = "device_id";
+constexpr char ACTIVATION_CODE_KEY[] = "activation";
+constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";
+constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";
+constexpr char WIFI_SSID_KEY[] = "ssid";
+constexpr char WIFI_PASSWORD_KEY[] = "password";
+constexpr char ACTIVATION_ALPHABET[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+constexpr size_t DEVICE_ID_LENGTH = 16;
+constexpr size_t ACTIVATION_CODE_LENGTH = 8;
+constexpr size_t ACCESS_POINT_SSID_LENGTH = 24;
 
 struct Measurement {
   float temperatureC;
@@ -83,6 +98,13 @@ struct FirmwareManifest {
   size_t size;
 };
 
+enum class WiFiProvisioningState : uint8_t {
+  Idle,
+  Connecting,
+  Connected,
+  Failed,
+};
+
 // Firebase uporablja asinhrone zahteve, da beleženje ne ustavi glavne zanke.
 WiFiClientSecure sslClient;
 WiFiClientSecure otaClient;
@@ -90,6 +112,7 @@ using AsyncClient = AsyncClientClass;
 AsyncClient asyncClient(sslClient);
 SPIClass sdSpi(FSPI);
 WebServer localServer(80);
+Preferences preferences;
 
 NoAuth noAuth;
 FirebaseApp app;
@@ -99,16 +122,51 @@ uint32_t lastMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
 uint32_t lastFirmwareCommandCheckMillis = 0;
+uint32_t lastActivationSecretAttemptMillis = 0;
+uint32_t lastCloudSyncAttemptMillis = 0;
+uint32_t accessPointShutdownMillis = 0;
+uint32_t scheduledWiFiSettingsClearMillis = 0;
+uint32_t wifiConnectionStartedMillis = 0;
+uint32_t cloudSyncFileOffset = 0;
+uint32_t cloudSyncPendingFileOffset = 0;
+uint8_t cloudSyncWritesSincePersist = 0;
 bool sdCardReady = false;
 uint8_t sdInitializationFailures = 0;
 bool sdErrorReported = false;
 bool firmwareVersionReported = false;
 bool firmwareCommandPending = false;
+bool activationSecretPublishPending = false;
+bool activationSecretRegistrationReported = false;
+bool validTimeWasAvailable = false;
+bool cloudSyncPending = false;
+bool cloudSyncCaughtUp = false;
+bool stationConnected = false;
+bool accessPointActive = false;
+bool savedWiFiCredentialsAvailable = false;
+bool stationGotIpAddress = false;
+WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
+String pendingWiFiSsid;
+String pendingWiFiPassword;
+time_t lastCloudSyncedTimestamp = 0;
 Measurement latestMeasurement{};
+Measurement cloudSyncPendingMeasurement{};
 bool hasLatestMeasurement = false;
 HistoryBucket localHistoryBuckets[MAX_LOCAL_HISTORY_BUCKETS]{};
+char deviceId[DEVICE_ID_LENGTH]{};
+char activationCode[ACTIVATION_CODE_LENGTH + 1]{};
+char accessPointSsid[ACCESS_POINT_SSID_LENGTH]{};
+char deviceDatabasePath[DATABASE_PATH_LENGTH]{};
+char latestDatabasePath[DATABASE_PATH_LENGTH]{};
+char historyDatabasePath[DATABASE_PATH_LENGTH]{};
+char sdStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char deviceStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
+char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
 
 void processFirmwareUpdateCommand(const String &payload);
+bool persistCloudSyncState();
 
 // Obdelava zaključkov vseh asinhronih Firebase zahtev.
 void processData(AsyncResult &result)
@@ -118,8 +176,14 @@ void processData(AsyncResult &result)
   }
 
   if (result.isError()) {
-    Firebase.printf("Firebase error (%s): %s (%d)\n", result.uid().c_str(),
-                    result.error().message().c_str(), result.error().code());
+    // Formatirani izpis v Firebase povratnem klicu lahko preseže stack loopTask.
+    Serial.print("Firebase error (");
+    Serial.print(result.uid());
+    Serial.print("): ");
+    Serial.print(result.error().message());
+    Serial.print(" (");
+    Serial.print(result.error().code());
+    Serial.println(")");
 
     // Neuspešen asinhroni zapis verzije znova poskusimo v naslednji glavni zanki.
     if (result.uid() == "updateFirmwareVersion") {
@@ -127,6 +191,12 @@ void processData(AsyncResult &result)
     }
     if (result.uid() == "readFirmwareUpdateCommand") {
       firmwareCommandPending = false;
+    }
+    if (result.uid() == "publishActivationSecret") {
+      activationSecretPublishPending = false;
+    }
+    if (result.uid() == "syncMeasurementHistory") {
+      cloudSyncPending = false;
     }
     return;
   }
@@ -137,7 +207,34 @@ void processData(AsyncResult &result)
       processFirmwareUpdateCommand(result.payload());
       return;
     }
-    Firebase.printf("Firebase write complete: %s\n", result.uid().c_str());
+    if (result.uid() == "publishActivationSecret") {
+      activationSecretPublishPending = false;
+      const String responsePayload = result.payload();
+      if (responsePayload.indexOf("error") >= 0 || responsePayload.indexOf("unauthorized") >= 0) {
+        return;
+      }
+      if (!activationSecretRegistrationReported) {
+        activationSecretRegistrationReported = true;
+        Serial.println("Device activation secret was registered.");
+      }
+      return;
+    }
+    if (result.uid() == "syncMeasurementHistory") {
+      cloudSyncPending = false;
+      const String responsePayload = result.payload();
+      if (responsePayload.indexOf("error") >= 0 || responsePayload.indexOf("unauthorized") >= 0) {
+        return;
+      }
+
+      cloudSyncFileOffset = cloudSyncPendingFileOffset;
+      lastCloudSyncedTimestamp = cloudSyncPendingMeasurement.timestamp;
+      if (++cloudSyncWritesSincePersist >= CLOUD_SYNC_STATE_SAVE_INTERVAL) {
+        persistCloudSyncState();
+      }
+      return;
+    }
+    Serial.print("Firebase write complete: ");
+    Serial.println(result.uid());
   }
 }
 
@@ -160,24 +257,310 @@ float simulatedWeightKg()
 
 // --- Omrežje in čas ---------------------------------------------------------
 
-void connectToWiFi()
+void initializeWiFiEventHandlers()
 {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t) {
+    switch (event) {
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        stationGotIpAddress = true;
+        Serial.printf("Wi-Fi station received IP address: %s\n", WiFi.localIP().toString().c_str());
+        break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+        stationGotIpAddress = false;
+        Serial.println("Wi-Fi station disconnected.");
+        break;
+      case ARDUINO_EVENT_WIFI_AP_STACONNECTED:
+        Serial.println("Phone or computer connected to the provisioning AP.");
+        break;
+      case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED:
+        Serial.println("Client disconnected from the provisioning AP.");
+        break;
+      default:
+        break;
+    }
+  });
+}
 
-  Serial.printf("Connecting to Wi-Fi '%s'", WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) {
+void createDeviceIdentity()
+{
+  const uint64_t chipMac = ESP.getEfuseMac() & 0xFFFFFFFFFFFFULL;
+  snprintf(deviceId, sizeof(deviceId), "CB-%012llX", static_cast<unsigned long long>(chipMac));
+
+  preferences.begin(DEVICE_SETTINGS_NAMESPACE, false);
+  const String storedActivationCode = preferences.getString(ACTIVATION_CODE_KEY, "");
+  if (storedActivationCode.length() == ACTIVATION_CODE_LENGTH) {
+    storedActivationCode.toCharArray(activationCode, sizeof(activationCode));
+  } else {
+    for (size_t index = 0; index < ACTIVATION_CODE_LENGTH; ++index) {
+      activationCode[index] = ACTIVATION_ALPHABET[esp_random() % (sizeof(ACTIVATION_ALPHABET) - 1)];
+    }
+    activationCode[ACTIVATION_CODE_LENGTH] = '\0';
+    preferences.putString(ACTIVATION_CODE_KEY, activationCode);
+  }
+  preferences.putString(DEVICE_ID_KEY, deviceId);
+  cloudSyncFileOffset = preferences.isKey(CLOUD_SYNC_OFFSET_KEY)
+                          ? preferences.getULong(CLOUD_SYNC_OFFSET_KEY, 0)
+                          : 0;
+  lastCloudSyncedTimestamp = preferences.isKey(CLOUD_SYNC_TIMESTAMP_KEY)
+                               ? static_cast<time_t>(preferences.getULong(CLOUD_SYNC_TIMESTAMP_KEY, 0))
+                               : 0;
+  preferences.end();
+
+  snprintf(accessPointSsid, sizeof(accessPointSsid), "Cebelnjak-%s", deviceId + 9);
+}
+
+void printDeviceRegistrationData()
+{
+  Serial.printf("Device ID: %s\n", deviceId);
+  Serial.printf("Activation code: %s\n", activationCode);
+}
+
+void initializeDeviceDatabasePaths()
+{
+  snprintf(deviceDatabasePath, sizeof(deviceDatabasePath), "%s/%s", DEVICE_DATABASE_ROOT, deviceId);
+  snprintf(latestDatabasePath, sizeof(latestDatabasePath), "%s/latest", deviceDatabasePath);
+  snprintf(historyDatabasePath, sizeof(historyDatabasePath), "%s/measurements", deviceDatabasePath);
+  snprintf(sdStatusDatabasePath, sizeof(sdStatusDatabasePath), "%s/status/sd_card", deviceDatabasePath);
+  snprintf(deviceStatusDatabasePath, sizeof(deviceStatusDatabasePath), "%s/status/device", deviceDatabasePath);
+  snprintf(firmwareStatusDatabasePath, sizeof(firmwareStatusDatabasePath), "%s/status/firmware", deviceDatabasePath);
+  snprintf(otaStatusDatabasePath, sizeof(otaStatusDatabasePath), "%s/status/ota", deviceDatabasePath);
+  snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
+  snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
+}
+
+bool loadWiFiCredentials(String &ssid, String &password)
+{
+  if (!preferences.begin(WIFI_SETTINGS_NAMESPACE, false)) {
+    Serial.println("Wi-Fi settings could not be opened.");
+    return false;
+  }
+  if (!preferences.isKey(WIFI_SSID_KEY)) {
+    preferences.end();
+    return false;
+  }
+
+  ssid = preferences.getString(WIFI_SSID_KEY, "");
+  password = preferences.isKey(WIFI_PASSWORD_KEY)
+                 ? preferences.getString(WIFI_PASSWORD_KEY, "")
+                 : "";
+  preferences.end();
+  return ssid.length() > 0;
+}
+
+void startProvisioningAccessPoint(bool keepStationEnabled);
+
+const char *wifiProvisioningStateName()
+{
+  switch (wifiProvisioningState) {
+    case WiFiProvisioningState::Connecting:
+      return "connecting";
+    case WiFiProvisioningState::Connected:
+      return "connected";
+    case WiFiProvisioningState::Failed:
+      return "failed";
+    case WiFiProvisioningState::Idle:
+    default:
+      return "idle";
+  }
+}
+
+const char *wifiProvisioningMessage()
+{
+  switch (wifiProvisioningState) {
+    case WiFiProvisioningState::Connecting:
+      return "Povezovanje z izbranim Wi-Fi omrežjem ...";
+    case WiFiProvisioningState::Connected:
+      return "Wi-Fi je povezan in nastavitve so shranjene.";
+    case WiFiProvisioningState::Failed:
+      return "Povezava ni uspela. Preveri ime omrežja in geslo.";
+    case WiFiProvisioningState::Idle:
+    default:
+      return "";
+  }
+}
+
+bool storeWiFiCredentials(const String &ssid, const String &password)
+{
+  if (!preferences.begin(WIFI_SETTINGS_NAMESPACE, false)) {
+    Serial.println("Wi-Fi settings could not be saved.");
+    return false;
+  }
+
+  const size_t storedSsidLength = preferences.putString(WIFI_SSID_KEY, ssid);
+  const size_t storedPasswordLength = preferences.putString(WIFI_PASSWORD_KEY, password);
+  preferences.end();
+  return storedSsidLength == ssid.length() && storedPasswordLength == password.length();
+}
+
+void startWiFiConnectionAttempt(const String &ssid, const String &password)
+{
+  pendingWiFiSsid = ssid;
+  pendingWiFiPassword = password;
+  wifiProvisioningState = WiFiProvisioningState::Connecting;
+  wifiConnectionStartedMillis = millis();
+  accessPointShutdownMillis = 0;
+
+  // AP ostane aktiven, zato telefon med preverjanjem ne izgubi lokalne strani.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(false);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+  stationGotIpAddress = false;
+  WiFi.begin(pendingWiFiSsid.c_str(), pendingWiFiPassword.c_str());
+  Serial.printf("Testing Wi-Fi '%s' without restarting.\n", pendingWiFiSsid.c_str());
+}
+
+void updateWiFiConnectionAttempt()
+{
+  if (wifiProvisioningState != WiFiProvisioningState::Connecting) return;
+
+  if (stationGotIpAddress) {
+    stationConnected = true;
+    WiFi.setAutoReconnect(true);
+    if (storeWiFiCredentials(pendingWiFiSsid, pendingWiFiPassword)) {
+      savedWiFiCredentialsAvailable = true;
+      wifiProvisioningState = WiFiProvisioningState::Connected;
+      accessPointShutdownMillis = millis() + ACCESS_POINT_SHUTDOWN_DELAY_MS;
+      Serial.printf("Wi-Fi connected. IP address: %s\n", WiFi.localIP().toString().c_str());
+    } else {
+      wifiProvisioningState = WiFiProvisioningState::Failed;
+      stationConnected = false;
+      WiFi.disconnect(false, false);
+    }
+    pendingWiFiSsid = "";
+    pendingWiFiPassword = "";
+    return;
+  }
+
+  if (millis() - wifiConnectionStartedMillis >= WIFI_CONNECT_TIMEOUT_MS) {
+    WiFi.disconnect(false, false);
+    wifiProvisioningState = WiFiProvisioningState::Failed;
+    pendingWiFiSsid = "";
+    pendingWiFiPassword = "";
+    Serial.println("Wi-Fi connection test timed out.");
+  }
+}
+
+void clearStoredWiFiCredentials()
+{
+  if (preferences.begin(WIFI_SETTINGS_NAMESPACE, false)) {
+    preferences.remove(WIFI_SSID_KEY);
+    preferences.remove(WIFI_PASSWORD_KEY);
+    preferences.end();
+  }
+
+  WiFi.persistent(false);
+  WiFi.disconnect(false, true);
+  stationConnected = false;
+  stationGotIpAddress = false;
+  savedWiFiCredentialsAvailable = false;
+  wifiProvisioningState = WiFiProvisioningState::Idle;
+  accessPointShutdownMillis = 0;
+  accessPointActive = false;
+  startProvisioningAccessPoint(false);
+  Serial.println("Saved Wi-Fi settings were removed.");
+}
+
+void maintainProvisioningAccessPoint()
+{
+  if (scheduledWiFiSettingsClearMillis != 0 &&
+      static_cast<int32_t>(millis() - scheduledWiFiSettingsClearMillis) >= 0) {
+    scheduledWiFiSettingsClearMillis = 0;
+    clearStoredWiFiCredentials();
+  }
+
+  if (accessPointShutdownMillis != 0 &&
+      static_cast<int32_t>(millis() - accessPointShutdownMillis) >= 0) {
+    WiFi.softAPdisconnect(true);
+    accessPointActive = false;
+    accessPointShutdownMillis = 0;
+    WiFi.mode(WIFI_STA);
+    Serial.println("Provisioning access point closed after successful Wi-Fi connection.");
+  }
+}
+
+void startProvisioningAccessPoint(bool keepStationEnabled)
+{
+  WiFi.mode(keepStationEnabled ? WIFI_AP_STA : WIFI_AP);
+  WiFi.setSleep(false);
+  accessPointActive = WiFi.softAP(accessPointSsid);
+  if (!accessPointActive) {
+    Serial.println("Provisioning access point could not be started.");
+    return;
+  }
+
+  Serial.printf("Provisioning AP: %s\n", accessPointSsid);
+  Serial.println("Provisioning AP is open without a password (beta testing only).");
+  Serial.printf("Open local dashboard: http://%s/\n", WiFi.softAPIP().toString().c_str());
+}
+
+bool connectToStoredWiFi()
+{
+  String ssid;
+  String password;
+  if (!loadWiFiCredentials(ssid, password)) return false;
+
+  savedWiFiCredentialsAvailable = true;
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
+  stationGotIpAddress = false;
+  WiFi.begin(ssid.c_str(), password.c_str());
+  Serial.printf("Connecting to saved Wi-Fi '%s'", ssid.c_str());
+
+  const uint32_t startedAt = millis();
+  while (!stationGotIpAddress && millis() - startedAt < WIFI_CONNECT_TIMEOUT_MS) {
     delay(300);
     Serial.print('.');
   }
 
-  Serial.printf("\nConnected. IP address: %s\n", WiFi.localIP().toString().c_str());
+  stationConnected = stationGotIpAddress;
+  if (stationConnected) {
+    Serial.printf("\nConnected. IP address: %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("\nSaved Wi-Fi is unavailable.");
+  }
+  return stationConnected;
+}
+
+void connectToWiFi()
+{
+  createDeviceIdentity();
+  initializeDeviceDatabasePaths();
+  printDeviceRegistrationData();
+  if (!connectToStoredWiFi()) startProvisioningAccessPoint(savedWiFiCredentialsAvailable);
+}
+
+void maintainNetworkConnection()
+{
+  if (stationConnected && !stationGotIpAddress) {
+    stationConnected = false;
+    Serial.println("Wi-Fi connection was lost; enabling provisioning access point.");
+    if (!accessPointActive) startProvisioningAccessPoint(true);
+    return;
+  }
+
+  if (!stationConnected && savedWiFiCredentialsAvailable &&
+      wifiProvisioningState != WiFiProvisioningState::Connecting && stationGotIpAddress) {
+    stationConnected = true;
+    if (accessPointActive) {
+      WiFi.softAPdisconnect(true);
+      accessPointActive = false;
+      WiFi.mode(WIFI_STA);
+    }
+    Serial.printf("Wi-Fi connection restored. IP address: %s\n", WiFi.localIP().toString().c_str());
+  }
 }
 
 void initializeTime()
 {
   configTzTime(TIMEZONE, NTP_SERVER_1, NTP_SERVER_2);
   Serial.println("Synchronizing time with NTP...");
+}
+
+bool isFirebaseReady()
+{
+  return stationConnected && app.ready();
 }
 
 Uptime getUptime()
@@ -267,12 +650,12 @@ void reportOtaStatus(const char *state, const char *targetVersion, const char *m
            "{\"state\":\"%s\",\"current_version\":\"%s\",\"target_version\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
            state, FIRMWARE_VERSION, targetVersion, message, static_cast<unsigned long>(time(nullptr)));
   object_t otaStatus(jsonPayload);
-  database.set(asyncClient, OTA_STATUS_DATABASE_PATH, otaStatus, processData, "updateOtaStatus");
+  database.set(asyncClient, otaStatusDatabasePath, otaStatus, processData, "updateOtaStatus");
 }
 
 void clearFirmwareUpdateCommand()
 {
-  database.remove(asyncClient, OTA_COMMAND_DATABASE_PATH, processData, "clearFirmwareUpdateCommand");
+  database.remove(asyncClient, otaCommandDatabasePath, processData, "clearFirmwareUpdateCommand");
 }
 
 bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
@@ -426,7 +809,7 @@ void processFirmwareUpdateCommand(const String &payload)
 void requestFirmwareUpdateCommand()
 {
   firmwareCommandPending = true;
-  database.get(asyncClient, OTA_COMMAND_DATABASE_PATH, processData, false, "readFirmwareUpdateCommand");
+  database.get(asyncClient, otaCommandDatabasePath, processData, false, "readFirmwareUpdateCommand");
 }
 
 // --- SD kartica -------------------------------------------------------------
@@ -468,6 +851,7 @@ void markSDCardUnavailable()
   }
 
   sdCardReady = false;
+  cloudSyncCaughtUp = false;
   SD.end();
 }
 
@@ -488,16 +872,106 @@ bool serveLocalAsset(String path)
 
   File asset = LittleFS.open(path, FILE_READ);
   if (!asset) return false;
-  localServer.sendHeader("Cache-Control", "no-store");
+  localServer.sendHeader("Cache-Control", path.startsWith("/vendor/")
+                                            ? "public, max-age=86400"
+                                            : "no-cache");
   localServer.streamFile(asset, contentTypeForPath(path));
   asset.close();
   return true;
 }
 
+void appendJsonEscaped(String &json, const String &value)
+{
+  for (size_t index = 0; index < value.length(); ++index) {
+    const char character = value[index];
+    if (character == '"' || character == '\\') {
+      json += '\\';
+      json += character;
+    } else if (character == '\n') {
+      json += "\\n";
+    } else if (character == '\r') {
+      json += "\\r";
+    } else if (character == '\t') {
+      json += "\\t";
+    } else if (static_cast<uint8_t>(character) >= 0x20) {
+      json += character;
+    }
+  }
+}
+
+void sendAvailableWiFiNetworks()
+{
+  if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
+    localServer.send(409, "application/json", "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    return;
+  }
+
+  const int scanResult = WiFi.scanComplete();
+  if (scanResult == WIFI_SCAN_RUNNING) {
+    localServer.send(202, "application/json", "{\"state\":\"scanning\"}");
+    return;
+  }
+
+  if (scanResult == WIFI_SCAN_FAILED) {
+    // Skeniranje potrebuje tudi STA vmesnik, AP pa ostane aktiven za telefon.
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.setSleep(false);
+    WiFi.scanNetworks(true, true);
+    localServer.send(202, "application/json", "{\"state\":\"scanning\"}");
+    return;
+  }
+
+  String jsonPayload = "{\"state\":\"ready\",\"networks\":[";
+  bool firstNetwork = true;
+  for (int index = 0; index < scanResult; ++index) {
+    const String ssid = WiFi.SSID(index);
+    if (ssid.length() == 0) continue;
+    if (!firstNetwork) jsonPayload += ',';
+    firstNetwork = false;
+    jsonPayload += "{\"ssid\":\"";
+    appendJsonEscaped(jsonPayload, ssid);
+    jsonPayload += "\",\"rssi\":" + String(WiFi.RSSI(index));
+    jsonPayload += ",\"secured\":" + String(WiFi.encryptionType(index) == WIFI_AUTH_OPEN ? "false" : "true") + '}';
+  }
+  jsonPayload += "]}";
+  WiFi.scanDelete();
+  localServer.send(200, "application/json; charset=utf-8", jsonPayload);
+}
+
+void saveWiFiConfiguration()
+{
+  const String ssid = localServer.arg("ssid");
+  const String password = localServer.arg("password");
+  if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 63) {
+    localServer.send(400, "application/json", "{\"error\":\"Invalid Wi-Fi configuration\"}");
+    return;
+  }
+  if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
+    localServer.send(409, "application/json", "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    return;
+  }
+
+  startWiFiConnectionAttempt(ssid, password);
+  localServer.send(202, "application/json", "{\"state\":\"connecting\"}");
+}
+
+void deleteWiFiConfiguration()
+{
+  if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
+    localServer.send(409, "application/json", "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    return;
+  }
+
+  localServer.send(202, "application/json", "{\"state\":\"clearing\"}");
+  scheduledWiFiSettingsClearMillis = millis() + WIFI_SETTINGS_CLEAR_DELAY_MS;
+}
+
 void sendLocalStatus()
 {
   const Uptime uptime = getUptime();
-  const String ipAddress = WiFi.localIP().toString();
+  const String ipAddress = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  const String accessPointIp = WiFi.softAPIP().toString();
+  const String wifiSignal = stationConnected ? String(WiFi.RSSI()) : "null";
   const time_t lastSeenTimestamp = time(nullptr);
   char measurementJson[220];
   if (hasLatestMeasurement) {
@@ -509,12 +983,15 @@ void sendLocalStatus()
     snprintf(measurementJson, sizeof(measurementJson), "null");
   }
 
-  char jsonPayload[620];
+  char jsonPayload[1120];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
-           measurementJson, ipAddress.c_str(), WiFi.RSSI(), static_cast<unsigned long long>(uptime.days),
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
+           measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
+           stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
+           accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
+           wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
            sdCardReady ? "true" : "false", sdInitializationFailures,
            sdErrorReported ? "true" : "false", FIRMWARE_VERSION);
   localServer.sendHeader("Cache-Control", "no-store");
@@ -633,13 +1110,17 @@ void initializeLocalWebServer()
 
   localServer.on("/api/status", HTTP_GET, sendLocalStatus);
   localServer.on("/api/history", HTTP_GET, sendLocalHistory);
+  localServer.on("/api/wifi", HTTP_POST, saveWiFiConfiguration);
+  localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
+  localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
   localServer.on("/measurements.csv", HTTP_GET, serveMeasurementLog);
   localServer.onNotFound([]() {
     if (!serveLocalAsset(localServer.uri())) localServer.send(404, "text/plain", "Not found");
   });
   localServer.on("/", HTTP_GET, []() { serveLocalAsset("/"); });
   localServer.begin();
-  Serial.printf("Local dashboard: http://%s/\n", WiFi.localIP().toString().c_str());
+  const String dashboardIp = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  Serial.printf("Local dashboard: http://%s/\n", dashboardIp.c_str());
 }
 
 // --- Meritve ----------------------------------------------------------------
@@ -647,40 +1128,177 @@ void initializeLocalWebServer()
 bool createMeasurement(Measurement &measurement)
 {
   struct tm timeInfo;
-  if (!getLocalTime(&timeInfo)) {
-    Serial.println("Time is not synchronized yet; measurement skipped.");
-    return false;
-  }
-
   measurement.temperatureC = simulatedTemperatureC();
   measurement.humidityPercent = simulatedHumidityPercent();
   measurement.weightKg = simulatedWeightKg();
   measurement.timestamp = time(nullptr);
-  strftime(measurement.date, sizeof(measurement.date), "%Y-%m-%d", &timeInfo);
-  strftime(measurement.time, sizeof(measurement.time), "%H:%M:%S", &timeInfo);
+
+  if (measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP && getLocalTime(&timeInfo)) {
+    strftime(measurement.date, sizeof(measurement.date), "%Y-%m-%d", &timeInfo);
+    strftime(measurement.time, sizeof(measurement.time), "%H:%M:%S", &timeInfo);
+    return true;
+  }
+
+  // Brez interneta ob prvem zagonu absolutni čas ni znan, meritve pa morajo ostati lokalno dostopne.
+  measurement.timestamp = 0;
+  strcpy(measurement.date, "offline");
+  const Uptime uptime = getUptime();
+  snprintf(measurement.time, sizeof(measurement.time), "%02lluh%02llum",
+           static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes));
   return true;
 }
 
-void appendToSDCard(const Measurement &measurement)
+bool appendToSDCard(const Measurement &measurement)
 {
   if (!sdCardReady) {
-    return;
+    return false;
   }
 
   File logFile = SD.open(SD_LOG_PATH, FILE_APPEND);
   if (!logFile) {
     Serial.println("Could not open measurements.csv for writing.");
     markSDCardUnavailable();
-    return;
+    return false;
   }
 
   logFile.printf("%s,%s,%lu,%.1f,%.1f,%.2f\n", measurement.date, measurement.time,
                  static_cast<unsigned long>(measurement.timestamp), measurement.temperatureC,
                  measurement.humidityPercent, measurement.weightKg);
   logFile.close();
+  return true;
+}
+
+bool persistCloudSyncState()
+{
+  if (!preferences.begin(DEVICE_SETTINGS_NAMESPACE, false)) {
+    Serial.println("Cloud sync state could not be saved.");
+    return false;
+  }
+
+  const bool offsetSaved = preferences.putULong(CLOUD_SYNC_OFFSET_KEY, cloudSyncFileOffset) == sizeof(uint32_t);
+  const bool timestampSaved = preferences.putULong(CLOUD_SYNC_TIMESTAMP_KEY,
+                                                    static_cast<uint32_t>(lastCloudSyncedTimestamp)) == sizeof(uint32_t);
+  preferences.end();
+
+  if (offsetSaved && timestampSaved) {
+    cloudSyncWritesSincePersist = 0;
+    return true;
+  }
+
+  Serial.println("Cloud sync state could not be saved.");
+  return false;
+}
+
+bool parseMeasurementCsvLine(const char *line, Measurement &measurement)
+{
+  unsigned long timestamp = 0;
+  const int valueCount = sscanf(line, "%10[^,],%8[^,],%lu,%f,%f,%f", measurement.date, measurement.time,
+                                &timestamp, &measurement.temperatureC, &measurement.humidityPercent,
+                                &measurement.weightKg);
+  if (valueCount != 6 || timestamp < static_cast<unsigned long>(MIN_VALID_UNIX_TIMESTAMP)) {
+    return false;
+  }
+
+  measurement.timestamp = static_cast<time_t>(timestamp);
+  return true;
+}
+
+bool readNextSDMeasurementForCloudSync(Measurement &measurement, uint32_t &nextFileOffset)
+{
+  if (!sdCardReady) {
+    return false;
+  }
+
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile) {
+    Serial.println("Could not open measurements.csv for cloud synchronization.");
+    markSDCardUnavailable();
+    return false;
+  }
+
+  const size_t fileSize = logFile.size();
+  if (cloudSyncFileOffset > fileSize) {
+    // Nova oziroma zamenjana SD kartica ne more uporabljati starega položaja v datoteki.
+    cloudSyncFileOffset = 0;
+    lastCloudSyncedTimestamp = 0;
+    cloudSyncWritesSincePersist = CLOUD_SYNC_STATE_SAVE_INTERVAL;
+    persistCloudSyncState();
+  }
+
+  if (!logFile.seek(cloudSyncFileOffset)) {
+    logFile.close();
+    Serial.println("Could not seek to the cloud sync position on the SD card.");
+    return false;
+  }
+
+  char line[128];
+  while (logFile.available()) {
+    const size_t lineLength = logFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+    const uint32_t lineEndOffset = static_cast<uint32_t>(logFile.position());
+
+    Measurement parsedMeasurement{};
+    if (!parseMeasurementCsvLine(line, parsedMeasurement)) {
+      cloudSyncFileOffset = lineEndOffset;
+      continue;
+    }
+
+    logFile.close();
+    measurement = parsedMeasurement;
+    nextFileOffset = lineEndOffset;
+    return true;
+  }
+  logFile.close();
+
+  cloudSyncCaughtUp = true;
+  return false;
+}
+
+void queueSDMeasurementForCloudSync(const Measurement &measurement, uint32_t nextFileOffset)
+{
+  char jsonPayload[192];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
+           measurement.temperatureC, measurement.humidityPercent, measurement.weightKg,
+           measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
+  object_t measurements(jsonPayload);
+
+  char historyPath[96];
+  snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
+           static_cast<unsigned long>(measurement.timestamp));
+
+  cloudSyncPendingMeasurement = measurement;
+  cloudSyncPendingFileOffset = nextFileOffset;
+  cloudSyncPending = true;
+  database.set(asyncClient, historyPath, measurements, processData, "syncMeasurementHistory");
+}
+
+void synchronizeSDMeasurements(uint32_t currentMillis)
+{
+  if (!isFirebaseReady() || !sdCardReady || cloudSyncPending || cloudSyncCaughtUp ||
+      currentMillis - lastCloudSyncAttemptMillis < CLOUD_SYNC_INTERVAL_MS) {
+    return;
+  }
+  lastCloudSyncAttemptMillis = currentMillis;
+
+  Measurement measurement{};
+  uint32_t nextFileOffset = cloudSyncFileOffset;
+  if (readNextSDMeasurementForCloudSync(measurement, nextFileOffset)) {
+    queueSDMeasurementForCloudSync(measurement, nextFileOffset);
+  }
 }
 
 // --- Firebase stanja --------------------------------------------------------
+
+void publishActivationSecret()
+{
+  char jsonPayload[64];
+  snprintf(jsonPayload, sizeof(jsonPayload), "{\"activation_code\":\"%s\"}", activationCode);
+  object_t activationSecret(jsonPayload);
+  activationSecretPublishPending = true;
+  database.set(asyncClient, activationSecretDatabasePath, activationSecret, processData,
+               "publishActivationSecret");
+}
 
 void updateSDCardStatus()
 {
@@ -712,7 +1330,9 @@ void updateSDCardStatus()
            sdCardReady ? "true" : "false", sdInitializationFailures,
            hasError ? "true" : "false");
   object_t sdStatus(jsonPayload);
-  database.set(asyncClient, SD_STATUS_DATABASE_PATH, sdStatus, processData, "updateSDCardStatus");
+  if (isFirebaseReady()) {
+    database.set(asyncClient, sdStatusDatabasePath, sdStatus, processData, "updateSDCardStatus");
+  }
 }
 
 void sendFirmwareVersion()
@@ -721,7 +1341,7 @@ void sendFirmwareVersion()
   snprintf(jsonPayload, sizeof(jsonPayload), "{\"version\":\"%s\"}", FIRMWARE_VERSION);
   object_t firmwareStatus(jsonPayload);
 
-  database.set(asyncClient, FIRMWARE_STATUS_DATABASE_PATH, firmwareStatus, processData,
+  database.set(asyncClient, firmwareStatusDatabasePath, firmwareStatus, processData,
                "updateFirmwareVersion");
 }
 
@@ -734,16 +1354,16 @@ void updateDeviceStatus()
   const String ipAddress = WiFi.localIP().toString();
 
   const time_t lastSeenTimestamp = time(nullptr);
-  char jsonPayload[232];
+  char jsonPayload[280];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu}",
-           ipAddress.c_str(), WiFi.RSSI(), static_cast<unsigned long long>(uptime.days),
+           "{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu}",
+           deviceId, ipAddress.c_str(), WiFi.RSSI(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long long>(uptime.totalMinutes),
            static_cast<unsigned long>(lastSeenTimestamp));
   object_t deviceStatus(jsonPayload);
 
-  database.set(asyncClient, DEVICE_STATUS_DATABASE_PATH, deviceStatus, processData,
+  database.set(asyncClient, deviceStatusDatabasePath, deviceStatus, processData,
                "updateDeviceStatus");
 }
 
@@ -752,6 +1372,11 @@ void sendMeasurements()
   Measurement measurement;
   if (!createMeasurement(measurement)) {
     return;
+  }
+
+  // NTP se lahko potrdi med enim prehodom zanke; tak zapis je že veljavna prva cloud meritev.
+  if (measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
+    validTimeWasAvailable = true;
   }
 
   latestMeasurement = measurement;
@@ -765,15 +1390,19 @@ void sendMeasurements()
   object_t measurements(jsonPayload);
 
   char historyPath[96];
-  snprintf(historyPath, sizeof(historyPath), "%s/%lu", HISTORY_DATABASE_PATH,
+  snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
            static_cast<unsigned long>(measurement.timestamp));
 
-  appendToSDCard(measurement);
+  if (appendToSDCard(measurement)) {
+    cloudSyncCaughtUp = false;
+  }
   Serial.printf("Sending: %s %s, %.1f C, %.1f %%, %.2f kg\n", measurement.date,
                 measurement.time, measurement.temperatureC, measurement.humidityPercent,
                 measurement.weightKg);
-  database.set(asyncClient, historyPath, measurements, processData, "saveMeasurementHistory");
-  database.set(asyncClient, LATEST_DATABASE_PATH, measurements, processData, "updateLatestMeasurement");
+  if (isFirebaseReady() && measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
+    database.set(asyncClient, historyPath, measurements, processData, "saveMeasurementHistory");
+    database.set(asyncClient, latestDatabasePath, measurements, processData, "updateLatestMeasurement");
+  }
 }
 
 }  // namespace
@@ -783,6 +1412,7 @@ void setup()
   Serial.begin(115200);
   delay(500);
 
+  initializeWiFiEventHandlers();
   initializeSDCard();
   connectToWiFi();
   initializeLocalWebServer();
@@ -800,36 +1430,63 @@ void setup()
 void loop()
 {
   localServer.handleClient();
-  app.loop();
+  updateWiFiConnectionAttempt();
+  maintainProvisioningAccessPoint();
+  maintainNetworkConnection();
+  if (stationConnected) {
+    app.loop();
+  }
 
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.
   const uint32_t currentMillis = millis();
-  if (app.ready() && !firmwareVersionReported) {
+  const bool validTimeAvailable = time(nullptr) >= MIN_VALID_UNIX_TIMESTAMP;
+
+  // Če prva meritev nastane pred NTP sinhronizacijo, po pridobitvi pravega časa
+  // ustvarimo še eno takojšnjo meritev, primerno za SD dnevnik in Firebase.
+  if (validTimeAvailable && !validTimeWasAvailable) {
+    validTimeWasAvailable = true;
+    lastMeasurementMillis = 0;
+    Serial.println("Time synchronized; sending the first timestamped measurement.");
+  } else if (!validTimeAvailable) {
+    validTimeWasAvailable = false;
+  }
+
+  if (isFirebaseReady() && !activationSecretPublishPending &&
+      (lastActivationSecretAttemptMillis == 0 ||
+       currentMillis - lastActivationSecretAttemptMillis >= ACTIVATION_SECRET_REFRESH_INTERVAL_MS)) {
+    lastActivationSecretAttemptMillis = currentMillis;
+    publishActivationSecret();
+  }
+
+  if (isFirebaseReady() && !firmwareVersionReported) {
     firmwareVersionReported = true;
     sendFirmwareVersion();
   }
 
-  if (app.ready() && currentMillis - lastSDStatusMillis >= SD_STATUS_INTERVAL_MS) {
+  if (currentMillis - lastSDStatusMillis >= SD_STATUS_INTERVAL_MS) {
     lastSDStatusMillis = currentMillis;
     updateSDCardStatus();
   }
 
   // Prvi odziv po NTP sinhronizaciji pošljemo takoj, nato pa enkrat na minuto.
-  if (app.ready() && time(nullptr) >= MIN_VALID_UNIX_TIMESTAMP &&
+  if (isFirebaseReady() && validTimeAvailable &&
       (lastDeviceStatusMillis == 0 || currentMillis - lastDeviceStatusMillis >= DEVICE_STATUS_INTERVAL_MS)) {
     lastDeviceStatusMillis = currentMillis;
     updateDeviceStatus();
   }
 
-  if (app.ready() && time(nullptr) >= MIN_VALID_UNIX_TIMESTAMP && !firmwareCommandPending &&
+  if (isFirebaseReady() && validTimeAvailable && !firmwareCommandPending &&
       (lastFirmwareCommandCheckMillis == 0 ||
        currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
     lastFirmwareCommandCheckMillis = currentMillis;
     requestFirmwareUpdateCommand();
   }
 
-  if (app.ready() && currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {
+  synchronizeSDMeasurements(currentMillis);
+
+  if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {
     lastMeasurementMillis = currentMillis;
     sendMeasurements();
   }
+
 }

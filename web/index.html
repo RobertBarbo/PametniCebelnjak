@@ -6,7 +6,6 @@
     <meta name="theme-color" content="#173c2b" />
     <title>Pametni čebelnjak</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="vendor/highcharts.js" defer></script>
     <script type="module" src="app.js"></script>
   </head>
   <body>
@@ -17,11 +16,67 @@
           <h1>Pametni čebelnjak</h1>
           <p class="subtitle">Meritve, stanje naprave in zgodovina panja.</p>
         </div>
-        <div class="connection-status" id="connection-status" aria-live="polite">
-          <span class="status-dot"></span>
-          <span id="connection-text">Povezovanje s Firebase …</span>
+        <div class="hero-actions">
+          <div class="connection-status" id="connection-status" aria-live="polite">
+            <span class="status-dot"></span>
+            <span id="connection-text">Povezovanje s Firebase …</span>
+          </div>
+          <button class="secondary-button" id="auth-trigger" type="button" hidden>Prijava</button>
         </div>
       </header>
+
+      <section class="account-section" id="account-section" aria-labelledby="account-heading" hidden>
+        <div class="account-card">
+          <div>
+            <p class="eyebrow">Moj račun</p>
+            <h2 id="account-heading">Moji čebelnjaki</h2>
+            <p class="subtitle" id="account-email">—</p>
+          </div>
+          <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
+        </div>
+        <div class="account-management">
+          <label class="account-field">Izbrana naprava
+            <select id="cloud-device-select" disabled>
+              <option value="">Nobena naprava ni registrirana</option>
+            </select>
+          </label>
+          <form class="claim-device-form" id="claim-device-form">
+            <div>
+              <p class="eyebrow">Dodaj napravo</p>
+              <h2>Registriraj čebelnjak</h2>
+              <p class="muted">Vnesi ID naprave in aktivacijsko kodo iz lokalne strani ESP32.</p>
+            </div>
+            <label class="account-field">Ime naprave<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
+            <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
+            <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
+            <button class="primary-button" type="submit">Registriraj napravo</button>
+            <p class="form-status" id="claim-device-status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+
+      <section class="provisioning-section" id="provisioning-section" aria-labelledby="provisioning-heading" hidden>
+        <div class="provisioning-card">
+          <div>
+            <p class="eyebrow">Nastavitev omrežja</p>
+            <h2 id="provisioning-heading">Poveži čebelnjak z Wi‑Fi</h2>
+            <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko ESP32.</p>
+            <p class="activation-details">Za registracijo v cloud si zapiši: <strong id="local-device-id">—</strong><span>Aktivacijska koda: <strong id="activation-code">—</strong></span></p>
+          </div>
+          <form class="wifi-form" id="wifi-form">
+            <label>Ime Wi‑Fi omrežja<input id="wifi-ssid" name="ssid" type="text" maxlength="32" autocomplete="wifi ssid" required /></label>
+            <div class="wifi-scan-controls">
+              <button class="secondary-button" id="wifi-scan" type="button">Poišči omrežja</button>
+              <span id="wifi-scan-status" class="form-status" aria-live="polite"></span>
+            </div>
+            <div id="wifi-networks" class="wifi-networks" aria-live="polite" hidden></div>
+            <label>Wi‑Fi geslo<input id="wifi-password" name="password" type="password" maxlength="63" autocomplete="current-password" /></label>
+            <button class="primary-button" type="submit">Shrani in poveži</button>
+            <button class="secondary-button danger-button" id="wifi-forget" type="button">Izbriši shranjeni Wi‑Fi</button>
+            <p id="wifi-form-status" class="form-status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
 
       <section aria-labelledby="latest-heading">
         <div class="section-heading">
@@ -118,6 +173,15 @@
             <p>Firmware</p>
             <strong id="firmware-version">—</strong>
           </article>
+          <article class="status-card">
+            <p>ID naprave</p>
+            <strong id="device-id">—</strong>
+          </article>
+          <article class="status-card" id="local-activation-card" hidden>
+            <p>Aktivacijska koda</p>
+            <strong id="local-activation-code">—</strong>
+            <small>Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.</small>
+          </article>
           <article class="status-card sd-card">
             <p>SD kartica</p>
             <strong id="sd-status">—</strong>
@@ -166,6 +230,23 @@
           <button class="secondary-action" id="date-range-cancel" type="button">Prekliči</button>
           <button class="primary-action" id="date-range-apply" type="button">Izberi</button>
         </footer>
+      </form>
+    </dialog>
+
+    <dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-dialog-title">
+      <form class="auth-form" id="auth-form">
+        <div class="auth-dialog-heading">
+          <p class="eyebrow">Cloud dostop</p>
+          <h2 id="auth-dialog-title">Prijava uporabnika</h2>
+          <p class="muted">Prijavi se za ogled svojih registriranih čebelnjakov.</p>
+        </div>
+        <label class="account-field">E-poštni naslov<input id="auth-email" type="email" autocomplete="email" required /></label>
+        <label class="account-field">Geslo<input id="auth-password" type="password" minlength="6" autocomplete="current-password" required /></label>
+        <button class="primary-button" id="auth-email-signin" type="submit">Prijava z e-pošto</button>
+        <button class="secondary-button" id="auth-register" type="button">Ustvari nov račun</button>
+        <button class="secondary-button" id="auth-google" type="button">Nadaljuj z Googlom</button>
+        <button class="secondary-button" id="auth-close" type="button">Zapri</button>
+        <p class="form-status" id="auth-status" aria-live="polite"></p>
       </form>
     </dialog>
   </body>

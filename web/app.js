@@ -1,11 +1,30 @@
-const HIVE_PATH = "hives/panj_1";
 const DEVICE_ONLINE_TIMEOUT_SECONDS = 150;
 const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
+const CLOUD_DEVICE_QUERY_PARAMETER = "device";
+const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
 
 const elements = {
   connectionStatus: document.querySelector("#connection-status"),
   connectionText: document.querySelector("#connection-text"),
+  authTrigger: document.querySelector("#auth-trigger"),
+  authDialog: document.querySelector("#auth-dialog"),
+  authForm: document.querySelector("#auth-form"),
+  authEmail: document.querySelector("#auth-email"),
+  authPassword: document.querySelector("#auth-password"),
+  authRegister: document.querySelector("#auth-register"),
+  authGoogle: document.querySelector("#auth-google"),
+  authClose: document.querySelector("#auth-close"),
+  authStatus: document.querySelector("#auth-status"),
+  accountSection: document.querySelector("#account-section"),
+  accountEmail: document.querySelector("#account-email"),
+  authSignout: document.querySelector("#auth-signout"),
+  cloudDeviceSelect: document.querySelector("#cloud-device-select"),
+  claimDeviceForm: document.querySelector("#claim-device-form"),
+  claimDeviceName: document.querySelector("#claim-device-name"),
+  claimDeviceId: document.querySelector("#claim-device-id"),
+  claimActivationCode: document.querySelector("#claim-activation-code"),
+  claimDeviceStatus: document.querySelector("#claim-device-status"),
   temperature: document.querySelector("#temperature-value"),
   humidity: document.querySelector("#humidity-value"),
   weight: document.querySelector("#weight-value"),
@@ -14,6 +33,7 @@ const elements = {
   ipAddress: document.querySelector("#ip-address"),
   wifiSignal: document.querySelector("#wifi-signal"),
   uptime: document.querySelector("#uptime"),
+  deviceId: document.querySelector("#device-id"),
   deviceStateCard: document.querySelector("#device-state-card"),
   deviceOnlineStatus: document.querySelector("#device-online-status"),
   deviceLastSeen: document.querySelector("#device-last-seen"),
@@ -37,6 +57,20 @@ const elements = {
   otaActions: document.querySelector("#ota-actions"),
   otaInstall: document.querySelector("#ota-install"),
   otaIgnore: document.querySelector("#ota-ignore"),
+  provisioningSection: document.querySelector("#provisioning-section"),
+  provisioningDescription: document.querySelector("#provisioning-description"),
+  wifiForm: document.querySelector("#wifi-form"),
+  wifiSsid: document.querySelector("#wifi-ssid"),
+  wifiPassword: document.querySelector("#wifi-password"),
+  wifiFormStatus: document.querySelector("#wifi-form-status"),
+  wifiScan: document.querySelector("#wifi-scan"),
+  wifiScanStatus: document.querySelector("#wifi-scan-status"),
+  wifiNetworks: document.querySelector("#wifi-networks"),
+  wifiForget: document.querySelector("#wifi-forget"),
+  localDeviceId: document.querySelector("#local-device-id"),
+  activationCode: document.querySelector("#activation-code"),
+  localActivationCard: document.querySelector("#local-activation-card"),
+  localActivationCode: document.querySelector("#local-activation-code"),
 };
 
 let chart;
@@ -53,6 +87,89 @@ let firebaseDatabase;
 let latestFirmwareVersion = "";
 let availableOtaRelease;
 let otaCommandPending = false;
+let highchartsLoading;
+let latestHistoryReadings = [];
+let latestHistoryAlreadyAggregated = false;
+let cloudDevicePath = "";
+let firebaseAuth;
+let firebaseAuthModule;
+let currentCloudUser;
+let stopCloudDeviceListListener;
+let stopCloudDeviceListeners = [];
+let cloudDevices = {};
+let authControlsInitialized = false;
+
+function isValidDeviceId(deviceId) {
+  return /^CB-[A-F0-9]{12}$/.test(String(deviceId));
+}
+
+function isValidActivationCode(activationCode) {
+  return /^[A-HJ-NP-Z2-9]{8}$/.test(String(activationCode));
+}
+
+function clearCloudDeviceListeners() {
+  stopCloudDeviceListeners.forEach((unsubscribe) => unsubscribe());
+  stopCloudDeviceListeners = [];
+  stopHistoryListener?.();
+  stopHistoryListener = undefined;
+}
+
+function resetCloudDashboard() {
+  latestDeviceStatus = undefined;
+  renderLatestMeasurement(null);
+  renderDeviceStatus(null);
+  renderSDStatus(null);
+  renderFirmwareVersion(null);
+  elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
+  elements.otaActions.hidden = true;
+  renderHistory([]);
+}
+
+function renderCloudDeviceSelector() {
+  const deviceIds = Object.keys(cloudDevices);
+  const requestedDeviceId = new URLSearchParams(window.location.search).get(CLOUD_DEVICE_QUERY_PARAMETER);
+  const storedDeviceId = localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY);
+  const preferredDeviceId = [requestedDeviceId, storedDeviceId, cloudDevicePath.replace("devices/", "")]
+    .find((deviceId) => deviceIds.includes(deviceId));
+
+  elements.cloudDeviceSelect.replaceChildren();
+  if (!deviceIds.length) {
+    elements.cloudDeviceSelect.append(new Option("Nobena naprava ni registrirana", ""));
+    elements.cloudDeviceSelect.disabled = true;
+    selectCloudDevice("");
+    return;
+  }
+
+  deviceIds.sort().forEach((deviceId) => {
+    const device = cloudDevices[deviceId] ?? {};
+    elements.cloudDeviceSelect.append(new Option(device.display_name || deviceId, deviceId));
+  });
+  elements.cloudDeviceSelect.disabled = false;
+  selectCloudDevice(preferredDeviceId || deviceIds[0]);
+}
+
+function selectCloudDevice(deviceId) {
+  clearCloudDeviceListeners();
+  cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
+  elements.cloudDeviceSelect.value = deviceId;
+  elements.otaSection.hidden = !cloudDevicePath;
+  if (!cloudDevicePath || !firebaseDatabase) {
+    resetCloudDashboard();
+    return;
+  }
+
+  localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
+  const { database, onValue, ref } = firebaseDatabase;
+  const subscribe = (path, renderer) => {
+    stopCloudDeviceListeners.push(onValue(ref(database, `${cloudDevicePath}/${path}`), (snapshot) => renderer(snapshot.val()), showDataError));
+  };
+  subscribe("latest", renderLatestMeasurement);
+  subscribe("status/device", renderDeviceStatus);
+  subscribe("status/sd_card", renderSDStatus);
+  subscribe("status/firmware", renderFirmwareVersion);
+  subscribe("status/ota", renderOtaDeviceStatus);
+  refreshHistory?.().catch(showDataError);
+}
 
 function setConnectionState(text, state = "connected") {
   elements.connectionStatus.className = `connection-status ${state}`;
@@ -106,6 +223,7 @@ function renderLatestMeasurement(measurement) {
 
 function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   latestDeviceStatus = status;
+  elements.deviceId.textContent = status?.device_id ?? "—";
   elements.ipAddress.textContent = status?.ip_address ?? "—";
   elements.wifiSignal.textContent = Number.isFinite(Number(status?.wifi_rssi_dbm)) ? `${status.wifi_rssi_dbm} dBm` : "—";
   const values = [status?.uptime_days, status?.uptime_hours, status?.uptime_minutes];
@@ -123,7 +241,143 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
     ? "Dosegljiv prek lokalnega IP-ja."
     : Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
       ? `Zadnji odziv: ${formatDate(new Date(lastSeenTimestamp * 1000), { dateStyle: "short", timeStyle: "short" })}`
-      : "Čakam na prvi odziv naprave.";
+       : "Čakam na prvi odziv naprave.";
+}
+
+function renderProvisioning(network) {
+  elements.provisioningSection.hidden = false;
+  elements.localDeviceId.textContent = latestDeviceStatus?.device_id ?? "—";
+  elements.activationCode.textContent = network?.activation_code ?? "—";
+  elements.localActivationCard.hidden = false;
+  elements.localActivationCode.textContent = network?.activation_code ?? "—";
+  const accessPointName = network?.access_point_ssid ? ` (${network.access_point_ssid})` : "";
+  const connectionState = network?.connection_state ?? "idle";
+  const isConnecting = connectionState === "connecting";
+  const isUsingAccessPoint = network?.provisioning_active === true;
+  const isConnected = network?.station_connected === true;
+
+  if (isConnecting) {
+    elements.provisioningDescription.textContent = `ESP32 preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
+  } else if (connectionState === "connected") {
+    elements.provisioningDescription.textContent = `Povezava z Wi‑Fi je uspela. AP se bo zaprl po prikazu potrditve.`;
+  } else if (connectionState === "failed") {
+    elements.provisioningDescription.textContent = `Povezava z Wi‑Fi ni uspela. AP${accessPointName} ostaja na voljo za ponoven poskus.`;
+  } else if (isUsingAccessPoint) {
+    elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko ESP32${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
+  } else if (isConnected) {
+    elements.provisioningDescription.textContent = "ESP32 je povezan v domače Wi‑Fi omrežje. Nastavitve lahko zamenjaš ali izbrišeš brez ponovnega zagona.";
+  }
+
+  elements.wifiScan.disabled = isConnecting;
+  elements.wifiForget.disabled = isConnecting;
+  elements.wifiForm.querySelector("button[type='submit']").disabled = isConnecting;
+  if (network?.connection_message) elements.wifiFormStatus.textContent = network.connection_message;
+}
+
+async function saveWiFiConfiguration(event) {
+  event.preventDefault();
+  const ssid = elements.wifiSsid.value.trim();
+  const password = elements.wifiPassword.value;
+  if (!ssid) {
+    elements.wifiFormStatus.textContent = "Vpiši ime Wi‑Fi omrežja.";
+    return;
+  }
+
+  const submitButton = elements.wifiForm.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  elements.wifiFormStatus.textContent = "Preverjam povezavo z Wi‑Fi omrežjem …";
+  try {
+    const response = await fetch("/api/wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: new URLSearchParams({ ssid, password }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Nastavitev Wi‑Fi ni uspela");
+
+    elements.wifiFormStatus.textContent = "ESP32 preverja povezavo. Nastavitve shrani šele po uspehu …";
+  } catch (error) {
+    elements.wifiFormStatus.textContent = error.message;
+    submitButton.disabled = false;
+  }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function renderWiFiNetworks(networks) {
+  elements.wifiNetworks.replaceChildren();
+  elements.wifiNetworks.hidden = false;
+  if (networks.length === 0) {
+    elements.wifiNetworks.textContent = "Ni najdenih Wi‑Fi omrežij.";
+    return;
+  }
+
+  networks
+    .sort((first, second) => Number(second.rssi) - Number(first.rssi))
+    .forEach((network) => {
+      const option = document.createElement("button");
+      const name = document.createElement("span");
+      const detail = document.createElement("small");
+      option.type = "button";
+      option.className = "wifi-network-option";
+      name.textContent = network.ssid;
+      detail.textContent = `${network.rssi} dBm${network.secured ? " · zaščiteno" : " · odprto"}`;
+      option.append(name, detail);
+      option.addEventListener("click", () => {
+        elements.wifiSsid.value = network.ssid;
+        elements.wifiPassword.focus();
+        elements.wifiFormStatus.textContent = `Izbrano omrežje: ${network.ssid}`;
+      });
+      elements.wifiNetworks.append(option);
+    });
+}
+
+async function scanWiFiNetworks() {
+  elements.wifiScan.disabled = true;
+  elements.wifiScanStatus.textContent = "Iščem omrežja …";
+  try {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const response = await fetch("/api/wifi/networks", { cache: "no-store" });
+      const result = await response.json();
+      if (response.status === 202) {
+        await delay(500);
+        continue;
+      }
+      if (!response.ok) throw new Error(result.error ?? "Skeniranje Wi‑Fi omrežij ni uspelo");
+
+      renderWiFiNetworks(result.networks ?? []);
+      elements.wifiScanStatus.textContent = `Najdenih omrežij: ${(result.networks ?? []).length}`;
+      return;
+    }
+    throw new Error("Skeniranje Wi‑Fi omrežij je poteklo");
+  } catch (error) {
+    elements.wifiScanStatus.textContent = error.message;
+  } finally {
+    elements.wifiScan.disabled = false;
+  }
+}
+
+async function forgetWiFiConfiguration() {
+  if (!window.confirm("Izbrišem shranjeni Wi‑Fi? ESP32 bo nato odprl svojo dostopno točko.")) return;
+
+  elements.wifiForget.disabled = true;
+  elements.wifiFormStatus.textContent = "Odstranjujem shranjeni Wi‑Fi. Nato se poveži na AP ESP32 …";
+  try {
+    const response = await fetch("/api/wifi", { method: "DELETE" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Brisanje Wi‑Fi nastavitev ni uspelo");
+  } catch (error) {
+    elements.wifiFormStatus.textContent = error.message;
+    elements.wifiForget.disabled = false;
+  }
+}
+
+function initializeProvisioningForm() {
+  elements.wifiForm.addEventListener("submit", saveWiFiConfiguration);
+  elements.wifiScan.addEventListener("click", scanWiFiNetworks);
+  elements.wifiForget.addEventListener("click", forgetWiFiConfiguration);
 }
 
 function renderSDStatus(status) {
@@ -201,7 +455,7 @@ async function requestFirmwareUpdate() {
   elements.otaDeviceStatus.textContent = "OTA ukaz pošiljam napravi …";
   try {
     const { ref, set } = firebaseDatabase;
-    await set(ref(firebaseDatabase.database, `${HIVE_PATH}/commands/firmware_update`), {
+    await set(ref(firebaseDatabase.database, `${cloudDevicePath}/commands/firmware_update`), {
       action: "install",
       target_version: availableOtaRelease.version,
       requested_at: Math.floor(Date.now() / 1000),
@@ -267,6 +521,13 @@ function aggregateReadings(readings, range) {
 
 function renderHistory(readings, alreadyAggregated = false) {
   const chartReadings = alreadyAggregated ? readings : aggregateReadings(readings, appliedRange);
+  latestHistoryReadings = readings;
+  latestHistoryAlreadyAggregated = alreadyAggregated;
+  elements.historySummary.textContent = chartReadings.length
+    ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po grafu.`
+    : "Za izbrano obdobje še ni meritev.";
+  if (!chart) return;
+
   const series = [
     { name: "Temperatura (°C)", data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]), color: "#e6a32d", yAxis: 0 },
     { name: "Vlaga (%)", data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]), color: "#317da4", yAxis: 1 },
@@ -278,12 +539,10 @@ function renderHistory(readings, alreadyAggregated = false) {
     chart.xAxis[0].setExtremes(appliedRange.from.getTime(), appliedRange.to.getTime(), false, false);
   }
   chart.redraw();
-  elements.historySummary.textContent = chartReadings.length
-    ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po grafu.`
-    : "Za izbrano obdobje še ni meritev.";
 }
 
 function createChart() {
+  if (chart) return;
   chart = Highcharts.chart("measurement-chart", {
     chart: {
       backgroundColor: "transparent",
@@ -314,6 +573,21 @@ function createChart() {
     plotOptions: { series: { marker: { enabled: false }, lineWidth: 2, states: { hover: { lineWidth: 3 } } } },
     series: [],
   });
+  renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
+}
+
+function loadHighcharts() {
+  if (window.Highcharts) return Promise.resolve();
+  if (highchartsLoading) return highchartsLoading;
+
+  highchartsLoading = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "vendor/highcharts.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Highcharts ni dosegljiv."));
+    document.head.append(script);
+  });
+  return highchartsLoading;
 }
 
 function showDataError(error) {
@@ -488,16 +762,171 @@ function initializeDateRangePicker() {
   }));
 }
 
+function describeAuthError(error) {
+  const messages = {
+    "auth/invalid-credential": "E-poštni naslov ali geslo ni pravilno.",
+    "auth/email-already-in-use": "Za ta e-poštni naslov račun že obstaja.",
+    "auth/weak-password": "Geslo mora imeti najmanj šest znakov.",
+    "auth/popup-closed-by-user": "Google prijava je bila zaprta.",
+    "auth/operation-not-allowed": "Ta način prijave še ni omogočen v Firebase Authentication.",
+  };
+  return messages[error?.code] ?? "Postopka ni bilo mogoče dokončati. Poskusi znova.";
+}
+
+function setAuthStatus(message) {
+  elements.authStatus.textContent = message;
+}
+
+function openAuthDialog() {
+  setAuthStatus("");
+  if (!elements.authDialog.open) elements.authDialog.showModal();
+}
+
+async function signInWithEmail(event) {
+  event.preventDefault();
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+  if (!email || !password) return;
+
+  elements.authStatus.textContent = "Prijavljam …";
+  try {
+    await firebaseAuthModule.signInWithEmailAndPassword(firebaseAuth, email, password);
+    elements.authDialog.close();
+  } catch (error) {
+    console.error(error);
+    setAuthStatus(describeAuthError(error));
+  }
+}
+
+async function registerEmailAccount() {
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+  if (!email || !password) {
+    setAuthStatus("Vnesi e-poštni naslov in geslo.");
+    return;
+  }
+
+  elements.authStatus.textContent = "Ustvarjam račun …";
+  try {
+    await firebaseAuthModule.createUserWithEmailAndPassword(firebaseAuth, email, password);
+    elements.authDialog.close();
+  } catch (error) {
+    console.error(error);
+    setAuthStatus(describeAuthError(error));
+  }
+}
+
+async function signInWithGoogle() {
+  elements.authStatus.textContent = "Odpiram Google prijavo …";
+  try {
+    const provider = new firebaseAuthModule.GoogleAuthProvider();
+    await firebaseAuthModule.signInWithPopup(firebaseAuth, provider);
+    elements.authDialog.close();
+  } catch (error) {
+    console.error(error);
+    setAuthStatus(describeAuthError(error));
+  }
+}
+
+async function signOutCurrentUser() {
+  try {
+    await firebaseAuthModule.signOut(firebaseAuth);
+  } catch (error) {
+    console.error(error);
+    setConnectionState("Odjava ni uspela", "error");
+  }
+}
+
+async function claimDevice(event) {
+  event.preventDefault();
+  if (!currentCloudUser || !firebaseDatabase) return;
+
+  const deviceId = elements.claimDeviceId.value.trim().toUpperCase();
+  const activationCode = elements.claimActivationCode.value.trim().toUpperCase();
+  const displayName = elements.claimDeviceName.value.trim();
+  if (!isValidDeviceId(deviceId) || !isValidActivationCode(activationCode)) {
+    elements.claimDeviceStatus.textContent = "Preveri obliko ID-ja in osemmestne aktivacijske kode.";
+    return;
+  }
+
+  const { database, ref, remove, set } = firebaseDatabase;
+  const claimPath = `device_claims/${deviceId}/${currentCloudUser.uid}`;
+  elements.claimDeviceStatus.textContent = "Preverjam aktivacijsko kodo …";
+  try {
+    await set(ref(database, claimPath), {
+      activation_code: activationCode,
+      requested_at: Date.now(),
+    });
+    await set(ref(database, `devices/${deviceId}/owner_uid`), currentCloudUser.uid);
+    await set(ref(database, `users/${currentCloudUser.uid}/devices/${deviceId}`), {
+      display_name: displayName || deviceId,
+      claimed_at: Date.now(),
+    });
+    await remove(ref(database, claimPath));
+    elements.claimDeviceForm.reset();
+    elements.claimDeviceStatus.textContent = "Naprava je uspešno registrirana na tvoj račun.";
+  } catch (error) {
+    console.error(error);
+    try {
+      await remove(ref(database, claimPath));
+    } catch {}
+    elements.claimDeviceStatus.textContent = "Registracija ni uspela. Preveri ID, kodo in ali je ESP32 že povezan v Firebase.";
+  }
+}
+
+function handleCloudAuthState(user) {
+  clearCloudDeviceListeners();
+  stopCloudDeviceListListener?.();
+  stopCloudDeviceListListener = undefined;
+  cloudDevices = {};
+  currentCloudUser = user;
+
+  if (!user) {
+    cloudDevicePath = "";
+    elements.accountSection.hidden = true;
+    elements.authTrigger.hidden = false;
+    elements.authTrigger.textContent = "Prijava";
+    resetCloudDashboard();
+    setConnectionState("Prijava je potrebna", "error");
+    return;
+  }
+
+  elements.accountSection.hidden = false;
+  elements.authTrigger.hidden = true;
+  elements.accountEmail.textContent = user.email || "Google račun";
+  const { database, onValue, ref } = firebaseDatabase;
+  stopCloudDeviceListListener = onValue(ref(database, `users/${user.uid}/devices`), (snapshot) => {
+    cloudDevices = snapshot.val() ?? {};
+    renderCloudDeviceSelector();
+  }, showDataError);
+}
+
+function initializeAuthControls() {
+  if (authControlsInitialized) return;
+  authControlsInitialized = true;
+  elements.authTrigger.addEventListener("click", openAuthDialog);
+  elements.authForm.addEventListener("submit", signInWithEmail);
+  elements.authRegister.addEventListener("click", registerEmailAccount);
+  elements.authGoogle.addEventListener("click", signInWithGoogle);
+  elements.authClose.addEventListener("click", () => elements.authDialog.close());
+  elements.authSignout.addEventListener("click", signOutCurrentUser);
+  elements.cloudDeviceSelect.addEventListener("change", () => selectCloudDevice(elements.cloudDeviceSelect.value));
+  elements.claimDeviceForm.addEventListener("submit", claimDevice);
+}
+
 async function useLocalDataSource() {
   const response = await fetch("/api/status", { cache: "no-store" });
   if (!response.ok) throw new Error("Lokalni API ni dosegljiv");
   isLocalDashboard = true;
   elements.otaSection.hidden = true;
+  elements.authTrigger.hidden = true;
+  elements.accountSection.hidden = true;
 
   async function refreshStatus() {
     const status = await (await fetch("/api/status", { cache: "no-store" })).json();
     renderLatestMeasurement(status.latest);
     renderDeviceStatus(status.device, true);
+    renderProvisioning(status.network);
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
     setConnectionState("Lokalna povezava z ESP32");
@@ -519,43 +948,50 @@ async function useLocalDataSource() {
 
 async function useFirebaseDataSource() {
   isLocalDashboard = false;
-  const [{ initializeApp }, databaseModule, configModule] = await Promise.all([
+  const [{ initializeApp }, authModule, databaseModule, configModule] = await Promise.all([
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js"),
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js"),
     import("./firebase-config.js"),
   ]);
-  const { endAt, getDatabase, onValue, orderByKey, query, ref, set, startAt } = databaseModule;
-  const database = getDatabase(initializeApp(configModule.firebaseConfig));
-  firebaseDatabase = { database, ref, set };
-  elements.otaSection.hidden = false;
+  const { endAt, getDatabase, onValue, orderByKey, query, ref, remove, set, startAt } = databaseModule;
+  const firebaseApp = initializeApp(configModule.firebaseConfig);
+  const database = getDatabase(firebaseApp);
+  firebaseAuth = authModule.getAuth(firebaseApp);
+  firebaseAuthModule = authModule;
+  firebaseDatabase = { database, onValue, ref, remove, set };
+  elements.otaSection.hidden = true;
+  elements.provisioningSection.hidden = true;
+  initializeAuthControls();
 
   onValue(ref(database, ".info/connected"), (snapshot) => {
-    setConnectionState(snapshot.val() === true ? "Povezano v Cloud" : "Brez povezave s Cloud", snapshot.val() === true ? "connected" : "error");
+    if (currentCloudUser) {
+      setConnectionState(snapshot.val() === true ? "Povezano v Cloud" : "Brez povezave s Cloud", snapshot.val() === true ? "connected" : "error");
+    }
   }, showDataError);
-  onValue(ref(database, `${HIVE_PATH}/latest`), (snapshot) => renderLatestMeasurement(snapshot.val()), showDataError);
-  onValue(ref(database, `${HIVE_PATH}/status/device`), (snapshot) => renderDeviceStatus(snapshot.val()), showDataError);
-  onValue(ref(database, `${HIVE_PATH}/status/sd_card`), (snapshot) => renderSDStatus(snapshot.val()), showDataError);
-  onValue(ref(database, `${HIVE_PATH}/status/firmware`), (snapshot) => renderFirmwareVersion(snapshot.val()), showDataError);
-  onValue(ref(database, `${HIVE_PATH}/status/ota`), (snapshot) => renderOtaDeviceStatus(snapshot.val()), showDataError);
 
   refreshHistory = async () => {
     stopHistoryListener?.();
+    if (!cloudDevicePath) {
+      renderHistory([]);
+      return;
+    }
     const from = Math.floor(appliedRange.from.getTime() / 1000);
     const to = Math.floor(appliedRange.to.getTime() / 1000);
-    const historyQuery = query(ref(database, `${HIVE_PATH}/measurements`), orderByKey(), startAt(String(from)), endAt(String(to)));
+    const historyQuery = query(ref(database, `${cloudDevicePath}/measurements`), orderByKey(), startAt(String(from)), endAt(String(to)));
     stopHistoryListener = onValue(historyQuery, (snapshot) => {
       const readings = Object.entries(snapshot.val() ?? {}).map(([key, value]) => ({ ...value, timestamp: Number(value.timestamp ?? key) }));
       renderHistory(readings);
     }, showDataError);
   };
 
-  await refreshHistory();
+  authModule.onAuthStateChanged(firebaseAuth, handleCloudAuthState);
 }
 
 async function startDashboard() {
   initializeDateRangePicker();
   initializeOtaControls();
-  createChart();
+  initializeProvisioningForm();
   setInterval(() => {
     if (latestDeviceStatus) renderDeviceStatus(latestDeviceStatus);
   }, 15_000);
@@ -565,6 +1001,16 @@ async function startDashboard() {
   } catch {
     await useFirebaseDataSource();
   }
+
+  loadHighcharts()
+    .then(() => {
+      createChart();
+      refreshHistory?.().catch(showDataError);
+    })
+    .catch((error) => {
+      console.error(error);
+      elements.historySummary.textContent = "Graf trenutno ni dosegljiv.";
+    });
 }
 
 window.addEventListener("DOMContentLoaded", startDashboard);

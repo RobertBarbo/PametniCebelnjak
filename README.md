@@ -7,7 +7,8 @@ Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na
 ## Trenutne funkcije
 
 - Simulirane meritve temperature, relativne vlage in teže vsakih 5 minut.
-- Zapis vsake meritve v CSV dnevnik na SD kartici; ob internetni povezavi tudi v Firebase.
+- Zapis vsake meritve v CSV dnevnik na SD kartici ter postopna sinhronizacija surove zgodovine in agregatov v Firebase.
+- Dnevni SD indeks za hitro lokalno zgodovino ter urni/dnevni Firebase agregati za daljša cloud obdobja.
 - Samodejni Wi-Fi provisioning brez trdo vpisanega SSID-ja ali gesla.
 - Dostopni AP kot rezerva, kadar domači Wi-Fi ni nastavljen ali ni dosegljiv.
 - Trajni ID, aktivacijska koda in Firebase prijava za registracijo več naprav na uporabnika.

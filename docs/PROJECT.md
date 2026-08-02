@@ -16,7 +16,11 @@ Firmware na ESP32-S3 spremlja en čebelji panj. Temperatura, relativna vlaga in 
 - Ob uspešni NTP sinhronizaciji zapis vsebuje slovenski datum, uro in Unix čas.
 - Brez interneta se meritev še vedno prikaže lokalno in zapiše na SD. Po ponovnem zagonu brez predhodne NTP sinhronizacije absolutni datum ni znan, zato takih zapisov ni mogoče pravilno umestiti v koledarski graf.
 - Datoteka `/measurements.csv` na SD ima glavo `date,time,unix_timestamp,temperature_c,humidity_percent,weight_kg`.
-- Ko je Firebase dosegljiv, ESP32 iz CSV dnevnika prenese eno še nepotrjeno meritev na 1,5 sekunde. V NVS vsakih 12 uspešnih zapisov shrani položaj v datoteki in zadnji sinhroniziran čas; po izpadu elektrike se lahko ponovno pošlje največ 11 meritev, kar je varno, ker Firebase uporablja Unix čas kot enolični ključ.
+- Izpeljana datoteka `/measurements.idx` hrani začetni položaj vsakega UTC dneva. Obstoječemu CSV dnevniku se indeks ob prvem zagonu izdela samodejno, zato lokalni graf pri običajni poizvedbi bere samo zahtevani del datoteke. CSV ostaja edini izvorni zapis in indeks se lahko varno ponovno izdela.
+- Ko je Firebase dosegljiv, ESP32 iz CSV dnevnika prenese eno še nepotrjeno meritev na 1,5 sekunde. Ob napaki razmik eksponentno poveča do največ 60 sekund. V NVS vsakih 12 uspešnih zapisov shrani položaj v datoteki in zadnji sinhroniziran čas; po izpadu elektrike se lahko ponovno pošlje največ 11 meritev, kar je varno, ker Firebase uporablja Unix čas kot enolični ključ.
+- Surova zgodovina se običajno pošilja samo prek SD sinhronizacije, zato isti zapis ni poslan dvakrat. Neposredni Firebase zapis se uporabi le kot rezerva, kadar meritve ni mogoče shraniti na SD.
+- Med zaporednim prenosom ESP32 izdela urne in dnevne povprečne agregate. Zaključeni interval se zapiše enkrat, trenutni interval pa se osveži največ vsakih 30 minut.
+- Ob prvem zagonu firmware-a z agregati se NVS kazalec enkrat samodejno vrne na začetek SD dnevnika. Obstoječi surovi ključi se varno prepišejo, hkrati pa se dopolnijo urni in dnevni podatki; naslednji zagoni nadaljujejo z običajnega shranjenega položaja.
 - Zapisi z `unix_timestamp=0`, ki nastanejo pred prvo NTP sinhronizacijo, ostanejo samo na SD kartici in niso vključeni v cloud graf.
 - Stanje SD kartice se preveri vsako minuto. Ob nedosegljivi kartici se inicializacija ponovi; po petih neuspelih poskusih se stanje označi kot napaka.
 
@@ -37,10 +41,12 @@ Firmware je univerzalen in ne vsebuje Wi-Fi poverilnic.
 
 Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 
-- Lokalni API: `/api/status`, `/api/history`, `/api/wifi` in `/measurements.csv`.
+- Lokalni API: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset` in `/measurements.csv`.
 - Lokalni pogled najprej poskusi lokalni API; kadar ta ni dosegljiv, uporabi Firebase cloud pogled s prijavo uporabnika. Lokalni pogled ne prikaže cloud prijave, registracije naprav ali OTA upravljanja, prikaže pa `device_id` in aktivacijsko kodo za kasnejšo registracijo.
 - Highcharts je v `web/vendor/highcharts.js`, zato grafi na lokalnem ESP32 ne potrebujejo interneta.
-- Lokalni graf bere celoten SD dnevnik, cloud graf pa enake časovno označene zapise iz Firebase. Po končani sinhronizaciji oba prikazujeta isto zgodovino.
+- Lokalni graf uporabi dnevni SD indeks in podatke agregira na ESP32. Če SD trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
+- Cloud graf za obdobja do 7 dni bere surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
+- Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje v lokalnem in cloud pogledu.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
@@ -59,6 +65,9 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
   owner_uid
   latest/
   measurements/{unix_timestamp}/
+  aggregates/
+    hourly/{hour_start_timestamp}/
+    daily/{day_start_timestamp}/
   status/
     firmware/version
     sd_card/{present,initialization_failures,error}

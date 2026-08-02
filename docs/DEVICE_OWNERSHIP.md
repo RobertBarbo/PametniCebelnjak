@@ -13,6 +13,8 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
   owner_uid
   latest
   measurements/{unix_timestamp}
+  aggregates/hourly/{hour_start_timestamp}
+  aggregates/daily/{day_start_timestamp}
   status
   commands
 ```
@@ -46,6 +48,6 @@ To je sprejemljivo samo za trenutno beta testiranje. Za produkcijo je potreben z
 - `device_claims` lahko bere in piše samo uporabnik, katerega UID je v poti.
 - `devices/{deviceId}` lahko bere samo lastnik.
 - Lastnik lahko pošlje OTA ukaz, anonimen ESP32 pa ga lahko le prebere in izbriše po obdelavi.
-- Meritve, status in `latest` dovoljujejo anonimen zapis samo zato, ker ESP32 še nima lastne Firebase avtentikacije.
+- Meritve, agregati, status in `latest` dovoljujejo anonimen zapis samo zato, ker ESP32 še nima lastne Firebase avtentikacije.
 
 Pravil ne spreminjaj v javno branje. Pred produkcijo odstrani anonimen zapis in uvedi avtentikacijo naprave.

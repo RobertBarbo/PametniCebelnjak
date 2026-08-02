@@ -9,6 +9,9 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 - Firebase Authentication v cloud nadzorni plošči z e-pošto/geslom in Google prijavo.
 - Prevzem več naprav z `device_id` in aktivacijsko kodo ter izbirnik uporabnikovih naprav.
 - Firebase Realtime Database pravila za zasebnost podatkov po `owner_uid`.
+- Dnevni indeks SD CSV dnevnika za hitrejše lokalne poizvedbe zgodovine.
+- Urne in dnevne Firebase agregate za učinkovite mesečne in letne cloud grafe.
+- Lokalni prikaz stanja sinhronizacije in gumb za ponovni prenos celotnega SD dnevnika po brisanju baze.
 
 ### Changed
 
@@ -17,12 +20,17 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 - ESP32 po uspešni NTP sinhronizaciji takoj zapiše časovno veljavno prvo meritev na SD kartico in v Firebase.
 - Lokalni pogled skrije cloud prijavo, registracijo naprav in OTA upravljanje ter jasno prikaže aktivacijsko kodo naprave.
 - ESP32 postopno sinhronizira zgodovino meritev s SD kartice v Firebase brez uporabe Cloud Storage.
+- Surovo Firebase zgodovino zapisuje samo SD sinhronizacija; neposredni zapis ostaja rezerva ob napaki SD.
+- Neuspešni prenosi uporabljajo eksponentni zamik od 1,5 do 60 sekund.
+- Cloud graf samodejno izbere surove, urne ali dnevne podatke glede na dolžino obdobja.
+- Prvi zagon novega agregacijskega modela enkrat ponovno obdela obstoječi SD dnevnik, da stare meritve dobijo agregate.
 
 ### Fixed
 
 - CSS zdaj dosledno upošteva atribut `hidden`, zato se cloud obrazci ne prikažejo v lokalnem pogledu.
 - Firebase povratni klici ne uporabljajo več stack-potratnega formatiranega izpisa, ki je povzročal ponovni zagon ESP32-S3.
 - Ob zagonu se prva meritev z veljavnim NTP časom ne podvoji več v istem časovnem trenutku.
+- Napaka lokalne SD zgodovine ne preklopi več nadzorne plošče v Firebase način.
 
 ## [0.1.0-beta.8] - 2026-08-02
 

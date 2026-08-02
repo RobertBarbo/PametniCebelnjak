@@ -12,7 +12,7 @@
 - Ciljna ploščica je `esp32-s3-devkitc-1` s PIOArduino ESP32 platformo in Arduino frameworkom.
 - Pred predajo sprememb vedno prevedi z `pio run` oziroma z lokalnim PlatformIO izvršljivim programom, če `pio` ni v `PATH`.
 - Ne uporabljaj blokirajočih zakasnitev v glavni zanki, razen pri začetnem povezovanju v `setup()`.
-- Meritve se beležijo na SD in v Firebase Realtime Database; spremembe podatkovnega modela morajo posodobiti obe poti in dokumentacijo.
+- Meritve se najprej beležijo na SD, nato pa se surova zgodovina ter urni/dnevni agregati sinhronizirajo v Firebase Realtime Database; spremembe podatkovnega modela morajo posodobiti obe poti in dokumentacijo.
 
 ## Omrežje in identiteta naprave
 
@@ -39,7 +39,7 @@
 ## Spletna nadzorna plošča
 
 - Statična lokalna nadzorna plošča je v mapi `web/` in mora ostati odzivna za telefon, tablico in namizni računalnik.
-- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja; lokalni API poti so `/api/status`, `/api/history` in `/api/wifi`.
+- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi` in `/api/sync/reset`.
 - Lokalni pogled mora delovati brez interneta, vključno z grafi iz SD CSV dnevnika.
 - Highcharts mora biti lokalno priložen v `web/vendor/`, saj lokalni pogled ne sme uporabljati CDN povezave.
 - Izbirnik zgodovine uporablja začetni in končni datum z urama, hitrimi izbirami in X-zoomiranjem grafa v obeh načinih.

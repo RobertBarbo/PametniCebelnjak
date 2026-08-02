@@ -28,6 +28,8 @@ constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
 constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = MEASUREMENT_INTERVAL_MS;
 constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 1500;
+constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60000;
+constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 10000;
 constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;
@@ -38,6 +40,10 @@ constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;
 constexpr char DEVICE_DATABASE_ROOT[] = "/devices";
 constexpr size_t DATABASE_PATH_LENGTH = 96;
 constexpr char SD_LOG_PATH[] = "/measurements.csv";
+constexpr char SD_HISTORY_INDEX_PATH[] = "/measurements.idx";
+constexpr char SD_HISTORY_INDEX_TEMP_PATH[] = "/measurements.tmp";
+constexpr uint32_t HOURLY_AGGREGATE_SECONDS = 60 * 60;
+constexpr uint32_t DAILY_AGGREGATE_SECONDS = 24 * 60 * 60;
 
 // GitHub Release vedno vsebuje manifest.json in firmware.bin za najnovejšo izdajo.
 constexpr char OTA_MANIFEST_URL[] = "https://github.com/RobertBarbo/PametniCebelnjak/releases/latest/download/manifest.json";
@@ -60,6 +66,8 @@ constexpr char DEVICE_ID_KEY[] = "device_id";
 constexpr char ACTIVATION_CODE_KEY[] = "activation";
 constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";
 constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";
+constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";
+constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 1;
 constexpr char WIFI_SSID_KEY[] = "ssid";
 constexpr char WIFI_PASSWORD_KEY[] = "password";
 constexpr char ACTIVATION_ALPHABET[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -91,6 +99,14 @@ struct HistoryBucket {
   uint16_t count;
 };
 
+struct MeasurementAggregate {
+  time_t timestamp;
+  float temperatureSum;
+  float humiditySum;
+  float weightSum;
+  uint16_t count;
+};
+
 struct FirmwareManifest {
   char version[24];
   String firmwareUrl;
@@ -103,6 +119,13 @@ enum class WiFiProvisioningState : uint8_t {
   Connecting,
   Connected,
   Failed,
+};
+
+enum class CloudSyncRequestType : uint8_t {
+  None,
+  Measurement,
+  HourlyAggregate,
+  DailyAggregate,
 };
 
 // Firebase uporablja asinhrone zahteve, da beleženje ne ustavi glavne zanke.
@@ -124,6 +147,8 @@ uint32_t lastDeviceStatusMillis = 0;
 uint32_t lastFirmwareCommandCheckMillis = 0;
 uint32_t lastActivationSecretAttemptMillis = 0;
 uint32_t lastCloudSyncAttemptMillis = 0;
+uint32_t cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
+uint32_t lastCloudAggregateRefreshMillis = 0;
 uint32_t accessPointShutdownMillis = 0;
 uint32_t scheduledWiFiSettingsClearMillis = 0;
 uint32_t wifiConnectionStartedMillis = 0;
@@ -140,6 +165,10 @@ bool activationSecretRegistrationReported = false;
 bool validTimeWasAvailable = false;
 bool cloudSyncPending = false;
 bool cloudSyncCaughtUp = false;
+bool cloudSyncStateSavePending = false;
+bool hourlyAggregateReady = false;
+bool dailyAggregateReady = false;
+bool historyIndexReady = false;
 bool stationConnected = false;
 bool accessPointActive = false;
 bool savedWiFiCredentialsAvailable = false;
@@ -150,6 +179,11 @@ String pendingWiFiPassword;
 time_t lastCloudSyncedTimestamp = 0;
 Measurement latestMeasurement{};
 Measurement cloudSyncPendingMeasurement{};
+MeasurementAggregate hourlyCloudAggregate{};
+MeasurementAggregate dailyCloudAggregate{};
+MeasurementAggregate readyHourlyCloudAggregate{};
+MeasurementAggregate readyDailyCloudAggregate{};
+MeasurementAggregate cloudSyncPendingAggregate{};
 bool hasLatestMeasurement = false;
 HistoryBucket localHistoryBuckets[MAX_LOCAL_HISTORY_BUCKETS]{};
 char deviceId[DEVICE_ID_LENGTH]{};
@@ -158,15 +192,99 @@ char accessPointSsid[ACCESS_POINT_SSID_LENGTH]{};
 char deviceDatabasePath[DATABASE_PATH_LENGTH]{};
 char latestDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyDatabasePath[DATABASE_PATH_LENGTH]{};
+char hourlyAggregateDatabasePath[DATABASE_PATH_LENGTH]{};
+char dailyAggregateDatabasePath[DATABASE_PATH_LENGTH]{};
 char sdStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char deviceStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
+time_t lastIndexedDayTimestamp = 0;
+time_t lastPublishedHourlyBucket = 0;
+time_t lastPublishedDailyBucket = 0;
+uint16_t lastPublishedHourlyCount = 0;
+uint16_t lastPublishedDailyCount = 0;
+CloudSyncRequestType cloudSyncRequestType = CloudSyncRequestType::None;
 
 void processFirmwareUpdateCommand(const String &payload);
 bool persistCloudSyncState();
+bool parseMeasurementCsvLine(const char *line, Measurement &measurement);
+void resetCloudAggregateState();
+void rebuildCloudAggregateState();
+
+bool isCloudSyncRequest(const String &requestId)
+{
+  return requestId == "syncMeasurementHistory" || requestId == "syncHourlyAggregate" ||
+         requestId == "syncDailyAggregate";
+}
+
+void markCloudSyncFailure()
+{
+  cloudSyncPending = false;
+  cloudSyncRequestType = CloudSyncRequestType::None;
+  cloudSyncRetryIntervalMs = min(cloudSyncRetryIntervalMs * 2, CLOUD_SYNC_MAX_RETRY_INTERVAL_MS);
+  Serial.print("Cloud sync retry delayed to ");
+  Serial.print(cloudSyncRetryIntervalMs / 1000);
+  Serial.println(" seconds.");
+}
+
+void addMeasurementToCloudAggregate(MeasurementAggregate &aggregate, MeasurementAggregate &readyAggregate,
+                                    bool &ready, const Measurement &measurement, uint32_t periodSeconds,
+                                    bool queueCompletedAggregate)
+{
+  const time_t bucketTimestamp = measurement.timestamp - (measurement.timestamp % periodSeconds);
+  if (aggregate.count > 0 && aggregate.timestamp != bucketTimestamp) {
+    if (queueCompletedAggregate) {
+      readyAggregate = aggregate;
+      ready = true;
+    }
+    aggregate = {};
+  }
+
+  if (aggregate.count == 0) {
+    aggregate.timestamp = bucketTimestamp;
+  }
+  aggregate.temperatureSum += measurement.temperatureC;
+  aggregate.humiditySum += measurement.humidityPercent;
+  aggregate.weightSum += measurement.weightKg;
+  ++aggregate.count;
+}
+
+void recordSynchronizedMeasurement()
+{
+  cloudSyncFileOffset = cloudSyncPendingFileOffset;
+  lastCloudSyncedTimestamp = cloudSyncPendingMeasurement.timestamp;
+  addMeasurementToCloudAggregate(hourlyCloudAggregate, readyHourlyCloudAggregate, hourlyAggregateReady,
+                                 cloudSyncPendingMeasurement, HOURLY_AGGREGATE_SECONDS, true);
+  addMeasurementToCloudAggregate(dailyCloudAggregate, readyDailyCloudAggregate, dailyAggregateReady,
+                                 cloudSyncPendingMeasurement, DAILY_AGGREGATE_SECONDS, true);
+
+  if (++cloudSyncWritesSincePersist >= CLOUD_SYNC_STATE_SAVE_INTERVAL) {
+    if (hourlyAggregateReady || dailyAggregateReady) {
+      cloudSyncStateSavePending = true;
+    } else {
+      persistCloudSyncState();
+    }
+  }
+}
+
+void completeCloudAggregateRequest(CloudSyncRequestType requestType)
+{
+  if (requestType == CloudSyncRequestType::HourlyAggregate) {
+    hourlyAggregateReady = false;
+    lastPublishedHourlyBucket = cloudSyncPendingAggregate.timestamp;
+    lastPublishedHourlyCount = cloudSyncPendingAggregate.count;
+  } else if (requestType == CloudSyncRequestType::DailyAggregate) {
+    dailyAggregateReady = false;
+    lastPublishedDailyBucket = cloudSyncPendingAggregate.timestamp;
+    lastPublishedDailyCount = cloudSyncPendingAggregate.count;
+  }
+
+  if (cloudSyncStateSavePending && !hourlyAggregateReady && !dailyAggregateReady) {
+    cloudSyncStateSavePending = !persistCloudSyncState();
+  }
+}
 
 // Obdelava zaključkov vseh asinhronih Firebase zahtev.
 void processData(AsyncResult &result)
@@ -195,8 +313,8 @@ void processData(AsyncResult &result)
     if (result.uid() == "publishActivationSecret") {
       activationSecretPublishPending = false;
     }
-    if (result.uid() == "syncMeasurementHistory") {
-      cloudSyncPending = false;
+    if (isCloudSyncRequest(result.uid())) {
+      markCloudSyncFailure();
     }
     return;
   }
@@ -219,17 +337,21 @@ void processData(AsyncResult &result)
       }
       return;
     }
-    if (result.uid() == "syncMeasurementHistory") {
-      cloudSyncPending = false;
+    if (isCloudSyncRequest(result.uid())) {
       const String responsePayload = result.payload();
       if (responsePayload.indexOf("error") >= 0 || responsePayload.indexOf("unauthorized") >= 0) {
+        markCloudSyncFailure();
         return;
       }
 
-      cloudSyncFileOffset = cloudSyncPendingFileOffset;
-      lastCloudSyncedTimestamp = cloudSyncPendingMeasurement.timestamp;
-      if (++cloudSyncWritesSincePersist >= CLOUD_SYNC_STATE_SAVE_INTERVAL) {
-        persistCloudSyncState();
+      const CloudSyncRequestType completedRequestType = cloudSyncRequestType;
+      cloudSyncPending = false;
+      cloudSyncRequestType = CloudSyncRequestType::None;
+      cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
+      if (completedRequestType == CloudSyncRequestType::Measurement) {
+        recordSynchronizedMeasurement();
+      } else {
+        completeCloudAggregateRequest(completedRequestType);
       }
       return;
     }
@@ -286,6 +408,7 @@ void createDeviceIdentity()
   const uint64_t chipMac = ESP.getEfuseMac() & 0xFFFFFFFFFFFFULL;
   snprintf(deviceId, sizeof(deviceId), "CB-%012llX", static_cast<unsigned long long>(chipMac));
 
+  bool aggregateMigrationRequired = false;
   preferences.begin(DEVICE_SETTINGS_NAMESPACE, false);
   const String storedActivationCode = preferences.getString(ACTIVATION_CODE_KEY, "");
   if (storedActivationCode.length() == ACTIVATION_CODE_LENGTH) {
@@ -304,7 +427,23 @@ void createDeviceIdentity()
   lastCloudSyncedTimestamp = preferences.isKey(CLOUD_SYNC_TIMESTAMP_KEY)
                                ? static_cast<time_t>(preferences.getULong(CLOUD_SYNC_TIMESTAMP_KEY, 0))
                                : 0;
+  const uint8_t aggregateSchemaVersion = preferences.isKey(CLOUD_AGGREGATE_SCHEMA_KEY)
+                                             ? preferences.getUChar(CLOUD_AGGREGATE_SCHEMA_KEY, 0)
+                                             : 0;
+  if (aggregateSchemaVersion < CLOUD_AGGREGATE_SCHEMA_VERSION) {
+    // Enkratni ponovni prehod izdela agregate tudi iz zgodovine, ki je bila sinhronizirana s starejšim firmware-om.
+    cloudSyncFileOffset = 0;
+    lastCloudSyncedTimestamp = 0;
+    preferences.putULong(CLOUD_SYNC_OFFSET_KEY, 0);
+    preferences.putULong(CLOUD_SYNC_TIMESTAMP_KEY, 0);
+    preferences.putUChar(CLOUD_AGGREGATE_SCHEMA_KEY, CLOUD_AGGREGATE_SCHEMA_VERSION);
+    aggregateMigrationRequired = true;
+  }
   preferences.end();
+
+  if (aggregateMigrationRequired) {
+    Serial.println("Cloud history will be replayed once to create aggregate data.");
+  }
 
   snprintf(accessPointSsid, sizeof(accessPointSsid), "Cebelnjak-%s", deviceId + 9);
 }
@@ -320,6 +459,8 @@ void initializeDeviceDatabasePaths()
   snprintf(deviceDatabasePath, sizeof(deviceDatabasePath), "%s/%s", DEVICE_DATABASE_ROOT, deviceId);
   snprintf(latestDatabasePath, sizeof(latestDatabasePath), "%s/latest", deviceDatabasePath);
   snprintf(historyDatabasePath, sizeof(historyDatabasePath), "%s/measurements", deviceDatabasePath);
+  snprintf(hourlyAggregateDatabasePath, sizeof(hourlyAggregateDatabasePath), "%s/aggregates/hourly", deviceDatabasePath);
+  snprintf(dailyAggregateDatabasePath, sizeof(dailyAggregateDatabasePath), "%s/aggregates/daily", deviceDatabasePath);
   snprintf(sdStatusDatabasePath, sizeof(sdStatusDatabasePath), "%s/status/sd_card", deviceDatabasePath);
   snprintf(deviceStatusDatabasePath, sizeof(deviceStatusDatabasePath), "%s/status/device", deviceDatabasePath);
   snprintf(firmwareStatusDatabasePath, sizeof(firmwareStatusDatabasePath), "%s/status/firmware", deviceDatabasePath);
@@ -852,7 +993,214 @@ void markSDCardUnavailable()
 
   sdCardReady = false;
   cloudSyncCaughtUp = false;
+  historyIndexReady = false;
   SD.end();
+}
+
+time_t historyIndexDay(time_t timestamp)
+{
+  return timestamp - (timestamp % DAILY_AGGREGATE_SECONDS);
+}
+
+bool buildMeasurementHistoryIndex()
+{
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile) {
+    Serial.println("Could not open measurements.csv while building the history index.");
+    return false;
+  }
+
+  SD.remove(SD_HISTORY_INDEX_TEMP_PATH);
+  File indexFile = SD.open(SD_HISTORY_INDEX_TEMP_PATH, FILE_WRITE);
+  if (!indexFile) {
+    logFile.close();
+    Serial.println("Could not create the temporary history index.");
+    return false;
+  }
+
+  indexFile.println("day_timestamp,file_offset");
+  time_t indexedDay = 0;
+  char line[128];
+  uint16_t processedLines = 0;
+  while (logFile.available()) {
+    const uint32_t lineOffset = static_cast<uint32_t>(logFile.position());
+    const size_t lineLength = logFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+
+    Measurement measurement{};
+    if (parseMeasurementCsvLine(line, measurement)) {
+      const time_t measurementDay = historyIndexDay(measurement.timestamp);
+      if (measurementDay > indexedDay) {
+        indexFile.printf("%lu,%lu\n", static_cast<unsigned long>(measurementDay),
+                         static_cast<unsigned long>(lineOffset));
+        indexedDay = measurementDay;
+      }
+    }
+
+    if (++processedLines % 64 == 0) {
+      yield();
+    }
+  }
+  logFile.close();
+  indexFile.close();
+
+  SD.remove(SD_HISTORY_INDEX_PATH);
+  if (!SD.rename(SD_HISTORY_INDEX_TEMP_PATH, SD_HISTORY_INDEX_PATH)) {
+    Serial.println("Could not activate the rebuilt history index.");
+    return false;
+  }
+
+  lastIndexedDayTimestamp = indexedDay;
+  Serial.println("SD history index was rebuilt.");
+  return true;
+}
+
+bool extendMeasurementHistoryIndex(uint32_t fileOffset)
+{
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile || fileOffset > logFile.size() || !logFile.seek(fileOffset)) {
+    if (logFile) logFile.close();
+    return false;
+  }
+
+  File indexFile = SD.open(SD_HISTORY_INDEX_PATH, FILE_APPEND);
+  if (!indexFile) {
+    logFile.close();
+    return false;
+  }
+
+  char line[128];
+  uint16_t processedLines = 0;
+  while (logFile.available()) {
+    const uint32_t lineOffset = static_cast<uint32_t>(logFile.position());
+    const size_t lineLength = logFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+
+    Measurement measurement{};
+    if (parseMeasurementCsvLine(line, measurement)) {
+      const time_t measurementDay = historyIndexDay(measurement.timestamp);
+      if (measurementDay > lastIndexedDayTimestamp) {
+        indexFile.printf("%lu,%lu\n", static_cast<unsigned long>(measurementDay),
+                         static_cast<unsigned long>(lineOffset));
+        lastIndexedDayTimestamp = measurementDay;
+      }
+    }
+    if (++processedLines % 64 == 0) {
+      yield();
+    }
+  }
+  logFile.close();
+  indexFile.close();
+  return true;
+}
+
+bool initializeMeasurementHistoryIndex()
+{
+  historyIndexReady = false;
+  lastIndexedDayTimestamp = 0;
+  if (!sdCardReady) {
+    return false;
+  }
+
+  const bool indexExists = SD.exists(SD_HISTORY_INDEX_PATH);
+  if (!indexExists) {
+    if (!buildMeasurementHistoryIndex()) {
+      return false;
+    }
+    historyIndexReady = true;
+    return true;
+  }
+
+  File indexFile = SD.open(SD_HISTORY_INDEX_PATH, FILE_READ);
+  if (!indexFile) {
+    Serial.println("Could not open the SD history index.");
+    return false;
+  }
+
+  char line[64];
+  uint32_t lastIndexedFileOffset = 0;
+  bool invalidIndex = false;
+  while (indexFile.available()) {
+    const size_t lineLength = indexFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+    unsigned long dayTimestamp = 0;
+    unsigned long fileOffset = 0;
+    if (sscanf(line, "%lu,%lu", &dayTimestamp, &fileOffset) == 2) {
+      if (dayTimestamp < static_cast<unsigned long>(lastIndexedDayTimestamp) ||
+          fileOffset < lastIndexedFileOffset) {
+        invalidIndex = true;
+        break;
+      }
+      lastIndexedDayTimestamp = static_cast<time_t>(dayTimestamp);
+      lastIndexedFileOffset = static_cast<uint32_t>(fileOffset);
+    }
+  }
+  indexFile.close();
+
+  if (invalidIndex || !extendMeasurementHistoryIndex(lastIndexedFileOffset)) {
+    SD.remove(SD_HISTORY_INDEX_PATH);
+    if (!buildMeasurementHistoryIndex()) {
+      return false;
+    }
+  }
+  historyIndexReady = true;
+  return true;
+}
+
+bool appendMeasurementHistoryIndex(const Measurement &measurement, uint32_t fileOffset)
+{
+  if (!historyIndexReady || measurement.timestamp < MIN_VALID_UNIX_TIMESTAMP) {
+    return historyIndexReady;
+  }
+
+  const time_t measurementDay = historyIndexDay(measurement.timestamp);
+  if (measurementDay <= lastIndexedDayTimestamp) {
+    return true;
+  }
+
+  File indexFile = SD.open(SD_HISTORY_INDEX_PATH, FILE_APPEND);
+  if (!indexFile) {
+    historyIndexReady = false;
+    Serial.println("Could not update the SD history index; local history will use a full scan.");
+    return false;
+  }
+  indexFile.printf("%lu,%lu\n", static_cast<unsigned long>(measurementDay),
+                   static_cast<unsigned long>(fileOffset));
+  indexFile.close();
+  lastIndexedDayTimestamp = measurementDay;
+  return true;
+}
+
+uint32_t findHistoryFileOffset(time_t firstTimestamp)
+{
+  if (!historyIndexReady) {
+    return 0;
+  }
+
+  File indexFile = SD.open(SD_HISTORY_INDEX_PATH, FILE_READ);
+  if (!indexFile) {
+    historyIndexReady = false;
+    return 0;
+  }
+
+  const time_t requestedDay = historyIndexDay(firstTimestamp);
+  uint32_t selectedOffset = 0;
+  char line[64];
+  while (indexFile.available()) {
+    const size_t lineLength = indexFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+    unsigned long dayTimestamp = 0;
+    unsigned long fileOffset = 0;
+    if (sscanf(line, "%lu,%lu", &dayTimestamp, &fileOffset) != 2) {
+      continue;
+    }
+    if (dayTimestamp > static_cast<unsigned long>(requestedDay)) {
+      break;
+    }
+    selectedOffset = static_cast<uint32_t>(fileOffset);
+  }
+  indexFile.close();
+  return selectedOffset;
 }
 
 // --- Lokalni web strežnik ---------------------------------------------------
@@ -973,7 +1321,9 @@ void sendLocalStatus()
   const String accessPointIp = WiFi.softAPIP().toString();
   const String wifiSignal = stationConnected ? String(WiFi.RSSI()) : "null";
   const time_t lastSeenTimestamp = time(nullptr);
-  char measurementJson[220];
+  const bool cloudSynchronizationComplete = cloudSyncCaughtUp && !cloudSyncPending &&
+                                             !hourlyAggregateReady && !dailyAggregateReady;
+  static char measurementJson[220];
   if (hasLatestMeasurement) {
     snprintf(measurementJson, sizeof(measurementJson),
              "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
@@ -983,15 +1333,18 @@ void sendLocalStatus()
     snprintf(measurementJson, sizeof(measurementJson), "null");
   }
 
-  char jsonPayload[1120];
+  static char jsonPayload[1280];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
            stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
            accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
            wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
+           cloudSyncPending ? "true" : "false", cloudSynchronizationComplete ? "true" : "false",
+           static_cast<unsigned long>(lastCloudSyncedTimestamp),
+           static_cast<unsigned long>(cloudSyncRetryIntervalMs / 1000),
            sdCardReady ? "true" : "false", sdInitializationFailures,
            sdErrorReported ? "true" : "false", FIRMWARE_VERSION);
   localServer.sendHeader("Cache-Control", "no-store");
@@ -1032,18 +1385,23 @@ void sendLocalHistory()
     return;
   }
 
-  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
-  if (!logFile) {
-    localServer.send(404, "application/json", "{\"error\":\"Measurement log is unavailable\"}");
-    return;
-  }
-
   time_t firstTimestamp;
   time_t lastTimestamp;
   uint32_t bucketDuration;
   if (!getLocalHistoryWindow(firstTimestamp, lastTimestamp, bucketDuration)) {
     localServer.send(400, "application/json", "{\"error\":\"Invalid history time range\"}");
     return;
+  }
+
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile) {
+    localServer.send(404, "application/json", "{\"error\":\"Measurement log is unavailable\"}");
+    return;
+  }
+
+  const uint32_t historyStartOffset = findHistoryFileOffset(firstTimestamp);
+  if (historyStartOffset > 0 && !logFile.seek(historyStartOffset)) {
+    logFile.seek(0);
   }
   memset(localHistoryBuckets, 0, sizeof(localHistoryBuckets));
 
@@ -1055,9 +1413,15 @@ void sendLocalHistory()
     float temperature;
     float humidity;
     float weight;
-    if (sscanf(line, "%*10[^,],%*8[^,],%lu,%f,%f,%f", &timestamp, &temperature, &humidity, &weight) != 4 ||
-        timestamp < static_cast<unsigned long>(firstTimestamp) ||
-        timestamp > static_cast<unsigned long>(lastTimestamp)) continue;
+    if (sscanf(line, "%*10[^,],%*8[^,],%lu,%f,%f,%f", &timestamp, &temperature, &humidity, &weight) != 4) {
+      continue;
+    }
+    if (timestamp > static_cast<unsigned long>(lastTimestamp)) {
+      break;
+    }
+    if (timestamp < static_cast<unsigned long>(firstTimestamp)) {
+      continue;
+    }
 
     const size_t bucketIndex = (timestamp - static_cast<unsigned long>(firstTimestamp)) / bucketDuration;
     if (bucketIndex >= MAX_LOCAL_HISTORY_BUCKETS) continue;
@@ -1086,6 +1450,32 @@ void sendLocalHistory()
   localServer.send(200, "application/json; charset=utf-8", jsonPayload);
 }
 
+void resetCloudSynchronization()
+{
+  if (cloudSyncPending) {
+    localServer.send(409, "application/json", "{\"error\":\"Cloud synchronization is in progress\"}");
+    return;
+  }
+
+  cloudSyncFileOffset = 0;
+  cloudSyncPendingFileOffset = 0;
+  lastCloudSyncedTimestamp = 0;
+  cloudSyncWritesSincePersist = 0;
+  cloudSyncStateSavePending = false;
+  cloudSyncCaughtUp = false;
+  cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
+  lastCloudSyncAttemptMillis = 0;
+  resetCloudAggregateState();
+
+  if (!persistCloudSyncState()) {
+    localServer.send(500, "application/json", "{\"error\":\"Cloud synchronization state could not be saved\"}");
+    return;
+  }
+
+  Serial.println("Cloud history synchronization was reset from the local dashboard.");
+  localServer.send(202, "application/json", "{\"state\":\"resynchronizing\"}");
+}
+
 void serveMeasurementLog()
 {
   if (!sdCardReady) {
@@ -1110,6 +1500,7 @@ void initializeLocalWebServer()
 
   localServer.on("/api/status", HTTP_GET, sendLocalStatus);
   localServer.on("/api/history", HTTP_GET, sendLocalHistory);
+  localServer.on("/api/sync/reset", HTTP_POST, resetCloudSynchronization);
   localServer.on("/api/wifi", HTTP_POST, saveWiFiConfiguration);
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
@@ -1161,10 +1552,19 @@ bool appendToSDCard(const Measurement &measurement)
     return false;
   }
 
-  logFile.printf("%s,%s,%lu,%.1f,%.1f,%.2f\n", measurement.date, measurement.time,
-                 static_cast<unsigned long>(measurement.timestamp), measurement.temperatureC,
-                 measurement.humidityPercent, measurement.weightKg);
+  const uint32_t fileOffset = static_cast<uint32_t>(logFile.size());
+  const size_t bytesWritten = logFile.printf("%s,%s,%lu,%.1f,%.1f,%.2f\n", measurement.date, measurement.time,
+                                             static_cast<unsigned long>(measurement.timestamp),
+                                             measurement.temperatureC, measurement.humidityPercent,
+                                             measurement.weightKg);
   logFile.close();
+  if (bytesWritten == 0) {
+    Serial.println("Could not write the measurement to measurements.csv.");
+    markSDCardUnavailable();
+    return false;
+  }
+
+  appendMeasurementHistoryIndex(measurement, fileOffset);
   return true;
 }
 
@@ -1182,6 +1582,7 @@ bool persistCloudSyncState()
 
   if (offsetSaved && timestampSaved) {
     cloudSyncWritesSincePersist = 0;
+    cloudSyncStateSavePending = false;
     return true;
   }
 
@@ -1203,6 +1604,70 @@ bool parseMeasurementCsvLine(const char *line, Measurement &measurement)
   return true;
 }
 
+void resetCloudAggregateState()
+{
+  hourlyCloudAggregate = {};
+  dailyCloudAggregate = {};
+  readyHourlyCloudAggregate = {};
+  readyDailyCloudAggregate = {};
+  cloudSyncPendingAggregate = {};
+  hourlyAggregateReady = false;
+  dailyAggregateReady = false;
+  lastPublishedHourlyBucket = 0;
+  lastPublishedDailyBucket = 0;
+  lastPublishedHourlyCount = 0;
+  lastPublishedDailyCount = 0;
+  lastCloudAggregateRefreshMillis = 0;
+}
+
+void rebuildCloudAggregateState()
+{
+  resetCloudAggregateState();
+  if (!sdCardReady || cloudSyncFileOffset == 0 ||
+      lastCloudSyncedTimestamp < MIN_VALID_UNIX_TIMESTAMP) {
+    return;
+  }
+
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile) {
+    return;
+  }
+  if (cloudSyncFileOffset > logFile.size()) {
+    logFile.close();
+    cloudSyncFileOffset = 0;
+    lastCloudSyncedTimestamp = 0;
+    persistCloudSyncState();
+    return;
+  }
+
+  const uint32_t rebuildOffset = findHistoryFileOffset(lastCloudSyncedTimestamp);
+  if (rebuildOffset > 0 && !logFile.seek(rebuildOffset)) {
+    logFile.seek(0);
+  }
+
+  char line[128];
+  uint16_t processedLines = 0;
+  while (logFile.available()) {
+    const size_t lineLength = logFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+    if (logFile.position() > cloudSyncFileOffset) {
+      break;
+    }
+
+    Measurement measurement{};
+    if (parseMeasurementCsvLine(line, measurement)) {
+      addMeasurementToCloudAggregate(hourlyCloudAggregate, readyHourlyCloudAggregate, hourlyAggregateReady,
+                                     measurement, HOURLY_AGGREGATE_SECONDS, false);
+      addMeasurementToCloudAggregate(dailyCloudAggregate, readyDailyCloudAggregate, dailyAggregateReady,
+                                     measurement, DAILY_AGGREGATE_SECONDS, false);
+    }
+    if (++processedLines % 64 == 0) {
+      yield();
+    }
+  }
+  logFile.close();
+}
+
 bool readNextSDMeasurementForCloudSync(Measurement &measurement, uint32_t &nextFileOffset)
 {
   if (!sdCardReady) {
@@ -1221,6 +1686,7 @@ bool readNextSDMeasurementForCloudSync(Measurement &measurement, uint32_t &nextF
     // Nova oziroma zamenjana SD kartica ne more uporabljati starega položaja v datoteki.
     cloudSyncFileOffset = 0;
     lastCloudSyncedTimestamp = 0;
+    resetCloudAggregateState();
     cloudSyncWritesSincePersist = CLOUD_SYNC_STATE_SAVE_INTERVAL;
     persistCloudSyncState();
   }
@@ -1270,21 +1736,122 @@ void queueSDMeasurementForCloudSync(const Measurement &measurement, uint32_t nex
   cloudSyncPendingMeasurement = measurement;
   cloudSyncPendingFileOffset = nextFileOffset;
   cloudSyncPending = true;
+  cloudSyncRequestType = CloudSyncRequestType::Measurement;
   database.set(asyncClient, historyPath, measurements, processData, "syncMeasurementHistory");
+}
+
+void queueCloudAggregate(const MeasurementAggregate &aggregate, const char *databasePath,
+                         CloudSyncRequestType requestType, const char *requestId,
+                         uint32_t periodSeconds)
+{
+  if (aggregate.count == 0) {
+    return;
+  }
+
+  char jsonPayload[224];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f,\"timestamp\":%lu,\"sample_count\":%u,\"period_seconds\":%lu}",
+           aggregate.temperatureSum / aggregate.count, aggregate.humiditySum / aggregate.count,
+           aggregate.weightSum / aggregate.count, static_cast<unsigned long>(aggregate.timestamp),
+           aggregate.count, static_cast<unsigned long>(periodSeconds));
+  object_t aggregateData(jsonPayload);
+
+  char aggregatePath[DATABASE_PATH_LENGTH];
+  snprintf(aggregatePath, sizeof(aggregatePath), "%s/%lu", databasePath,
+           static_cast<unsigned long>(aggregate.timestamp));
+  cloudSyncPendingAggregate = aggregate;
+  cloudSyncPending = true;
+  cloudSyncRequestType = requestType;
+  database.set(asyncClient, aggregatePath, aggregateData, processData, requestId);
+}
+
+bool currentCloudAggregatesNeedRefresh(uint32_t currentMillis)
+{
+  const bool refreshIntervalElapsed = lastCloudAggregateRefreshMillis == 0 ||
+                                      currentMillis - lastCloudAggregateRefreshMillis >=
+                                          CLOUD_AGGREGATE_REFRESH_INTERVAL_MS;
+  const bool hourlyBucketChanged = hourlyCloudAggregate.count > 0 &&
+                                   lastPublishedHourlyBucket != hourlyCloudAggregate.timestamp;
+  const bool dailyBucketChanged = dailyCloudAggregate.count > 0 &&
+                                  lastPublishedDailyBucket != dailyCloudAggregate.timestamp;
+  const bool hourlyValuesChanged = hourlyCloudAggregate.count > 0 &&
+                                   lastPublishedHourlyCount != hourlyCloudAggregate.count;
+  const bool dailyValuesChanged = dailyCloudAggregate.count > 0 &&
+                                  lastPublishedDailyCount != dailyCloudAggregate.count;
+  return hourlyBucketChanged || dailyBucketChanged ||
+         (refreshIntervalElapsed && (hourlyValuesChanged || dailyValuesChanged));
+}
+
+void prepareCurrentCloudAggregates(uint32_t currentMillis)
+{
+  if (!currentCloudAggregatesNeedRefresh(currentMillis)) {
+    return;
+  }
+
+  if (hourlyCloudAggregate.count > 0 &&
+      (lastPublishedHourlyBucket != hourlyCloudAggregate.timestamp ||
+       lastPublishedHourlyCount != hourlyCloudAggregate.count)) {
+    readyHourlyCloudAggregate = hourlyCloudAggregate;
+    hourlyAggregateReady = true;
+  }
+  if (dailyCloudAggregate.count > 0 &&
+      (lastPublishedDailyBucket != dailyCloudAggregate.timestamp ||
+       lastPublishedDailyCount != dailyCloudAggregate.count)) {
+    readyDailyCloudAggregate = dailyCloudAggregate;
+    dailyAggregateReady = true;
+  }
+  if (hourlyAggregateReady || dailyAggregateReady) {
+    lastCloudAggregateRefreshMillis = currentMillis;
+  }
 }
 
 void synchronizeSDMeasurements(uint32_t currentMillis)
 {
-  if (!isFirebaseReady() || !sdCardReady || cloudSyncPending || cloudSyncCaughtUp ||
-      currentMillis - lastCloudSyncAttemptMillis < CLOUD_SYNC_INTERVAL_MS) {
+  if (!isFirebaseReady() || !sdCardReady || cloudSyncPending) {
+    return;
+  }
+
+  if (cloudSyncCaughtUp && !hourlyAggregateReady && !dailyAggregateReady) {
+    prepareCurrentCloudAggregates(currentMillis);
+    if (!hourlyAggregateReady && !dailyAggregateReady) {
+      return;
+    }
+  }
+
+  if (currentMillis - lastCloudSyncAttemptMillis < cloudSyncRetryIntervalMs) {
     return;
   }
   lastCloudSyncAttemptMillis = currentMillis;
+
+  if (hourlyAggregateReady) {
+    queueCloudAggregate(readyHourlyCloudAggregate, hourlyAggregateDatabasePath,
+                        CloudSyncRequestType::HourlyAggregate, "syncHourlyAggregate",
+                        HOURLY_AGGREGATE_SECONDS);
+    return;
+  }
+  if (dailyAggregateReady) {
+    queueCloudAggregate(readyDailyCloudAggregate, dailyAggregateDatabasePath,
+                        CloudSyncRequestType::DailyAggregate, "syncDailyAggregate",
+                        DAILY_AGGREGATE_SECONDS);
+    return;
+  }
 
   Measurement measurement{};
   uint32_t nextFileOffset = cloudSyncFileOffset;
   if (readNextSDMeasurementForCloudSync(measurement, nextFileOffset)) {
     queueSDMeasurementForCloudSync(measurement, nextFileOffset);
+    return;
+  }
+
+  prepareCurrentCloudAggregates(currentMillis);
+  if (hourlyAggregateReady) {
+    queueCloudAggregate(readyHourlyCloudAggregate, hourlyAggregateDatabasePath,
+                        CloudSyncRequestType::HourlyAggregate, "syncHourlyAggregate",
+                        HOURLY_AGGREGATE_SECONDS);
+  } else if (dailyAggregateReady) {
+    queueCloudAggregate(readyDailyCloudAggregate, dailyAggregateDatabasePath,
+                        CloudSyncRequestType::DailyAggregate, "syncDailyAggregate",
+                        DAILY_AGGREGATE_SECONDS);
   }
 }
 
@@ -1310,6 +1877,9 @@ void updateSDCardStatus()
     if (initializeSDCard()) {
       sdInitializationFailures = 0;
       sdErrorReported = false;
+      initializeMeasurementHistoryIndex();
+      rebuildCloudAggregateState();
+      cloudSyncCaughtUp = false;
     } else if (sdInitializationFailures < MAX_SD_INITIALIZATION_FAILURES) {
       ++sdInitializationFailures;
     }
@@ -1389,18 +1959,21 @@ void sendMeasurements()
            measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
   object_t measurements(jsonPayload);
 
-  char historyPath[96];
-  snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
-           static_cast<unsigned long>(measurement.timestamp));
-
-  if (appendToSDCard(measurement)) {
+  const bool savedToSDCard = appendToSDCard(measurement);
+  if (savedToSDCard) {
     cloudSyncCaughtUp = false;
   }
-  Serial.printf("Sending: %s %s, %.1f C, %.1f %%, %.2f kg\n", measurement.date,
+  Serial.printf("Measurement: %s %s, %.1f C, %.1f %%, %.2f kg\n", measurement.date,
                 measurement.time, measurement.temperatureC, measurement.humidityPercent,
                 measurement.weightKg);
   if (isFirebaseReady() && measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
-    database.set(asyncClient, historyPath, measurements, processData, "saveMeasurementHistory");
+    // SD sinhronizacija je običajna pot zgodovine; neposredni zapis je le rezerva ob napaki SD.
+    if (!savedToSDCard) {
+      char historyPath[DATABASE_PATH_LENGTH];
+      snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
+               static_cast<unsigned long>(measurement.timestamp));
+      database.set(asyncClient, historyPath, measurements, processData, "saveMeasurementHistory");
+    }
     database.set(asyncClient, latestDatabasePath, measurements, processData, "updateLatestMeasurement");
   }
 }
@@ -1414,7 +1987,9 @@ void setup()
 
   initializeWiFiEventHandlers();
   initializeSDCard();
+  initializeMeasurementHistoryIndex();
   connectToWiFi();
+  rebuildCloudAggregateState();
   initializeLocalWebServer();
   initializeTime();
   sslClient.setInsecure();

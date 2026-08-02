@@ -62,6 +62,12 @@
             <h2 id="provisioning-heading">Poveži čebelnjak z Wi‑Fi</h2>
             <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko ESP32.</p>
             <p class="activation-details">Za registracijo v cloud si zapiši: <strong id="local-device-id">—</strong><span>Aktivacijska koda: <strong id="activation-code">—</strong></span></p>
+            <div class="cloud-sync-controls">
+              <p>Sinhronizacija zgodovine</p>
+              <strong id="cloud-sync-status">Čakam na stanje …</strong>
+              <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
+              <small>Uporabi po brisanju Firebase baze ali če želiš ponovno poslati celoten SD dnevnik.</small>
+            </div>
           </div>
           <form class="wifi-form" id="wifi-form">
             <label>Ime Wi‑Fi omrežja<input id="wifi-ssid" name="ssid" type="text" maxlength="32" autocomplete="wifi ssid" required /></label>

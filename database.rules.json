@@ -49,6 +49,18 @@
             ".write": "auth == null"
           }
         },
+        "aggregates": {
+          "hourly": {
+            "$timestamp": {
+              ".write": "auth == null"
+            }
+          },
+          "daily": {
+            "$timestamp": {
+              ".write": "auth == null"
+            }
+          }
+        },
         "status": {
           "device": {
             ".write": "auth == null"

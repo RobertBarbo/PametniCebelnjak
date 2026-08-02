@@ -233,6 +233,42 @@ section + section {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+.cloud-sync-controls {
+  display: grid;
+  justify-items: start;
+  gap: 0.45rem;
+  margin-top: 1.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.cloud-sync-controls p,
+.cloud-sync-controls strong,
+.cloud-sync-controls small {
+  margin: 0;
+}
+
+.cloud-sync-controls p,
+.cloud-sync-controls small {
+  color: var(--muted);
+}
+
+.cloud-sync-controls p {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cloud-sync-controls small {
+  max-width: 34rem;
+  line-height: 1.45;
+}
+
+.cloud-sync-controls .secondary-button {
+  margin-top: 0.35rem;
+}
+
 .provisioning-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.9fr);

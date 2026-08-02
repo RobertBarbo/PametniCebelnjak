@@ -71,6 +71,8 @@ const elements = {
   activationCode: document.querySelector("#activation-code"),
   localActivationCard: document.querySelector("#local-activation-card"),
   localActivationCode: document.querySelector("#local-activation-code"),
+  cloudSyncStatus: document.querySelector("#cloud-sync-status"),
+  cloudResync: document.querySelector("#cloud-resync"),
 };
 
 let chart;
@@ -274,6 +276,32 @@ function renderProvisioning(network) {
   if (network?.connection_message) elements.wifiFormStatus.textContent = network.connection_message;
 }
 
+function renderCloudSynchronization(sync, network, sdCard) {
+  const isPending = sync?.pending === true;
+  const isCaughtUp = sync?.caught_up === true;
+  const hasCloudConnection = network?.station_connected === true;
+  const hasSDCard = sdCard?.present === true;
+  const retrySeconds = Number(sync?.retry_seconds);
+  const lastSyncedTimestamp = Number(sync?.last_synced_timestamp);
+
+  if (!hasSDCard) {
+    elements.cloudSyncStatus.textContent = "SD kartica ni dosegljiva.";
+  } else if (!hasCloudConnection) {
+    elements.cloudSyncStatus.textContent = "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.";
+  } else if (isPending) {
+    elements.cloudSyncStatus.textContent = "Pošiljam zgodovino v Firebase …";
+  } else if (isCaughtUp) {
+    elements.cloudSyncStatus.textContent = "SD kartica in Firebase sta sinhronizirana.";
+  } else if (Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0) {
+    const retryText = Number.isFinite(retrySeconds) && retrySeconds > 2 ? ` Razmik ponovnih poskusov: ${retrySeconds} s.` : "";
+    elements.cloudSyncStatus.textContent = `Zadnji preneseni zapis: ${formatDate(new Date(lastSyncedTimestamp * 1000), { dateStyle: "short", timeStyle: "short" })}.${retryText}`;
+  } else {
+    elements.cloudSyncStatus.textContent = "Zgodovina čaka na prvi prenos v Firebase.";
+  }
+
+  elements.cloudResync.disabled = isPending || !hasSDCard;
+}
+
 async function saveWiFiConfiguration(event) {
   event.preventDefault();
   const ssid = elements.wifiSsid.value.trim();
@@ -374,10 +402,27 @@ async function forgetWiFiConfiguration() {
   }
 }
 
+async function resetCloudHistorySynchronization() {
+  if (!window.confirm("Ponovno pošljem celoten SD dnevnik v Firebase? Obstoječi zapisi z istim časom bodo varno prepisani.")) return;
+
+  elements.cloudResync.disabled = true;
+  elements.cloudSyncStatus.textContent = "Ponastavljam položaj sinhronizacije …";
+  try {
+    const response = await fetch("/api/sync/reset", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Ponastavitev sinhronizacije ni uspela");
+    elements.cloudSyncStatus.textContent = "Ponovni prenos celotne zgodovine se je začel.";
+  } catch (error) {
+    elements.cloudSyncStatus.textContent = error.message;
+    elements.cloudResync.disabled = false;
+  }
+}
+
 function initializeProvisioningForm() {
   elements.wifiForm.addEventListener("submit", saveWiFiConfiguration);
   elements.wifiScan.addEventListener("click", scanWiFiNetworks);
   elements.wifiForget.addEventListener("click", forgetWiFiConfiguration);
+  elements.cloudResync.addEventListener("click", resetCloudHistorySynchronization);
 }
 
 function renderSDStatus(status) {
@@ -489,6 +534,17 @@ function getBucketSeconds(range) {
   return 24 * 60 * 60;
 }
 
+function getCloudHistorySource(from, to) {
+  const duration = to - from;
+  if (duration <= 7 * 24 * 60 * 60) {
+    return { path: "measurements", periodSeconds: 0 };
+  }
+  if (duration <= 31 * 24 * 60 * 60) {
+    return { path: "aggregates/hourly", periodSeconds: 60 * 60 };
+  }
+  return { path: "aggregates/daily", periodSeconds: 24 * 60 * 60 };
+}
+
 function aggregateReadings(readings, range) {
   const bucketSeconds = getBucketSeconds(range);
   const buckets = new Map();
@@ -499,13 +555,14 @@ function aggregateReadings(readings, range) {
     const humidity = Number(reading.humidity_percent);
     const weight = Number(reading.weight_kg);
     if (![timestamp, temperature, humidity, weight].every(Number.isFinite)) return;
+    const sampleCount = Math.max(1, Number(reading.sample_count) || 1);
 
     const bucket = Math.floor(timestamp / bucketSeconds) * bucketSeconds;
     const current = buckets.get(bucket) ?? { timestamp: bucket, count: 0, temperature: 0, humidity: 0, weight: 0 };
-    current.count += 1;
-    current.temperature += temperature;
-    current.humidity += humidity;
-    current.weight += weight;
+    current.count += sampleCount;
+    current.temperature += temperature * sampleCount;
+    current.humidity += humidity * sampleCount;
+    current.weight += weight * sampleCount;
     buckets.set(bucket, current);
   });
 
@@ -917,31 +974,50 @@ function initializeAuthControls() {
 async function useLocalDataSource() {
   const response = await fetch("/api/status", { cache: "no-store" });
   if (!response.ok) throw new Error("Lokalni API ni dosegljiv");
+  const initialStatus = await response.json();
   isLocalDashboard = true;
   elements.otaSection.hidden = true;
   elements.authTrigger.hidden = true;
   elements.accountSection.hidden = true;
 
-  async function refreshStatus() {
-    const status = await (await fetch("/api/status", { cache: "no-store" })).json();
+  function renderLocalStatus(status) {
     renderLatestMeasurement(status.latest);
     renderDeviceStatus(status.device, true);
     renderProvisioning(status.network);
+    renderCloudSynchronization(status.sync, status.network, status.sd_card);
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
     setConnectionState("Lokalna povezava z ESP32");
   }
 
+  async function refreshStatus() {
+    const statusResponse = await fetch("/api/status", { cache: "no-store" });
+    if (!statusResponse.ok) throw new Error("Lokalno stanje ni dosegljivo");
+    renderLocalStatus(await statusResponse.json());
+  }
+
   refreshHistory = async () => {
     const from = Math.floor(appliedRange.from.getTime() / 1000);
     const to = Math.floor(appliedRange.to.getTime() / 1000);
-    const historyResponse = await fetch(`/api/history?from=${from}&to=${to}`, { cache: "no-store" });
-    if (!historyResponse.ok) throw new Error("Lokalna zgodovina ni dosegljiva");
-    const history = await historyResponse.json();
-    renderHistory(history.readings ?? [], true);
+    try {
+      const historyResponse = await fetch(`/api/history?from=${from}&to=${to}`, { cache: "no-store" });
+      if (!historyResponse.ok) {
+        renderHistory([], true);
+        elements.historySummary.textContent = historyResponse.status === 503
+          ? "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo."
+          : "Lokalna zgodovina trenutno ni dosegljiva.";
+        return;
+      }
+      const history = await historyResponse.json();
+      renderHistory(history.readings ?? [], true);
+    } catch (error) {
+      console.error(error);
+      renderHistory([], true);
+      elements.historySummary.textContent = "Lokalne zgodovine ni bilo mogoče prebrati; povezava z ESP32 ostaja aktivna.";
+    }
   };
 
-  await refreshStatus();
+  renderLocalStatus(initialStatus);
   await refreshHistory();
   setInterval(() => refreshStatus().catch(showDataError), 5_000);
 }
@@ -978,7 +1054,9 @@ async function useFirebaseDataSource() {
     }
     const from = Math.floor(appliedRange.from.getTime() / 1000);
     const to = Math.floor(appliedRange.to.getTime() / 1000);
-    const historyQuery = query(ref(database, `${cloudDevicePath}/measurements`), orderByKey(), startAt(String(from)), endAt(String(to)));
+    const source = getCloudHistorySource(from, to);
+    const queryFrom = source.periodSeconds > 0 ? Math.floor(from / source.periodSeconds) * source.periodSeconds : from;
+    const historyQuery = query(ref(database, `${cloudDevicePath}/${source.path}`), orderByKey(), startAt(String(queryFrom)), endAt(String(to)));
     stopHistoryListener = onValue(historyQuery, (snapshot) => {
       const readings = Object.entries(snapshot.val() ?? {}).map(([key, value]) => ({ ...value, timestamp: Number(value.timestamp ?? key) }));
       renderHistory(readings);

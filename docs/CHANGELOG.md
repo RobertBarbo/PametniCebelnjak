@@ -4,6 +4,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.9] - 2026-08-02
+
 ### Added
 
 - Firebase Authentication v cloud nadzorni plošči z e-pošto/geslom in Google prijavo.

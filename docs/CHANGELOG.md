@@ -4,6 +4,18 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.11] - 2026-08-03
+
+### Added
+
+- Cloud OTA kartica prikazuje fazo posodobitve, odstotek prenosa in poudarjeno napako z možnostjo ponovnega poskusa.
+- ESP32 v Firebase zapisuje `progress_percent` od 0 do 100 ter v serijskem monitorju izpiše napredek prenosa po desetih odstotkih.
+
+### Changed
+
+- OTA prenos firmware-a poteka po kratkih korakih v glavni zanki; med prenosom ostaneta aktivna Firebase obdelava in lokalni spletni strežnik.
+- Med OTA posodobitvijo se ostale cloud zahteve začasno ustavijo, da ne tekmujejo s statusom in prenosom firmware-a.
+
 ## [0.1.0-beta.10] - 2026-08-03
 
 ### Fixed

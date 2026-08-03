@@ -49,8 +49,8 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.10
-git push origin v0.1.0-beta.10
+git tag v0.1.0-beta.11
+git push origin v0.1.0-beta.11
 ```
 
 GitHub Actions prevede univerzalni firmware in objavi `firmware.bin` ter `manifest.json` v GitHub Release. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

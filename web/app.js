@@ -50,10 +50,15 @@ const elements = {
   startTime: document.querySelector("#range-start-time"),
   endTime: document.querySelector("#range-end-time"),
   otaSection: document.querySelector("#ota-section"),
+  otaCard: document.querySelector("#ota-card"),
   otaLabel: document.querySelector("#ota-label"),
   otaVersion: document.querySelector("#ota-version"),
   otaDetail: document.querySelector("#ota-detail"),
   otaDeviceStatus: document.querySelector("#ota-device-status"),
+  otaProgress: document.querySelector("#ota-progress"),
+  otaProgressTrack: document.querySelector("#ota-progress-track"),
+  otaProgressBar: document.querySelector("#ota-progress-bar"),
+  otaProgressText: document.querySelector("#ota-progress-text"),
   otaActions: document.querySelector("#ota-actions"),
   otaInstall: document.querySelector("#ota-install"),
   otaIgnore: document.querySelector("#ota-ignore"),
@@ -101,6 +106,17 @@ let stopCloudDeviceListeners = [];
 let cloudDevices = {};
 let authControlsInitialized = false;
 
+const OTA_STATE_LABELS = {
+  preparing: "Priprava posodobitve",
+  installing: "Namestitev posodobitve",
+  downloading: "Prenašanje firmware-a",
+  verifying: "Preverjanje firmware-a",
+  restarting: "Ponovni zagon naprave",
+  installed: "Posodobitev je uspešna",
+  ignored: "Posodobitev je prezrta",
+  error: "Napaka OTA",
+};
+
 function isValidDeviceId(deviceId) {
   return /^CB-[A-F0-9]{12}$/.test(String(deviceId));
 }
@@ -123,6 +139,7 @@ function resetCloudDashboard() {
   renderSDStatus(null);
   renderFirmwareVersion(null);
   elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
+  resetOtaProgress();
   elements.otaActions.hidden = true;
   renderHistory([]);
 }
@@ -440,10 +457,50 @@ function renderFirmwareVersion(status) {
   if (!isLocalDashboard && latestFirmwareVersion) checkForFirmwareRelease();
 }
 
+function resetOtaProgress() {
+  elements.otaProgress.hidden = true;
+  elements.otaProgressBar.style.width = "0%";
+  elements.otaProgressTrack.setAttribute("aria-valuenow", "0");
+  elements.otaProgressText.textContent = "0 %";
+  elements.otaCard.classList.remove("ota-error");
+}
+
+function renderOtaProgress(progressPercent, hasError = false) {
+  const numericProgress = Number(progressPercent);
+  const hasProgress = Number.isFinite(numericProgress);
+  elements.otaCard.classList.toggle("ota-error", hasError);
+  elements.otaProgress.hidden = !hasProgress;
+  if (!hasProgress) return;
+
+  const clampedProgress = Math.max(0, Math.min(100, Math.round(numericProgress)));
+  elements.otaProgressBar.style.width = `${clampedProgress}%`;
+  elements.otaProgressTrack.setAttribute("aria-valuenow", String(clampedProgress));
+  elements.otaProgressText.textContent = `${clampedProgress} %`;
+}
+
 function renderOtaDeviceStatus(status) {
-  if (!status?.state) return;
+  if (!status?.state) {
+    resetOtaProgress();
+    return;
+  }
+
+  const state = String(status.state);
+  const stateLabel = OTA_STATE_LABELS[state] ?? state;
   const target = status.target_version ? ` ${status.target_version}` : "";
-  elements.otaDeviceStatus.textContent = `${status.state}${target}: ${status.message ?? ""}`.trim();
+  const message = String(status.message ?? "").trim();
+  elements.otaDeviceStatus.textContent = `${stateLabel}${target}${message ? `: ${message}` : ""}`;
+  renderOtaProgress(status.progress_percent, state === "error");
+
+  if (state === "error") {
+    otaCommandPending = false;
+    if (availableOtaRelease) {
+      elements.otaInstall.disabled = false;
+      elements.otaIgnore.disabled = false;
+      elements.otaActions.hidden = false;
+    }
+  } else if (state === "installed") {
+    otaCommandPending = false;
+  }
 }
 
 function showOtaAvailability(release) {
@@ -497,6 +554,7 @@ async function requestFirmwareUpdate() {
   otaCommandPending = true;
   elements.otaInstall.disabled = true;
   elements.otaIgnore.disabled = true;
+  renderOtaProgress(0);
   elements.otaDeviceStatus.textContent = "OTA ukaz pošiljam napravi …";
   try {
     const { ref, set } = firebaseDatabase;

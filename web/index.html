@@ -142,6 +142,12 @@
             <strong id="ota-version">—</strong>
             <p class="ota-detail" id="ota-detail">GitHub Release bo prikazan, ko je na voljo.</p>
             <small id="ota-device-status">Naprava še ni prejela OTA ukaza.</small>
+            <div class="ota-progress" id="ota-progress" hidden>
+              <div class="ota-progress-track" id="ota-progress-track" role="progressbar" aria-label="Napredek OTA posodobitve" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <span class="ota-progress-bar" id="ota-progress-bar"></span>
+              </div>
+              <small id="ota-progress-text">0 %</small>
+            </div>
           </div>
           <div class="ota-actions" id="ota-actions" hidden>
             <button class="secondary-button" id="ota-ignore" type="button">Prezri</button>

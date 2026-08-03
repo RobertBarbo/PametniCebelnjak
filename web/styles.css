@@ -538,6 +538,48 @@ section + section {
   color: var(--muted);
 }
 
+.ota-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.ota-progress-track {
+  overflow: hidden;
+  height: 0.62rem;
+  border-radius: 999px;
+  background: #d9e7dd;
+  box-shadow: inset 0 1px 2px rgb(17 53 37 / 12%);
+}
+
+.ota-progress-bar {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--leaf), #2f9a65);
+  transition: width 180ms ease;
+}
+
+.ota-progress small {
+  min-width: 3.1rem;
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ota-card.ota-error {
+  border-color: #d98b80;
+  background: linear-gradient(135deg, #fff5f2, var(--surface));
+}
+
+.ota-card.ota-error .ota-progress-bar {
+  background: #bf5347;
+}
+
 .ota-actions {
   display: flex;
   flex: none;

@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.15`
+**Različica:** `0.1.0-beta.16`
 
 ## Trenutne funkcije
 
@@ -49,8 +49,8 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.15
-git push origin v0.1.0-beta.15
+git tag v0.1.0-beta.16
+git push origin v0.1.0-beta.16
 ```
 
 GitHub Actions prevede univerzalni firmware in objavi `firmware.bin` ter `manifest.json` v GitHub Release. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

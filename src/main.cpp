@@ -874,6 +874,9 @@ void failOtaUpdate(const String &errorMessage)
   Serial.print("OTA error: ");
   Serial.println(errorMessage);
   releaseOtaDownloadResources(true);
+  firmwareCommandQueued = false;
+  queuedFirmwareCommandInvalid = false;
+  queuedFirmwareCommandPayload[0] = '\0';
   otaUpdateState = OtaUpdateState::Idle;
   firmwareUpdateInProgress = false;
   reportOtaStatus("error", otaTargetVersion, errorMessage.c_str(), progressPercent);
@@ -884,6 +887,11 @@ void failOtaUpdate(const String &errorMessage)
 // Firebase povratni klic ostane kratek; počasno OTA omrežno delo se izvede pozneje v glavni zanki.
 void queueFirmwareUpdateCommand(const String &payload)
 {
+  if (firmwareUpdateInProgress || firmwareCommandQueued) {
+    Serial.println("OTA command ignored: an update is already queued or in progress.");
+    return;
+  }
+
   queuedFirmwareCommandInvalid = payload.length() >= sizeof(queuedFirmwareCommandPayload);
   if (queuedFirmwareCommandInvalid) {
     queuedFirmwareCommandPayload[0] = '\0';
@@ -965,9 +973,10 @@ String resolveOtaRedirectUrl(const String &location, const String &host, const S
   return String("https://") + host + parentPath + location;
 }
 
-bool readOtaHttpLine(String &line, uint32_t timeoutMs)
+bool readOtaHttpLine(String &line, bool &lineTruncated, uint32_t timeoutMs)
 {
   line = "";
+  lineTruncated = false;
   line.reserve(OTA_HTTP_LINE_MAX_LENGTH);
   const uint32_t startedMillis = millis();
 
@@ -976,7 +985,10 @@ bool readOtaHttpLine(String &line, uint32_t timeoutMs)
       const char character = static_cast<char>(otaDownloadClient.read());
       if (character == '\n') return true;
       if (character == '\r') continue;
-      if (line.length() >= OTA_HTTP_LINE_MAX_LENGTH) return false;
+      if (line.length() >= OTA_HTTP_LINE_MAX_LENGTH) {
+        lineTruncated = true;
+        continue;
+      }
       line += character;
     }
 
@@ -1024,8 +1036,13 @@ bool openFirmwareDownloadConnection(String &errorMessage)
     }
 
     String statusLine;
-    if (!readOtaHttpLine(statusLine, OTA_HEADER_TIMEOUT_MS) || statusLine.length() == 0) {
+    bool statusLineTruncated = false;
+    if (!readOtaHttpLine(statusLine, statusLineTruncated, OTA_HEADER_TIMEOUT_MS) || statusLine.length() == 0) {
       errorMessage = "OTA strežnik ni pravočasno poslal HTTP odgovora.";
+      return false;
+    }
+    if (statusLineTruncated) {
+      errorMessage = "OTA strežnik je vrnil predolgo HTTP statusno vrstico.";
       return false;
     }
 
@@ -1046,9 +1063,14 @@ bool openFirmwareDownloadConnection(String &errorMessage)
     bool chunkedTransfer = false;
     while (true) {
       String headerLine;
-      if (!readOtaHttpLine(headerLine, OTA_HEADER_TIMEOUT_MS)) {
+      bool headerLineTruncated = false;
+      if (!readOtaHttpLine(headerLine, headerLineTruncated, OTA_HEADER_TIMEOUT_MS)) {
         errorMessage = "Branje HTTP glav OTA prenosa je poteklo.";
         return false;
+      }
+      if (headerLineTruncated) {
+        Serial.println("OTA: preskočena je bila predolga HTTP glava.");
+        continue;
       }
       if (headerLine.length() == 0) break;
 

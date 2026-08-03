@@ -4,6 +4,13 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.16] - 2026-08-03
+
+### Fixed
+
+- OTA parser varno preskoči predolge nepomembne GitHub HTTP glave, kot je Content-Security-Policy, in še naprej obdela preusmeritveno glavo `Location`.
+- Podvojeni Firebase povratni klic za isti OTA ukaz med čakanjem ali posodobitvijo ne more več sprožiti dodatnega poskusa po napaki.
+
 ## [0.1.0-beta.15] - 2026-08-03
 
 ### Changed

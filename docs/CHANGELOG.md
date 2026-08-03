@@ -4,6 +4,12 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.13] - 2026-08-03
+
+### Changed
+
+- Testna OTA izdaja za preverjanje neposrednega HTTPS prenosa, GitHub preusmeritve, prikaza napredka v cloud nadzorni plošči in serijskega izpisa.
+
 ## [0.1.0-beta.12] - 2026-08-03
 
 ### Changed

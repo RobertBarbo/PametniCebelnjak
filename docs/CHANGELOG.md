@@ -4,6 +4,17 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.14] - 2026-08-03
+
+### Fixed
+
+- OTA med branjem GitHub HTTP glav in med kratko praznim prenosnim medpomnilnikom ne zaupa več prehodnemu napačnemu stanju `WiFiClientSecure::connected()`.
+- Prenos zdaj prekine šele po dejanskem nastavljenem poteku brez podatkov, zato se GitHub preusmeritev ne označi več napačno kot prekinjena povezava.
+
+### Changed
+
+- Serijski monitor po odprtju firmware povezave izpiše HTTP statusno kodo odgovora OTA strežnika.
+
 ## [0.1.0-beta.13] - 2026-08-03
 
 ### Changed

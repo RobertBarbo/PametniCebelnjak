@@ -184,7 +184,6 @@ bool firmwareCommandPending = false;
 bool firmwareCommandQueued = false;
 bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
-bool otaDownloadConnectionActive = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool activationSecretPublishPending = false;
@@ -862,7 +861,6 @@ void releaseOtaDownloadResources(bool abortFirmwareWrite)
     otaHashActive = false;
   }
   otaDownloadClient.stop();
-  otaDownloadConnectionActive = false;
   otaDownloadStream = nullptr;
   if (abortFirmwareWrite && otaFlashUpdateActive) {
     Update.abort();
@@ -982,7 +980,6 @@ bool readOtaHttpLine(String &line, uint32_t timeoutMs)
       line += character;
     }
 
-    if (!otaDownloadClient.connected()) return line.length() > 0;
     yield();
   }
 
@@ -1009,7 +1006,6 @@ bool openFirmwareDownloadConnection(String &errorMessage)
     }
 
     otaDownloadClient.stop();
-    otaDownloadConnectionActive = false;
     otaDownloadClient.setTimeout(1000);
     otaDownloadClient.setHandshakeTimeout((OTA_FIRMWARE_TIMEOUT_MS + 999) / 1000);
 
@@ -1042,6 +1038,8 @@ bool openFirmwareDownloadConnection(String &errorMessage)
       errorMessage = "OTA strežnik je vrnil neveljaven HTTP odgovor.";
       return false;
     }
+    Serial.print("OTA: firmware HTTP ");
+    Serial.println(statusCode);
 
     String redirectLocation;
     long contentLength = -1;
@@ -1094,7 +1092,6 @@ bool openFirmwareDownloadConnection(String &errorMessage)
       return false;
     }
 
-    otaDownloadConnectionActive = true;
     otaDownloadStream = &otaDownloadClient;
     return true;
   }
@@ -1143,10 +1140,6 @@ void processOtaDownloadChunk()
 
   const size_t available = otaDownloadStream->available();
   if (available == 0) {
-    if (!otaDownloadConnectionActive || !otaDownloadClient.connected()) {
-      failOtaUpdate("Povezava med prenosom firmware-a se je prekinila.");
-      return;
-    }
     if (millis() - otaLastDataReceivedMillis >= OTA_STREAM_IDLE_TIMEOUT_MS) {
       failOtaUpdate("Prenos firmware-a je potekel brez prejetih podatkov.");
     }

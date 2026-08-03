@@ -48,6 +48,10 @@ constexpr uint32_t DAILY_AGGREGATE_SECONDS = 24 * 60 * 60;
 // GitHub Release vedno vsebuje manifest.json in firmware.bin za najnovejšo izdajo.
 constexpr char OTA_MANIFEST_URL[] = "https://github.com/RobertBarbo/PametniCebelnjak/releases/latest/download/manifest.json";
 constexpr size_t OTA_DOWNLOAD_BUFFER_SIZE = 2048;
+constexpr size_t OTA_COMMAND_PAYLOAD_LENGTH = 256;
+constexpr uint32_t OTA_MANIFEST_TIMEOUT_MS = 15000;
+constexpr uint32_t OTA_FIRMWARE_TIMEOUT_MS = 20000;
+constexpr uint32_t OTA_STREAM_IDLE_TIMEOUT_MS = 15000;
 
 constexpr int SD_CS_PIN = 10;
 constexpr int SD_MOSI_PIN = 11;
@@ -160,6 +164,9 @@ uint8_t sdInitializationFailures = 0;
 bool sdErrorReported = false;
 bool firmwareVersionReported = false;
 bool firmwareCommandPending = false;
+bool firmwareCommandQueued = false;
+bool firmwareUpdateInProgress = false;
+bool queuedFirmwareCommandInvalid = false;
 bool activationSecretPublishPending = false;
 bool activationSecretRegistrationReported = false;
 bool validTimeWasAvailable = false;
@@ -200,6 +207,8 @@ char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
+char queuedFirmwareCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
+uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
 time_t lastIndexedDayTimestamp = 0;
 time_t lastPublishedHourlyBucket = 0;
 time_t lastPublishedDailyBucket = 0;
@@ -208,6 +217,8 @@ uint16_t lastPublishedDailyCount = 0;
 CloudSyncRequestType cloudSyncRequestType = CloudSyncRequestType::None;
 
 void processFirmwareUpdateCommand(const String &payload);
+void queueFirmwareUpdateCommand(const String &payload);
+void processQueuedFirmwareUpdateCommand();
 bool persistCloudSyncState();
 bool parseMeasurementCsvLine(const char *line, Measurement &measurement);
 void resetCloudAggregateState();
@@ -322,7 +333,7 @@ void processData(AsyncResult &result)
   if (result.available()) {
     if (result.uid() == "readFirmwareUpdateCommand") {
       firmwareCommandPending = false;
-      processFirmwareUpdateCommand(result.payload());
+      queueFirmwareUpdateCommand(result.payload());
       return;
     }
     if (result.uid() == "publishActivationSecret") {
@@ -799,11 +810,26 @@ void clearFirmwareUpdateCommand()
   database.remove(asyncClient, otaCommandDatabasePath, processData, "clearFirmwareUpdateCommand");
 }
 
+// Firebase povratni klic ostane kratek; počasno OTA omrežno delo se izvede pozneje v glavni zanki.
+void queueFirmwareUpdateCommand(const String &payload)
+{
+  queuedFirmwareCommandInvalid = payload.length() >= sizeof(queuedFirmwareCommandPayload);
+  if (queuedFirmwareCommandInvalid) {
+    queuedFirmwareCommandPayload[0] = '\0';
+    Serial.println("OTA command rejected: payload is too large.");
+  } else {
+    payload.toCharArray(queuedFirmwareCommandPayload, sizeof(queuedFirmwareCommandPayload));
+    Serial.println("OTA command queued.");
+  }
+  firmwareCommandQueued = true;
+}
+
 bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
 {
+  Serial.println("OTA: downloading manifest.");
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(15000);
+  http.setTimeout(OTA_MANIFEST_TIMEOUT_MS);
   if (!http.begin(otaClient, OTA_MANIFEST_URL)) {
     errorMessage = "Povezave do OTA manifesta ni bilo mogoče odpreti.";
     return false;
@@ -811,7 +837,9 @@ bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
 
   const int responseCode = http.GET();
   if (responseCode != HTTP_CODE_OK) {
-    errorMessage = "Manifest OTA ni dosegljiv.";
+    Serial.print("OTA: manifest HTTP ");
+    Serial.println(responseCode);
+    errorMessage = String("Manifest OTA ni dosegljiv (HTTP ") + responseCode + ").";
     http.end();
     return false;
   }
@@ -822,6 +850,12 @@ bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
     errorMessage = "Manifest OTA ima neveljavno obliko.";
     return false;
   }
+
+  Serial.print("OTA: manifest v");
+  Serial.print(manifest.version);
+  Serial.print(", ");
+  Serial.print(manifest.size);
+  Serial.println(" bytes.");
   return true;
 }
 
@@ -836,9 +870,10 @@ String sha256ToHex(const uint8_t hash[32])
 
 bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorMessage)
 {
+  Serial.println("OTA: downloading firmware.");
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(20000);
+  http.setTimeout(OTA_FIRMWARE_TIMEOUT_MS);
   if (!http.begin(otaClient, manifest.firmwareUrl)) {
     errorMessage = "Povezave do firmware datoteke ni bilo mogoče odpreti.";
     return false;
@@ -846,7 +881,9 @@ bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorM
 
   const int responseCode = http.GET();
   if (responseCode != HTTP_CODE_OK) {
-    errorMessage = "Firmware datoteka ni dosegljiva.";
+    Serial.print("OTA: firmware HTTP ");
+    Serial.println(responseCode);
+    errorMessage = String("Firmware datoteka ni dosegljiva (HTTP ") + responseCode + ").";
     http.end();
     return false;
   }
@@ -867,28 +904,55 @@ bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorM
   mbedtls_sha256_init(&sha256Context);
   mbedtls_sha256_starts(&sha256Context, 0);
   WiFiClient *stream = http.getStreamPtr();
-  uint8_t buffer[OTA_DOWNLOAD_BUFFER_SIZE];
+  if (stream == nullptr) {
+    mbedtls_sha256_free(&sha256Context);
+    Update.abort();
+    http.end();
+    errorMessage = "Podatkovnega toka OTA firmware-a ni bilo mogoče odpreti.";
+    return false;
+  }
+
+  stream->setTimeout(1000);
   size_t downloaded = 0;
+  uint32_t lastDataReceivedMillis = millis();
+  uint8_t lastReportedProgress = 0;
 
   while (downloaded < manifest.size) {
     const size_t available = stream->available();
     if (available == 0) {
-      if (!http.connected()) break;
-      delay(1);
+      if (!http.connected()) {
+        errorMessage = "Povezava med prenosom firmware-a se je prekinila.";
+        break;
+      }
+      if (millis() - lastDataReceivedMillis >= OTA_STREAM_IDLE_TIMEOUT_MS) {
+        errorMessage = "Prenos firmware-a je potekel brez prejetih podatkov.";
+        break;
+      }
+      yield();
       continue;
     }
 
-    const size_t bytesToRead = min(available, min(sizeof(buffer), manifest.size - downloaded));
-    const size_t bytesRead = stream->readBytes(buffer, bytesToRead);
-    if (bytesRead == 0 || Update.write(buffer, bytesRead) != bytesRead) {
-      Update.abort();
-      mbedtls_sha256_free(&sha256Context);
-      http.end();
-      errorMessage = "Zapis OTA firmware-a ni uspel.";
-      return false;
+    const size_t bytesToRead = min(available, min(sizeof(otaDownloadBuffer), manifest.size - downloaded));
+    const size_t bytesRead = stream->readBytes(otaDownloadBuffer, bytesToRead);
+    if (bytesRead == 0) {
+      errorMessage = "Branje OTA firmware-a ni uspelo.";
+      break;
     }
-    mbedtls_sha256_update(&sha256Context, buffer, bytesRead);
+    if (Update.write(otaDownloadBuffer, bytesRead) != bytesRead) {
+      errorMessage = "Zapis OTA firmware-a ni uspel.";
+      break;
+    }
+    mbedtls_sha256_update(&sha256Context, otaDownloadBuffer, bytesRead);
     downloaded += bytesRead;
+    lastDataReceivedMillis = millis();
+
+    const uint8_t progress = static_cast<uint8_t>((downloaded * 100U) / manifest.size);
+    if (progress == 100 || progress >= lastReportedProgress + 25) {
+      lastReportedProgress = progress;
+      Serial.print("OTA: ");
+      Serial.print(progress);
+      Serial.println("% downloaded.");
+    }
   }
 
   uint8_t actualHash[32];
@@ -896,7 +960,15 @@ bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorM
   mbedtls_sha256_free(&sha256Context);
   http.end();
 
-  if (downloaded != manifest.size || sha256ToHex(actualHash) != manifest.sha256) {
+  if (downloaded != manifest.size) {
+    Update.abort();
+    if (errorMessage.length() == 0) {
+      errorMessage = "Prenos OTA firmware-a ni popoln.";
+    }
+    return false;
+  }
+
+  if (sha256ToHex(actualHash) != manifest.sha256) {
     Update.abort();
     errorMessage = "SHA-256 firmware datoteke se ne ujema z manifestom.";
     return false;
@@ -911,40 +983,105 @@ bool downloadAndInstallFirmware(const FirmwareManifest &manifest, String &errorM
 
 void processFirmwareUpdateCommand(const String &payload)
 {
-  if (payload == "null" || payload.length() == 0) return;
+  if (payload == "null" || payload.length() == 0) {
+    Serial.println("OTA: no update command available.");
+    return;
+  }
 
   String action;
   String targetVersion;
   if (!extractJsonString(payload, "action", action) || !extractJsonString(payload, "target_version", targetVersion)) {
+    Serial.println("OTA error: invalid update command.");
     reportOtaStatus("error", "", "Neveljaven OTA ukaz.");
     clearFirmwareUpdateCommand();
     return;
   }
 
   if (action == "ignore") {
+    Serial.println("OTA: update command ignored.");
     reportOtaStatus("ignored", targetVersion.c_str(), "Posodobitev je bila prezrta.");
     clearFirmwareUpdateCommand();
     return;
   }
 
-  if (action != "install" || !isNewerFirmwareVersion(targetVersion.c_str(), FIRMWARE_VERSION)) {
+  if (action != "install") {
+    Serial.println("OTA: unsupported update action.");
     clearFirmwareUpdateCommand();
     return;
   }
 
+  if (targetVersion == FIRMWARE_VERSION) {
+    Serial.println("OTA: requested firmware is already installed.");
+    reportOtaStatus("installed", targetVersion.c_str(), "Firmware je že nameščen.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  if (!isNewerFirmwareVersion(targetVersion.c_str(), FIRMWARE_VERSION)) {
+    Serial.println("OTA: requested firmware is not newer.");
+    reportOtaStatus("ignored", targetVersion.c_str(), "Zahtevana različica ni novejša.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  Serial.print("OTA: installation requested for v");
+  Serial.println(targetVersion);
   reportOtaStatus("installing", targetVersion.c_str(), "Prenašam in preverjam firmware.");
   FirmwareManifest manifest{};
   String errorMessage;
-  if (!loadFirmwareManifest(manifest, errorMessage) || String(manifest.version) != targetVersion ||
-      !isNewerFirmwareVersion(manifest.version, FIRMWARE_VERSION) ||
-      !downloadAndInstallFirmware(manifest, errorMessage)) {
+  if (!loadFirmwareManifest(manifest, errorMessage)) {
+    Serial.print("OTA error: ");
+    Serial.println(errorMessage);
+    reportOtaStatus("error", targetVersion.c_str(), errorMessage.c_str());
+    clearFirmwareUpdateCommand();
+    return;
+  }
+  if (String(manifest.version) != targetVersion) {
+    errorMessage = "Različica manifesta se ne ujema z OTA ukazom.";
+    Serial.print("OTA error: ");
+    Serial.println(errorMessage);
+    reportOtaStatus("error", targetVersion.c_str(), errorMessage.c_str());
+    clearFirmwareUpdateCommand();
+    return;
+  }
+  if (!isNewerFirmwareVersion(manifest.version, FIRMWARE_VERSION)) {
+    errorMessage = "Različica v manifestu ni novejša od nameščene.";
+    Serial.print("OTA error: ");
+    Serial.println(errorMessage);
+    reportOtaStatus("error", targetVersion.c_str(), errorMessage.c_str());
+    clearFirmwareUpdateCommand();
+    return;
+  }
+  if (!downloadAndInstallFirmware(manifest, errorMessage)) {
+    Serial.print("OTA error: ");
+    Serial.println(errorMessage);
     reportOtaStatus("error", targetVersion.c_str(), errorMessage.c_str());
     clearFirmwareUpdateCommand();
     return;
   }
 
   // Novo sliko aktivira šele Update.end(true); ob naslednjem zagonu firmware pošlje novo verzijo v Firebase.
+  Serial.println("OTA: firmware verified, restarting device.");
   ESP.restart();
+}
+
+void processQueuedFirmwareUpdateCommand()
+{
+  if (!firmwareCommandQueued || firmwareUpdateInProgress) return;
+
+  firmwareCommandQueued = false;
+  firmwareUpdateInProgress = true;
+  if (queuedFirmwareCommandInvalid) {
+    queuedFirmwareCommandInvalid = false;
+    Serial.println("OTA error: update command payload is too large.");
+    reportOtaStatus("error", "", "OTA ukaz je predolg.");
+    clearFirmwareUpdateCommand();
+  } else {
+    const String payload(queuedFirmwareCommandPayload);
+    queuedFirmwareCommandPayload[0] = '\0';
+    processFirmwareUpdateCommand(payload);
+  }
+  firmwareUpdateInProgress = false;
 }
 
 void requestFirmwareUpdateCommand()
@@ -2012,6 +2149,8 @@ void loop()
     app.loop();
   }
 
+  processQueuedFirmwareUpdateCommand();
+
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.
   const uint32_t currentMillis = millis();
   const bool validTimeAvailable = time(nullptr) >= MIN_VALID_UNIX_TIMESTAMP;
@@ -2050,7 +2189,8 @@ void loop()
     updateDeviceStatus();
   }
 
-  if (isFirebaseReady() && validTimeAvailable && !firmwareCommandPending &&
+  if (isFirebaseReady() && validTimeAvailable && !firmwareCommandPending && !firmwareCommandQueued &&
+      !firmwareUpdateInProgress &&
       (lastFirmwareCommandCheckMillis == 0 ||
        currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
     lastFirmwareCommandCheckMillis = currentMillis;

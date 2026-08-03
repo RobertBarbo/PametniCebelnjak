@@ -54,7 +54,7 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 
 GitHub Actions ob tagu `vMAJOR.MINOR.PATCH-beta.N` preveri skladnost z `FIRMWARE_VERSION`, prevede firmware, ustvari SHA-256 manifest in objavi `firmware.bin` ter `manifest.json` v GitHub Release.
 
-Cloud nadzorna plošča preveri najnovejšo izdajo. Uporabnik lahko pošlje OTA ukaz ali različico prezre v svojem brskalniku. ESP32 ukaz preveri v največ 30 sekundah, pred namestitvijo preveri verzijo, velikost in SHA-256, nato se ob uspehu ponovno zažene. OTA izdaja ne vsebuje Wi-Fi poverilnic, zato je ista binarna datoteka primerna za vse naprave.
+Cloud nadzorna plošča preveri najnovejšo izdajo. Uporabnik lahko pošlje OTA ukaz ali različico prezre v svojem brskalniku. ESP32 ukaz preveri v največ 30 sekundah, ga najprej postavi v čakalno vrsto in šele nato obdela iz glavne zanke. Pred namestitvijo preveri verzijo, velikost in SHA-256, nato se ob uspehu ponovno zažene. Zahteva manifesta ima 15-sekundno omejitev, prenos firmware-a pa se prekine po 15 sekundah brez prejetih podatkov in v Firebase zapiše napako. OTA izdaja ne vsebuje Wi-Fi poverilnic, zato je ista binarna datoteka primerna za vse naprave.
 
 ## Trenutni Firebase podatkovni model
 

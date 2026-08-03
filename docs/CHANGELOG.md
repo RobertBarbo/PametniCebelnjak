@@ -4,6 +4,17 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.12] - 2026-08-03
+
+### Changed
+
+- Serijski monitor med OTA prenosom izpiše ciljni HTTPS gostitelj in vsako GitHub preusmeritev, zato je povezovalne težave mogoče jasno prepoznati.
+
+### Fixed
+
+- Prenos `firmware.bin` ne uporablja več `HTTPClient`, ki je lahko obstal pri GitHub Release preusmeritvi.
+- OTA zdaj neposredno odpre HTTPS povezavo, ročno sledi omejenemu številu varnih preusmeritev in ob poteku povezave ali HTTP glav zapiše razumljivo napako v Firebase ter serijski monitor.
+
 ## [0.1.0-beta.11] - 2026-08-03
 
 ### Added

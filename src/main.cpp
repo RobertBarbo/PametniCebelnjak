@@ -55,6 +55,10 @@ constexpr uint32_t OTA_FIRMWARE_TIMEOUT_MS = 20000;
 constexpr uint32_t OTA_STREAM_IDLE_TIMEOUT_MS = 15000;
 constexpr uint32_t OTA_RESTART_DELAY_MS = 1500;
 constexpr uint8_t OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;
+constexpr uint16_t OTA_HTTPS_PORT = 443;
+constexpr uint8_t OTA_MAX_REDIRECTS = 4;
+constexpr uint32_t OTA_HEADER_TIMEOUT_MS = 15000;
+constexpr size_t OTA_HTTP_LINE_MAX_LENGTH = 2048;
 
 constexpr int SD_CS_PIN = 10;
 constexpr int SD_MOSI_PIN = 11;
@@ -147,9 +151,9 @@ enum class OtaUpdateState : uint8_t {
 // Firebase uporablja asinhrone zahteve, da beleženje ne ustavi glavne zanke.
 WiFiClientSecure sslClient;
 WiFiClientSecure otaClient;
+WiFiClientSecure otaDownloadClient;
 using AsyncClient = AsyncClientClass;
 AsyncClient asyncClient(sslClient);
-HTTPClient otaHttp;
 SPIClass sdSpi(FSPI);
 WebServer localServer(80);
 Preferences preferences;
@@ -180,7 +184,7 @@ bool firmwareCommandPending = false;
 bool firmwareCommandQueued = false;
 bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
-bool otaHttpActive = false;
+bool otaDownloadConnectionActive = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool activationSecretPublishPending = false;
@@ -857,10 +861,8 @@ void releaseOtaDownloadResources(bool abortFirmwareWrite)
     mbedtls_sha256_free(&otaSha256Context);
     otaHashActive = false;
   }
-  if (otaHttpActive) {
-    otaHttp.end();
-    otaHttpActive = false;
-  }
+  otaDownloadClient.stop();
+  otaDownloadConnectionActive = false;
   otaDownloadStream = nullptr;
   if (abortFirmwareWrite && otaFlashUpdateActive) {
     Update.abort();
@@ -939,28 +941,172 @@ String sha256ToHex(const uint8_t hash[32])
   return String(hexHash);
 }
 
+bool parseOtaHttpsUrl(const String &url, String &host, String &path)
+{
+  constexpr char HTTPS_PREFIX[] = "https://";
+  constexpr size_t HTTPS_PREFIX_LENGTH = sizeof(HTTPS_PREFIX) - 1;
+
+  if (!url.startsWith(HTTPS_PREFIX)) return false;
+
+  const int pathStart = url.indexOf('/', HTTPS_PREFIX_LENGTH);
+  host = pathStart < 0 ? url.substring(HTTPS_PREFIX_LENGTH) : url.substring(HTTPS_PREFIX_LENGTH, pathStart);
+  path = pathStart < 0 ? "/" : url.substring(pathStart);
+
+  // GitHub Release OTA uporablja običajni HTTPS gostitelj na vratih 443.
+  return host.length() > 0 && host.indexOf('@') < 0 && host.indexOf(':') < 0;
+}
+
+String resolveOtaRedirectUrl(const String &location, const String &host, const String &path)
+{
+  if (location.startsWith("https://")) return location;
+  if (location.startsWith("//")) return String("https:") + location;
+  if (location.startsWith("/")) return String("https://") + host + location;
+
+  const int lastSlash = path.lastIndexOf('/');
+  const String parentPath = lastSlash < 0 ? "/" : path.substring(0, lastSlash + 1);
+  return String("https://") + host + parentPath + location;
+}
+
+bool readOtaHttpLine(String &line, uint32_t timeoutMs)
+{
+  line = "";
+  line.reserve(OTA_HTTP_LINE_MAX_LENGTH);
+  const uint32_t startedMillis = millis();
+
+  while (millis() - startedMillis < timeoutMs) {
+    while (otaDownloadClient.available() > 0) {
+      const char character = static_cast<char>(otaDownloadClient.read());
+      if (character == '\n') return true;
+      if (character == '\r') continue;
+      if (line.length() >= OTA_HTTP_LINE_MAX_LENGTH) return false;
+      line += character;
+    }
+
+    if (!otaDownloadClient.connected()) return line.length() > 0;
+    yield();
+  }
+
+  return false;
+}
+
+bool isOtaRedirectStatus(int statusCode)
+{
+  return statusCode == HTTP_CODE_MOVED_PERMANENTLY || statusCode == HTTP_CODE_FOUND ||
+         statusCode == HTTP_CODE_SEE_OTHER || statusCode == HTTP_CODE_TEMPORARY_REDIRECT ||
+         statusCode == 308;
+}
+
+bool openFirmwareDownloadConnection(String &errorMessage)
+{
+  String requestUrl = otaManifest.firmwareUrl;
+
+  for (uint8_t redirectCount = 0; redirectCount <= OTA_MAX_REDIRECTS; ++redirectCount) {
+    String host;
+    String path;
+    if (!parseOtaHttpsUrl(requestUrl, host, path)) {
+      errorMessage = "Firmware URL v manifestu ni veljaven HTTPS naslov.";
+      return false;
+    }
+
+    otaDownloadClient.stop();
+    otaDownloadConnectionActive = false;
+    otaDownloadClient.setTimeout(1000);
+    otaDownloadClient.setHandshakeTimeout((OTA_FIRMWARE_TIMEOUT_MS + 999) / 1000);
+
+    Serial.print("OTA: connecting to ");
+    Serial.println(host);
+    if (!otaDownloadClient.connect(host.c_str(), OTA_HTTPS_PORT, OTA_FIRMWARE_TIMEOUT_MS)) {
+      errorMessage = String("Povezava do OTA strežnika ni uspela: ") + host;
+      return false;
+    }
+
+    const String request = String("GET ") + path + " HTTP/1.1\r\nHost: " + host +
+                           "\r\nUser-Agent: Pametni-Cebelnjak-ESP32\r\nAccept: application/octet-stream\r\nConnection: close\r\n\r\n";
+    if (otaDownloadClient.print(request) != request.length()) {
+      errorMessage = "Pošiljanje OTA zahteve ni uspelo.";
+      return false;
+    }
+
+    String statusLine;
+    if (!readOtaHttpLine(statusLine, OTA_HEADER_TIMEOUT_MS) || statusLine.length() == 0) {
+      errorMessage = "OTA strežnik ni pravočasno poslal HTTP odgovora.";
+      return false;
+    }
+
+    const int firstSpace = statusLine.indexOf(' ');
+    const int secondSpace = statusLine.indexOf(' ', firstSpace + 1);
+    const String statusText = secondSpace < 0 ? statusLine.substring(firstSpace + 1)
+                                               : statusLine.substring(firstSpace + 1, secondSpace);
+    const int statusCode = firstSpace < 0 ? 0 : statusText.toInt();
+    if (statusCode == 0) {
+      errorMessage = "OTA strežnik je vrnil neveljaven HTTP odgovor.";
+      return false;
+    }
+
+    String redirectLocation;
+    long contentLength = -1;
+    bool chunkedTransfer = false;
+    while (true) {
+      String headerLine;
+      if (!readOtaHttpLine(headerLine, OTA_HEADER_TIMEOUT_MS)) {
+        errorMessage = "Branje HTTP glav OTA prenosa je poteklo.";
+        return false;
+      }
+      if (headerLine.length() == 0) break;
+
+      const int separator = headerLine.indexOf(':');
+      if (separator < 0) continue;
+
+      String headerName = headerLine.substring(0, separator);
+      String headerValue = headerLine.substring(separator + 1);
+      headerName.toLowerCase();
+      headerValue.trim();
+      if (headerName == "location") {
+        redirectLocation = headerValue;
+      } else if (headerName == "content-length") {
+        contentLength = headerValue.toInt();
+      } else if (headerName == "transfer-encoding") {
+        headerValue.toLowerCase();
+        chunkedTransfer = headerValue.indexOf("chunked") >= 0;
+      }
+    }
+
+    if (isOtaRedirectStatus(statusCode)) {
+      if (redirectLocation.length() == 0) {
+        errorMessage = "OTA strežnik je vrnil preusmeritev brez ciljnega naslova.";
+        return false;
+      }
+      Serial.println("OTA: following GitHub redirect.");
+      requestUrl = resolveOtaRedirectUrl(redirectLocation, host, path);
+      continue;
+    }
+
+    if (statusCode != HTTP_CODE_OK) {
+      errorMessage = String("Firmware datoteka ni dosegljiva (HTTP ") + statusCode + ").";
+      return false;
+    }
+    if (chunkedTransfer) {
+      errorMessage = "OTA strežnik je vrnil nepodprt chunked prenos.";
+      return false;
+    }
+    if (contentLength >= 0 && static_cast<size_t>(contentLength) != otaManifest.size) {
+      errorMessage = "Velikost firmware datoteke se ne ujema z manifestom.";
+      return false;
+    }
+
+    otaDownloadConnectionActive = true;
+    otaDownloadStream = &otaDownloadClient;
+    return true;
+  }
+
+  errorMessage = "OTA strežnik je vrnil preveč preusmeritev.";
+  return false;
+}
+
 bool startFirmwareDownload(String &errorMessage)
 {
   Serial.println("OTA: downloading firmware.");
-  otaHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  otaHttp.setTimeout(OTA_FIRMWARE_TIMEOUT_MS);
-  if (!otaHttp.begin(otaClient, otaManifest.firmwareUrl)) {
-    errorMessage = "Povezave do firmware datoteke ni bilo mogoče odpreti.";
-    return false;
-  }
-  otaHttpActive = true;
-
-  const int responseCode = otaHttp.GET();
-  if (responseCode != HTTP_CODE_OK) {
-    Serial.print("OTA: firmware HTTP ");
-    Serial.println(responseCode);
-    errorMessage = String("Firmware datoteka ni dosegljiva (HTTP ") + responseCode + ").";
-    releaseOtaDownloadResources(false);
-    return false;
-  }
-
-  if (otaHttp.getSize() > 0 && static_cast<size_t>(otaHttp.getSize()) != otaManifest.size) {
-    errorMessage = "Velikost firmware datoteke se ne ujema z manifestom.";
+  if (!openFirmwareDownloadConnection(errorMessage)) {
     releaseOtaDownloadResources(false);
     return false;
   }
@@ -975,7 +1121,6 @@ bool startFirmwareDownload(String &errorMessage)
   mbedtls_sha256_init(&otaSha256Context);
   mbedtls_sha256_starts(&otaSha256Context, 0);
   otaHashActive = true;
-  otaDownloadStream = otaHttp.getStreamPtr();
   if (otaDownloadStream == nullptr) {
     errorMessage = "Podatkovnega toka OTA firmware-a ni bilo mogoče odpreti.";
     releaseOtaDownloadResources(true);
@@ -998,7 +1143,7 @@ void processOtaDownloadChunk()
 
   const size_t available = otaDownloadStream->available();
   if (available == 0) {
-    if (!otaHttp.connected()) {
+    if (!otaDownloadConnectionActive || !otaDownloadClient.connected()) {
       failOtaUpdate("Povezava med prenosom firmware-a se je prekinila.");
       return;
     }
@@ -2242,6 +2387,7 @@ void setup()
   initializeTime();
   sslClient.setInsecure();
   otaClient.setInsecure();
+  otaDownloadClient.setInsecure();
 
   initializeApp(asyncClient, app, getAuth(noAuth));
   app.getApp<RealtimeDatabase>(database);

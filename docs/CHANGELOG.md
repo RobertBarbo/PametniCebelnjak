@@ -4,6 +4,12 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.15] - 2026-08-03
+
+### Changed
+
+- Testna OTA izdaja za končno preverjanje prenosa GitHub Release datoteke po popravku branja HTTP glav v beta.14.
+
 ## [0.1.0-beta.14] - 2026-08-03
 
 ### Fixed

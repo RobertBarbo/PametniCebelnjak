@@ -3,8 +3,17 @@ const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/Pame
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
 const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
+const THEME_STORAGE_KEY = "pametni-cebelnjak-theme";
+const DEFAULT_VIEW = "overview";
 
 const elements = {
+  menuToggle: document.querySelector("#menu-toggle"),
+  topNavigation: document.querySelector("#top-navigation"),
+  themeToggle: document.querySelector("#theme-toggle"),
+  themeLabel: document.querySelector("#theme-label"),
+  updatesNavigationItem: document.querySelector("#updates-nav-item"),
+  navigationButtons: [...document.querySelectorAll("[data-view-target]")],
+  viewPanels: [...document.querySelectorAll("[data-view-panel]")],
   connectionStatus: document.querySelector("#connection-status"),
   connectionText: document.querySelector("#connection-text"),
   authTrigger: document.querySelector("#auth-trigger"),
@@ -78,6 +87,8 @@ const elements = {
   localActivationCode: document.querySelector("#local-activation-code"),
   cloudSyncStatus: document.querySelector("#cloud-sync-status"),
   cloudResync: document.querySelector("#cloud-resync"),
+  recentMeasurementsBody: document.querySelector("#recent-measurements-body"),
+  recentMeasurementsEmpty: document.querySelector("#recent-measurements-empty"),
 };
 
 let chart;
@@ -116,6 +127,106 @@ const OTA_STATE_LABELS = {
   ignored: "Posodobitev je prezrta",
   error: "Napaka OTA",
 };
+
+function getCssColor(variableName) {
+  return getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
+}
+
+function getChartTheme() {
+  return {
+    text: getCssColor("--text"),
+    textSoft: getCssColor("--text-soft"),
+    border: getCssColor("--border"),
+    surface: getCssColor("--surface-solid"),
+    grid: document.documentElement.dataset.theme === "dark" ? "rgba(237, 246, 239, 0.09)" : "rgba(21, 56, 43, 0.08)",
+    temperature: getCssColor("--temperature"),
+    humidity: getCssColor("--humidity"),
+    weight: getCssColor("--weight"),
+  };
+}
+
+function updateChartTheme() {
+  if (!chart) return;
+  const colors = getChartTheme();
+  chart.update({
+    chart: { backgroundColor: "transparent" },
+    xAxis: {
+      lineColor: colors.border,
+      tickColor: colors.border,
+      labels: { style: { color: colors.textSoft } },
+    },
+    yAxis: [
+      { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
+      { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineWidth: 0, opposite: true },
+      { title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, visible: false },
+    ],
+    legend: { itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
+    tooltip: { backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
+  }, false);
+  renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
+}
+
+function applyTheme(theme, persist = true) {
+  const selectedTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = selectedTheme;
+  elements.themeLabel.textContent = selectedTheme === "dark" ? "Svetla tema" : "Temna tema";
+  elements.themeToggle.setAttribute("aria-pressed", String(selectedTheme === "dark"));
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", selectedTheme === "dark" ? "#0e1713" : "#f4f1e8");
+  if (persist) localStorage.setItem(THEME_STORAGE_KEY, selectedTheme);
+  updateChartTheme();
+}
+
+function initializeTheme() {
+  applyTheme(document.documentElement.dataset.theme, false);
+  elements.themeToggle.addEventListener("click", () => {
+    applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  });
+
+  const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const handleColorSchemeChange = (event) => {
+    if (!localStorage.getItem(THEME_STORAGE_KEY)) applyTheme(event.matches ? "dark" : "light", false);
+  };
+  if (colorSchemeQuery.addEventListener) colorSchemeQuery.addEventListener("change", handleColorSchemeChange);
+  else colorSchemeQuery.addListener(handleColorSchemeChange);
+}
+
+function showView(viewName, updateLocation = true) {
+  const targetPanel = elements.viewPanels.find((panel) => panel.dataset.viewPanel === viewName);
+  const selectedView = targetPanel ? viewName : DEFAULT_VIEW;
+
+  elements.viewPanels.forEach((panel) => {
+    const isActive = panel.dataset.viewPanel === selectedView;
+    panel.hidden = !isActive;
+    panel.classList.toggle("active", isActive);
+  });
+  elements.navigationButtons.forEach((button) => {
+    const isActive = button.dataset.viewTarget === selectedView && button.classList.contains("nav-link");
+    button.classList.toggle("active", isActive);
+    if (isActive) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+
+  elements.topNavigation.classList.remove("open");
+  elements.menuToggle.setAttribute("aria-expanded", "false");
+  if (updateLocation) history.replaceState(null, "", `#${selectedView}`);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  if (selectedView === "history" && chart) {
+    requestAnimationFrame(() => chart.reflow());
+  }
+}
+
+function initializeNavigation() {
+  elements.navigationButtons.forEach((button) => {
+    button.addEventListener("click", () => showView(button.dataset.viewTarget));
+  });
+  elements.menuToggle.addEventListener("click", () => {
+    const isOpen = elements.topNavigation.classList.toggle("open");
+    elements.menuToggle.setAttribute("aria-expanded", String(isOpen));
+  });
+  window.addEventListener("hashchange", () => showView(window.location.hash.slice(1), false));
+  showView(window.location.hash.slice(1) || DEFAULT_VIEW, false);
+}
 
 function isValidDeviceId(deviceId) {
   return /^CB-[A-F0-9]{12}$/.test(String(deviceId));
@@ -200,12 +311,32 @@ function formatValue(value, decimals = 1) {
   return Number.isFinite(numericValue) ? numericValue.toFixed(decimals) : "—";
 }
 
+function formatDashboardDate(date) {
+  return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+}
+
+function formatDashboardTime(date, includeSeconds = false) {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return includeSeconds ? `${hours}:${minutes}:${seconds}` : `${hours}:${minutes}`;
+}
+
+function formatDashboardDateTime(date, includeSeconds = false) {
+  return `${formatDashboardDate(date)} ob ${formatDashboardTime(date, includeSeconds)}`;
+}
+
+function formatStoredDate(dateValue) {
+  const match = String(dateValue).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  return match ? `${Number(match[3])}/${Number(match[2])}/${Number(match[1])}` : String(dateValue);
+}
+
 function formatDateTime(record) {
-  if (record?.date && record?.time) return `${record.date} ob ${record.time}`;
+  if (record?.date && record?.time) return `${formatStoredDate(record.date)} ob ${record.time}`;
 
   const timestamp = Number(record?.timestamp);
   return Number.isFinite(timestamp)
-    ? formatDate(new Date(timestamp * 1000), { dateStyle: "medium", timeStyle: "medium" })
+    ? formatDashboardDateTime(new Date(timestamp * 1000), true)
     : "Čakam na podatke …";
 }
 
@@ -229,8 +360,7 @@ function compareFirmwareVersions(candidateVersion, currentVersion) {
 }
 
 function formatRange(range) {
-  const options = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" };
-  return `${formatDate(range.from, options)} – ${formatDate(range.to, options)}`;
+  return `${formatDashboardDateTime(range.from)} – ${formatDashboardDateTime(range.to)}`;
 }
 
 function renderLatestMeasurement(measurement) {
@@ -259,7 +389,7 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   elements.deviceLastSeen.textContent = localDashboard
     ? "Dosegljiv prek lokalnega IP-ja."
     : Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
-      ? `Zadnji odziv: ${formatDate(new Date(lastSeenTimestamp * 1000), { dateStyle: "short", timeStyle: "short" })}`
+      ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
        : "Čakam na prvi odziv naprave.";
 }
 
@@ -311,7 +441,7 @@ function renderCloudSynchronization(sync, network, sdCard) {
     elements.cloudSyncStatus.textContent = "SD kartica in Firebase sta sinhronizirana.";
   } else if (Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0) {
     const retryText = Number.isFinite(retrySeconds) && retrySeconds > 2 ? ` Razmik ponovnih poskusov: ${retrySeconds} s.` : "";
-    elements.cloudSyncStatus.textContent = `Zadnji preneseni zapis: ${formatDate(new Date(lastSyncedTimestamp * 1000), { dateStyle: "short", timeStyle: "short" })}.${retryText}`;
+    elements.cloudSyncStatus.textContent = `Zadnji preneseni zapis: ${formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000))}.${retryText}`;
   } else {
     elements.cloudSyncStatus.textContent = "Zgodovina čaka na prvi prenos v Firebase.";
   }
@@ -634,19 +764,48 @@ function aggregateReadings(readings, range) {
     .sort((first, second) => first.timestamp - second.timestamp);
 }
 
+function renderRecentMeasurements(readings) {
+  const recentReadings = [...readings]
+    .filter((reading) => Number.isFinite(Number(reading.timestamp)))
+    .sort((first, second) => Number(second.timestamp) - Number(first.timestamp))
+    .slice(0, 20);
+
+  const rows = recentReadings.map((reading) => {
+    const row = document.createElement("tr");
+    const values = [
+      formatDashboardDateTime(new Date(Number(reading.timestamp) * 1000), true),
+      `${formatValue(reading.temperature_c)} °C`,
+      `${formatValue(reading.humidity_percent)} %`,
+      `${formatValue(reading.weight_kg, 2)} kg`,
+    ];
+    values.forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    });
+    return row;
+  });
+
+  elements.recentMeasurementsBody.replaceChildren(...rows);
+  elements.recentMeasurementsEmpty.hidden = rows.length > 0;
+  if (!rows.length) elements.recentMeasurementsEmpty.textContent = "Za izbrano obdobje še ni meritev.";
+}
+
 function renderHistory(readings, alreadyAggregated = false) {
   const chartReadings = alreadyAggregated ? readings : aggregateReadings(readings, appliedRange);
   latestHistoryReadings = readings;
   latestHistoryAlreadyAggregated = alreadyAggregated;
+  renderRecentMeasurements(chartReadings);
   elements.historySummary.textContent = chartReadings.length
     ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po grafu.`
     : "Za izbrano obdobje še ni meritev.";
   if (!chart) return;
 
+  const colors = getChartTheme();
   const series = [
-    { name: "Temperatura (°C)", data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]), color: "#e6a32d", yAxis: 0 },
-    { name: "Vlaga (%)", data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]), color: "#317da4", yAxis: 1 },
-    { name: "Teža (kg)", data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]), color: "#2f7851", yAxis: 2 },
+    { name: "Temperatura (°C)", data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]), color: colors.temperature, yAxis: 0 },
+    { name: "Vlaga (%)", data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]), color: colors.humidity, yAxis: 1 },
+    { name: "Teža (kg)", data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]), color: colors.weight, yAxis: 2 },
   ];
 
   chart.update({ series }, false, true);
@@ -658,6 +817,7 @@ function renderHistory(readings, alreadyAggregated = false) {
 
 function createChart() {
   if (chart) return;
+  const colors = getChartTheme();
   chart = Highcharts.chart("measurement-chart", {
     chart: {
       backgroundColor: "transparent",
@@ -671,7 +831,15 @@ function createChart() {
     time: { useUTC: false },
     xAxis: {
       type: "datetime",
-      lineColor: "#dce4dc",
+      lineColor: colors.border,
+      tickColor: colors.border,
+      labels: {
+        style: { color: colors.textSoft },
+        formatter() {
+          const date = new Date(this.value);
+          return `${formatDashboardDate(date)}<br>${formatDashboardTime(date)}`;
+        },
+      },
       events: {
         setExtremes(event) {
           if (event.trigger === "zoom") chartHasUserZoom = event.min !== undefined;
@@ -679,12 +847,12 @@ function createChart() {
       },
     },
     yAxis: [
-      { title: { text: "°C" }, gridLineColor: "rgba(25, 53, 42, 0.08)" },
-      { title: { text: "%" }, opposite: true, gridLineWidth: 0 },
-      { title: { text: "kg" }, visible: false },
+      { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
+      { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, opposite: true, gridLineWidth: 0 },
+      { title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, visible: false },
     ],
-    tooltip: { shared: true, xDateFormat: "%d. %m. %Y %H:%M" },
-    legend: { align: "left", verticalAlign: "top", itemStyle: { fontWeight: "600" } },
+    tooltip: { shared: true, xDateFormat: "%e/%m/%Y %H:%M", backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
+    legend: { align: "left", verticalAlign: "top", itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
     plotOptions: { series: { marker: { enabled: false }, lineWidth: 2, states: { hover: { lineWidth: 3 } } } },
     series: [],
   });
@@ -1034,9 +1202,13 @@ async function useLocalDataSource() {
   if (!response.ok) throw new Error("Lokalni API ni dosegljiv");
   const initialStatus = await response.json();
   isLocalDashboard = true;
+  document.body.dataset.dashboardMode = "local";
   elements.otaSection.hidden = true;
+  elements.updatesNavigationItem.hidden = true;
+  document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = true; });
   elements.authTrigger.hidden = true;
   elements.accountSection.hidden = true;
+  if (document.querySelector('[data-view-panel="updates"]').classList.contains("active")) showView(DEFAULT_VIEW);
 
   function renderLocalStatus(status) {
     renderLatestMeasurement(status.latest);
@@ -1082,6 +1254,9 @@ async function useLocalDataSource() {
 
 async function useFirebaseDataSource() {
   isLocalDashboard = false;
+  document.body.dataset.dashboardMode = "cloud";
+  elements.updatesNavigationItem.hidden = false;
+  document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = false; });
   const [{ initializeApp }, authModule, databaseModule, configModule] = await Promise.all([
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js"),
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js"),
@@ -1125,6 +1300,8 @@ async function useFirebaseDataSource() {
 }
 
 async function startDashboard() {
+  initializeTheme();
+  initializeNavigation();
   initializeDateRangePicker();
   initializeOtaControls();
   initializeProvisioningForm();

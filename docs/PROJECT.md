@@ -48,6 +48,10 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Cloud graf za obdobja do 7 dni bere surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
 - Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje v lokalnem in cloud pogledu.
+- Glavna navigacija loči poglede **Pregled**, **Meritve**, **Zgodovina**, **Naprava** in **Posodobitve**; lokalni način skrije cloud prijavo in OTA upravljanje.
+- Svetla in temna tema delujeta v obeh načinih, shranjena izbira pa ostane v brskalniku. Highcharts uporablja barve aktivne teme.
+- Datumi v karticah, tabeli, izbirniku obdobja in grafu so prikazani v obliki `d/m/y`; ura uporablja 24-urni zapis.
+- Odzivna postavitev prilagodi navigacijo, kartice, tabelo, graf in obrazce telefonu, tablici ter namiznemu računalniku. Upravljalni elementi na dotik so visoki najmanj 44 px.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
 ## OTA firmware

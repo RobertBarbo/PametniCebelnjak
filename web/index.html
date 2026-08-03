@@ -1,257 +1,257 @@
 <!doctype html>
-<html lang="sl">
+<html lang="sl" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#173c2b" />
+    <meta name="theme-color" content="#f4f1e8" />
+    <meta name="color-scheme" content="light dark" />
     <title>Pametni čebelnjak</title>
+    <script>
+      (() => {
+        const savedTheme = localStorage.getItem("pametni-cebelnjak-theme");
+        const preferredTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = savedTheme || preferredTheme;
+      })();
+    </script>
     <link rel="stylesheet" href="styles.css" />
     <script type="module" src="app.js"></script>
   </head>
   <body>
-    <main class="dashboard">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">Panj 1 · živ pogled</p>
-          <h1>Pametni čebelnjak</h1>
-          <p class="subtitle">Meritve, stanje naprave in zgodovina panja.</p>
-        </div>
-        <div class="hero-actions">
+    <header class="app-header">
+      <div class="header-inner">
+        <button class="brand" type="button" data-view-target="overview" aria-label="Odpri pregled">
+          <span class="brand-mark" aria-hidden="true">PČ</span>
+          <span><strong>Pametni čebelnjak</strong><small>Nadzorna plošča</small></span>
+        </button>
+
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-controls="top-navigation" aria-expanded="false">
+          <span></span><span></span><span></span><span class="sr-only">Odpri meni</span>
+        </button>
+
+        <nav class="top-navigation" id="top-navigation" aria-label="Glavna navigacija">
+          <button class="nav-link active" type="button" data-view-target="overview" aria-current="page">Pregled</button>
+          <button class="nav-link" type="button" data-view-target="measurements">Meritve</button>
+          <button class="nav-link" type="button" data-view-target="history">Zgodovina</button>
+          <button class="nav-link" type="button" data-view-target="device">Naprava</button>
+          <button class="nav-link" id="updates-nav-item" type="button" data-view-target="updates">Posodobitve</button>
+        </nav>
+
+        <div class="header-actions">
           <div class="connection-status" id="connection-status" aria-live="polite">
             <span class="status-dot"></span>
-            <span id="connection-text">Povezovanje s Firebase …</span>
+            <span id="connection-text">Vzpostavljam povezavo …</span>
           </div>
-          <button class="secondary-button" id="auth-trigger" type="button" hidden>Prijava</button>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Preklopi barvno temo">
+            <span class="theme-indicator" aria-hidden="true"></span>
+            <span id="theme-label">Temna tema</span>
+          </button>
+          <button class="secondary-button compact-button" id="auth-trigger" type="button" hidden>Prijava</button>
         </div>
-      </header>
+      </div>
+    </header>
 
-      <section class="account-section" id="account-section" aria-labelledby="account-heading" hidden>
-        <div class="account-card">
+    <main class="app-shell">
+      <section class="app-view active" data-view-panel="overview" aria-labelledby="overview-heading">
+        <div class="page-heading overview-heading">
           <div>
-            <p class="eyebrow">Moj račun</p>
-            <h2 id="account-heading">Moji čebelnjaki</h2>
-            <p class="subtitle" id="account-email">—</p>
+            <p class="eyebrow">Panj · živ pogled</p>
+            <h1 id="overview-heading">Dobrodošel v čebelnjaku</h1>
+            <p class="subtitle">Trenutne meritve in hiter pregled zadnjega stanja panja.</p>
           </div>
-          <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
+          <button class="secondary-button" type="button" data-view-target="history">Odpri zgodovino</button>
         </div>
-        <div class="account-management">
-          <label class="account-field">Izbrana naprava
-            <select id="cloud-device-select" disabled>
-              <option value="">Nobena naprava ni registrirana</option>
-            </select>
-          </label>
-          <form class="claim-device-form" id="claim-device-form">
+
+        <section class="surface latest-panel" aria-labelledby="latest-heading">
+          <div class="section-heading">
             <div>
-              <p class="eyebrow">Dodaj napravo</p>
-              <h2>Registriraj čebelnjak</h2>
-              <p class="muted">Vnesi ID naprave in aktivacijsko kodo iz lokalne strani ESP32.</p>
+              <p class="eyebrow">Zadnja meritev</p>
+              <h2 id="latest-heading">Stanje v panju</h2>
             </div>
-            <label class="account-field">Ime naprave<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
-            <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
-            <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
-            <button class="primary-button" type="submit">Registriraj napravo</button>
-            <p class="form-status" id="claim-device-status" aria-live="polite"></p>
-          </form>
-        </div>
-      </section>
-
-      <section class="provisioning-section" id="provisioning-section" aria-labelledby="provisioning-heading" hidden>
-        <div class="provisioning-card">
-          <div>
-            <p class="eyebrow">Nastavitev omrežja</p>
-            <h2 id="provisioning-heading">Poveži čebelnjak z Wi‑Fi</h2>
-            <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko ESP32.</p>
-            <p class="activation-details">Za registracijo v cloud si zapiši: <strong id="local-device-id">—</strong><span>Aktivacijska koda: <strong id="activation-code">—</strong></span></p>
-            <div class="cloud-sync-controls">
-              <p>Sinhronizacija zgodovine</p>
-              <strong id="cloud-sync-status">Čakam na stanje …</strong>
-              <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
-              <small>Uporabi po brisanju Firebase baze ali če želiš ponovno poslati celoten SD dnevnik.</small>
-            </div>
+            <p id="last-measurement-time" class="muted">Čakam na podatke …</p>
           </div>
-          <form class="wifi-form" id="wifi-form">
-            <label>Ime Wi‑Fi omrežja<input id="wifi-ssid" name="ssid" type="text" maxlength="32" autocomplete="wifi ssid" required /></label>
-            <div class="wifi-scan-controls">
-              <button class="secondary-button" id="wifi-scan" type="button">Poišči omrežja</button>
-              <span id="wifi-scan-status" class="form-status" aria-live="polite"></span>
-            </div>
-            <div id="wifi-networks" class="wifi-networks" aria-live="polite" hidden></div>
-            <label>Wi‑Fi geslo<input id="wifi-password" name="password" type="password" maxlength="63" autocomplete="current-password" /></label>
-            <button class="primary-button" type="submit">Shrani in poveži</button>
-            <button class="secondary-button danger-button" id="wifi-forget" type="button">Izbriši shranjeni Wi‑Fi</button>
-            <p id="wifi-form-status" class="form-status" aria-live="polite"></p>
-          </form>
-        </div>
-      </section>
-
-      <section aria-labelledby="latest-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Zadnja meritev</p>
-            <h2 id="latest-heading">Stanje v panju</h2>
+          <div class="metrics-grid">
+            <article class="metric-card temperature-card">
+              <span class="metric-symbol" aria-hidden="true">T</span>
+              <p>Temperatura</p>
+              <strong><span id="temperature-value">—</span><small>°C</small></strong>
+            </article>
+            <article class="metric-card humidity-card">
+              <span class="metric-symbol" aria-hidden="true">V</span>
+              <p>Relativna vlaga</p>
+              <strong><span id="humidity-value">—</span><small>%</small></strong>
+            </article>
+            <article class="metric-card weight-card">
+              <span class="metric-symbol" aria-hidden="true">kg</span>
+              <p>Teža panja</p>
+              <strong><span id="weight-value">—</span><small>kg</small></strong>
+            </article>
           </div>
-          <p id="last-measurement-time" class="muted">Čakam na podatke …</p>
-        </div>
+        </section>
 
-        <div class="metrics-grid">
-          <article class="metric-card temperature-card">
-            <span class="metric-icon" aria-hidden="true">◒</span>
-            <p>Temperatura</p>
-            <strong><span id="temperature-value">—</span><small>°C</small></strong>
-          </article>
-          <article class="metric-card humidity-card">
-            <span class="metric-icon" aria-hidden="true">◈</span>
-            <p>Relativna vlaga</p>
-            <strong><span id="humidity-value">—</span><small>%</small></strong>
-          </article>
-          <article class="metric-card weight-card">
-            <span class="metric-icon" aria-hidden="true">⚖</span>
-            <p>Teža panja</p>
-            <strong><span id="weight-value">—</span><small>kg</small></strong>
-          </article>
+        <div class="overview-links">
+          <button class="quick-link" type="button" data-view-target="measurements"><span>Meritve</span><strong>Poglej zadnje zapise</strong></button>
+          <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Preveri ESP32 in SD</strong></button>
+          <button class="quick-link cloud-only-link" type="button" data-view-target="updates"><span>Firmware</span><strong>Preveri OTA posodobitve</strong></button>
         </div>
       </section>
 
-      <section class="history-section" aria-labelledby="history-heading">
-        <div class="section-heading history-heading">
+      <section class="app-view" data-view-panel="measurements" aria-labelledby="measurements-heading" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Meritve</p>
+            <h1 id="measurements-heading">Zadnji zapisi</h1>
+            <p class="subtitle">Najnovejše meritve iz trenutno izbranega časovnega obdobja.</p>
+          </div>
+          <button class="secondary-button" type="button" data-view-target="history">Prikaži graf</button>
+        </div>
+        <section class="surface measurements-panel">
+          <div class="table-wrap">
+            <table class="measurements-table">
+              <thead><tr><th>Datum in ura</th><th>Temperatura</th><th>Vlaga</th><th>Teža</th></tr></thead>
+              <tbody id="recent-measurements-body"></tbody>
+            </table>
+          </div>
+          <p class="empty-state" id="recent-measurements-empty">Čakam na meritve …</p>
+        </section>
+      </section>
+
+      <section class="app-view" data-view-panel="history" aria-labelledby="history-heading" hidden>
+        <div class="page-heading history-heading">
           <div>
             <p class="eyebrow">Zgodovina</p>
-            <h2 id="history-heading">Potek meritev</h2>
+            <h1 id="history-heading">Potek meritev</h1>
+            <p class="subtitle">Izberi obdobje in približaj podrobnosti neposredno na grafu.</p>
           </div>
           <button class="date-range-trigger" id="date-range-trigger" type="button" aria-haspopup="dialog">
             <span>Začetek – konec</span>
             <strong id="date-range-value">Nastavljam obdobje …</strong>
           </button>
         </div>
-        <div class="chart-card">
+        <div class="surface chart-card">
           <div id="measurement-chart" aria-label="Graf meritev panja" role="img"></div>
           <p id="history-summary" class="chart-summary">Čakam na zgodovino meritev …</p>
         </div>
       </section>
 
-      <section class="ota-section" id="ota-section" aria-labelledby="ota-heading" hidden>
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Posodobitve</p>
-            <h2 id="ota-heading">Firmware OTA</h2>
-          </div>
-        </div>
-        <article class="ota-card" id="ota-card">
-          <div>
-            <p class="ota-label" id="ota-label">Preverjam izdaje firmware-a …</p>
-            <strong id="ota-version">—</strong>
-            <p class="ota-detail" id="ota-detail">GitHub Release bo prikazan, ko je na voljo.</p>
-            <small id="ota-device-status">Naprava še ni prejela OTA ukaza.</small>
-            <div class="ota-progress" id="ota-progress" hidden>
-              <div class="ota-progress-track" id="ota-progress-track" role="progressbar" aria-label="Napredek OTA posodobitve" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                <span class="ota-progress-bar" id="ota-progress-bar"></span>
-              </div>
-              <small id="ota-progress-text">0 %</small>
-            </div>
-          </div>
-          <div class="ota-actions" id="ota-actions" hidden>
-            <button class="secondary-button" id="ota-ignore" type="button">Prezri</button>
-            <button class="primary-button" id="ota-install" type="button">Posodobi napravo</button>
-          </div>
-        </article>
-      </section>
-
-      <section aria-labelledby="device-heading">
-        <div class="section-heading">
+      <section class="app-view" data-view-panel="device" aria-labelledby="device-heading" hidden>
+        <div class="page-heading">
           <div>
             <p class="eyebrow">Naprava</p>
-            <h2 id="device-heading">ESP32-S3 in pomnilnik</h2>
+            <h1 id="device-heading">ESP32-S3 in pomnilnik</h1>
+            <p class="subtitle">Omrežje, identiteta, delovanje in stanje SD kartice.</p>
           </div>
         </div>
-        <div class="status-grid">
-          <article class="status-card">
-            <p>IP naslov</p>
-            <strong id="ip-address">—</strong>
-          </article>
-          <article class="status-card">
-            <p>Wi-Fi signal</p>
-            <strong id="wifi-signal">—</strong>
-          </article>
-          <article class="status-card">
-            <p>Uptime</p>
-            <strong id="uptime">—</strong>
-          </article>
-          <article class="status-card device-state-card" id="device-state-card">
-            <p>ESP32 stanje</p>
-            <strong id="device-online-status">Čakam na stanje …</strong>
-            <small id="device-last-seen">—</small>
-          </article>
-          <article class="status-card">
-            <p>Firmware</p>
-            <strong id="firmware-version">—</strong>
-          </article>
-          <article class="status-card">
-            <p>ID naprave</p>
-            <strong id="device-id">—</strong>
-          </article>
-          <article class="status-card" id="local-activation-card" hidden>
-            <p>Aktivacijska koda</p>
-            <strong id="local-activation-code">—</strong>
-            <small>Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.</small>
-          </article>
-          <article class="status-card sd-card">
-            <p>SD kartica</p>
-            <strong id="sd-status">—</strong>
-            <small id="sd-status-detail">Čakam na stanje …</small>
-          </article>
+
+        <section class="provisioning-section surface" id="provisioning-section" aria-labelledby="provisioning-heading" hidden>
+          <div class="provisioning-card">
+            <div>
+              <p class="eyebrow">Nastavitev omrežja</p>
+              <h2 id="provisioning-heading">Poveži čebelnjak z Wi‑Fi</h2>
+              <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko ESP32.</p>
+              <p class="activation-details">ID naprave: <strong id="local-device-id">—</strong><span>Aktivacijska koda: <strong id="activation-code">—</strong></span></p>
+              <div class="cloud-sync-controls">
+                <p>Sinhronizacija zgodovine</p>
+                <strong id="cloud-sync-status">Čakam na stanje …</strong>
+                <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
+                <small>Uporabi po brisanju Firebase baze ali za ponovni prenos SD dnevnika.</small>
+              </div>
+            </div>
+            <form class="wifi-form" id="wifi-form">
+              <label>Ime Wi‑Fi omrežja<input id="wifi-ssid" name="ssid" type="text" maxlength="32" autocomplete="wifi ssid" required /></label>
+              <div class="wifi-scan-controls">
+                <button class="secondary-button" id="wifi-scan" type="button">Poišči omrežja</button>
+                <span id="wifi-scan-status" class="form-status" aria-live="polite"></span>
+              </div>
+              <div id="wifi-networks" class="wifi-networks" aria-live="polite" hidden></div>
+              <label>Wi‑Fi geslo<input id="wifi-password" name="password" type="password" maxlength="63" autocomplete="current-password" /></label>
+              <button class="primary-button" type="submit">Shrani in poveži</button>
+              <button class="secondary-button danger-button" id="wifi-forget" type="button">Izbriši shranjeni Wi‑Fi</button>
+              <p id="wifi-form-status" class="form-status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+
+        <section class="surface device-status-panel" aria-labelledby="device-status-heading">
+          <div class="section-heading"><div><p class="eyebrow">Stanje sistema</p><h2 id="device-status-heading">Podrobnosti naprave</h2></div></div>
+          <div class="status-grid">
+            <article class="status-card"><p>IP naslov</p><strong id="ip-address">—</strong></article>
+            <article class="status-card"><p>Wi‑Fi signal</p><strong id="wifi-signal">—</strong></article>
+            <article class="status-card"><p>Uptime</p><strong id="uptime">—</strong></article>
+            <article class="status-card device-state-card" id="device-state-card"><p>ESP32 stanje</p><strong id="device-online-status">Čakam na stanje …</strong><small id="device-last-seen">—</small></article>
+            <article class="status-card"><p>Firmware</p><strong id="firmware-version">—</strong></article>
+            <article class="status-card"><p>ID naprave</p><strong id="device-id">—</strong></article>
+            <article class="status-card" id="local-activation-card" hidden><p>Aktivacijska koda</p><strong id="local-activation-code">—</strong><small>Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.</small></article>
+            <article class="status-card sd-card"><p>SD kartica</p><strong id="sd-status">—</strong><small id="sd-status-detail">Čakam na stanje …</small></article>
+          </div>
+        </section>
+
+        <section class="account-section surface" id="account-section" aria-labelledby="account-heading" hidden>
+          <div class="account-card">
+            <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji čebelnjaki</h2><p class="subtitle" id="account-email">—</p></div>
+            <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
+          </div>
+          <div class="account-management">
+            <label class="account-field">Izbrana naprava<select id="cloud-device-select" disabled><option value="">Nobena naprava ni registrirana</option></select></label>
+            <form class="claim-device-form" id="claim-device-form">
+              <div><p class="eyebrow">Dodaj napravo</p><h2>Registriraj čebelnjak</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo iz lokalne strani ESP32.</p></div>
+              <label class="account-field">Ime naprave<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
+              <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
+              <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
+              <button class="primary-button" type="submit">Registriraj napravo</button>
+              <p class="form-status" id="claim-device-status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+      </section>
+
+      <section class="app-view" data-view-panel="updates" aria-labelledby="updates-heading" hidden>
+        <div class="page-heading">
+          <div><p class="eyebrow">Posodobitve</p><h1 id="updates-heading">Firmware OTA</h1><p class="subtitle">Varna namestitev nove različice na izbrano napravo.</p></div>
         </div>
+        <section class="ota-section" id="ota-section" aria-labelledby="ota-heading" hidden>
+          <h2 class="sr-only" id="ota-heading">Razpoložljiva OTA posodobitev</h2>
+          <article class="ota-card surface" id="ota-card">
+            <div>
+              <p class="ota-label" id="ota-label">Preverjam izdaje firmware-a …</p>
+              <strong id="ota-version">—</strong>
+              <p class="ota-detail" id="ota-detail">GitHub Release bo prikazan, ko je na voljo.</p>
+              <small id="ota-device-status">Naprava še ni prejela OTA ukaza.</small>
+              <div class="ota-progress" id="ota-progress" hidden>
+                <div class="ota-progress-track" id="ota-progress-track" role="progressbar" aria-label="Napredek OTA posodobitve" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="ota-progress-bar" id="ota-progress-bar"></span></div>
+                <small id="ota-progress-text">0 %</small>
+              </div>
+            </div>
+            <div class="ota-actions" id="ota-actions" hidden>
+              <button class="secondary-button" id="ota-ignore" type="button">Prezri</button>
+              <button class="primary-button" id="ota-install" type="button">Posodobi napravo</button>
+            </div>
+          </article>
+        </section>
+        <p class="surface empty-state ota-empty-state">Za pregled posodobitev se prijavi in izberi registrirano napravo.</p>
       </section>
     </main>
 
     <dialog class="date-range-dialog" id="date-range-dialog" aria-labelledby="date-range-dialog-title">
       <form class="date-range-picker" method="dialog">
-        <header class="date-range-dialog-header">
-          <p id="date-range-dialog-title">Začetek – konec</p>
-          <strong id="date-range-dialog-value">—</strong>
-        </header>
+        <header class="date-range-dialog-header"><p id="date-range-dialog-title">Začetek – konec</p><strong id="date-range-dialog-value">—</strong></header>
         <div class="date-range-picker-body">
           <nav class="range-presets" aria-label="Hitre izbire obdobja">
-            <button type="button" data-preset="today">Danes</button>
-            <button type="button" data-preset="yesterday">Včeraj</button>
-            <button type="button" data-preset="week">Ta teden</button>
-            <button type="button" data-preset="month">Ta mesec</button>
-            <button type="button" data-preset="year">To leto</button>
-            <button type="button" data-preset="hour">Zadnja ura</button>
-            <button type="button" data-preset="hours12">Zadnjih 12 ur</button>
-            <button type="button" data-preset="hours24">Zadnjih 24 ur</button>
-            <button type="button" data-preset="days7">Zadnjih 7 dni</button>
-            <button type="button" data-preset="days30">Zadnjih 30 dni</button>
+            <button type="button" data-preset="today">Danes</button><button type="button" data-preset="yesterday">Včeraj</button><button type="button" data-preset="week">Ta teden</button><button type="button" data-preset="month">Ta mesec</button><button type="button" data-preset="year">To leto</button><button type="button" data-preset="hour">Zadnja ura</button><button type="button" data-preset="hours12">Zadnjih 12 ur</button><button type="button" data-preset="hours24">Zadnjih 24 ur</button><button type="button" data-preset="days7">Zadnjih 7 dni</button><button type="button" data-preset="days30">Zadnjih 30 dni</button>
           </nav>
           <section class="calendar-panel" aria-label="Koledar za izbiro obdobja">
-            <div class="calendar-navigation">
-              <button id="calendar-previous" type="button" aria-label="Prejšnji mesec">‹</button>
-              <strong id="calendar-month-label">—</strong>
-              <button id="calendar-next" type="button" aria-label="Naslednji mesec">›</button>
-            </div>
-            <div class="calendar-weekdays" aria-hidden="true">
-              <span>Pon</span><span>Tor</span><span>Sre</span><span>Čet</span><span>Pet</span><span>Sob</span><span>Ned</span>
-            </div>
+            <div class="calendar-navigation"><button id="calendar-previous" type="button" aria-label="Prejšnji mesec">‹</button><strong id="calendar-month-label">—</strong><button id="calendar-next" type="button" aria-label="Naslednji mesec">›</button></div>
+            <div class="calendar-weekdays" aria-hidden="true"><span>Pon</span><span>Tor</span><span>Sre</span><span>Čet</span><span>Pet</span><span>Sob</span><span>Ned</span></div>
             <div class="calendar-days" id="calendar-days"></div>
-            <div class="time-range-inputs">
-              <label>Čas od<input id="range-start-time" type="time" required /></label>
-              <label>Čas do<input id="range-end-time" type="time" required /></label>
-            </div>
+            <div class="time-range-inputs"><label>Čas od<input id="range-start-time" type="time" required /></label><label>Čas do<input id="range-end-time" type="time" required /></label></div>
           </section>
         </div>
-        <footer class="date-range-dialog-actions">
-          <button class="secondary-action" id="date-range-cancel" type="button">Prekliči</button>
-          <button class="primary-action" id="date-range-apply" type="button">Izberi</button>
-        </footer>
+        <footer class="date-range-dialog-actions"><button class="secondary-action" id="date-range-cancel" type="button">Prekliči</button><button class="primary-action" id="date-range-apply" type="button">Izberi</button></footer>
       </form>
     </dialog>
 
     <dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-dialog-title">
       <form class="auth-form" id="auth-form">
-        <div class="auth-dialog-heading">
-          <p class="eyebrow">Cloud dostop</p>
-          <h2 id="auth-dialog-title">Prijava uporabnika</h2>
-          <p class="muted">Prijavi se za ogled svojih registriranih čebelnjakov.</p>
-        </div>
+        <div class="auth-dialog-heading"><p class="eyebrow">Cloud dostop</p><h2 id="auth-dialog-title">Prijava uporabnika</h2><p class="muted">Prijavi se za ogled svojih registriranih čebelnjakov.</p></div>
         <label class="account-field">E-poštni naslov<input id="auth-email" type="email" autocomplete="email" required /></label>
         <label class="account-field">Geslo<input id="auth-password" type="password" minlength="6" autocomplete="current-password" required /></label>
         <button class="primary-button" id="auth-email-signin" type="submit">Prijava z e-pošto</button>

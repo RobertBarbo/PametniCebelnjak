@@ -4,6 +4,18 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+### Added
+
+- Glavna navigacija z ločenimi pogledi **Pregled**, **Meritve**, **Zgodovina**, **Naprava** in **Posodobitve**.
+- Svetla in temna tema, ki upoštevata sistemsko nastavitev ter shranita uporabnikovo izbiro v brskalnik.
+- Odzivna tabela zadnjih meritev za hiter pregled brez odpiranja grafa.
+
+### Changed
+
+- Lokalna in cloud nadzorna plošča sta preurejeni za telefon, tablico in namizni računalnik z mobilnim menijem ter večjimi upravljalnimi elementi na dotik.
+- Vsi datumi v uporabniškem vmesniku so prikazani v obliki `d/m/y`.
+- Highcharts prevzame barve iz izbrane teme in v datumskih oznakah uporablja enak zapis kot preostali vmesnik.
+
 ## [0.1.0-beta.17] - 2026-08-03
 
 ### Changed

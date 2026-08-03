@@ -4,6 +4,12 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.17] - 2026-08-03
+
+### Changed
+
+- Testna OTA izdaja za preverjanje GitHub preusmeritve po varnem preskakovanju predolgih HTTP glav v beta.16.
+
 ## [0.1.0-beta.16] - 2026-08-03
 
 ### Fixed

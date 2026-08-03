@@ -31,7 +31,7 @@ ESP32 naj se poveže v Wi-Fi in Firebase. V serijskem monitorju počakaj na spor
 ## 4. Objavi cloud stran
 
 ```powershell
-firebase deploy --only hosting
+firebase deploy --only hosting --project pametnicebelnjak
 ```
 
 Po objavi pravil nepovezani obiskovalci ne morejo brati podatkov naprav.

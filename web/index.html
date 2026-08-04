@@ -30,8 +30,7 @@
 
         <nav class="top-navigation" id="top-navigation" aria-label="Glavna navigacija">
           <button class="nav-link active" type="button" data-view-target="overview" aria-current="page">Pregled</button>
-          <button class="nav-link" type="button" data-view-target="measurements">Meritve</button>
-          <button class="nav-link" type="button" data-view-target="history">Zgodovina</button>
+          <button class="nav-link" type="button" data-view-target="history">Grafi</button>
           <button class="nav-link" type="button" data-view-target="device">Naprava</button>
           <button class="nav-link" id="updates-nav-item" type="button" data-view-target="updates">Posodobitve</button>
         </nav>
@@ -55,33 +54,33 @@
         <div class="page-heading overview-heading">
           <div>
             <p class="eyebrow">Panj · živ pogled</p>
-            <h1 id="overview-heading">Dobrodošel v čebelnjaku</h1>
+            <h1 id="overview-heading">Dobrodošel v pametnem panju</h1>
             <p class="subtitle">Trenutne meritve in hiter pregled zadnjega stanja panja.</p>
           </div>
-          <button class="secondary-button" type="button" data-view-target="history">Odpri zgodovino</button>
+          <button class="secondary-button" type="button" data-view-target="history">Odpri grafe</button>
         </div>
 
         <section class="surface latest-panel" aria-labelledby="latest-heading">
           <div class="section-heading">
             <div>
               <p class="eyebrow">Zadnja meritev</p>
-              <h2 id="latest-heading">Stanje v panju</h2>
+              <h2 id="latest-heading">Meritve</h2>
             </div>
             <p id="last-measurement-time" class="muted">Čakam na podatke …</p>
           </div>
           <div class="metrics-grid">
             <article class="metric-card temperature-card">
-              <span class="metric-symbol" aria-hidden="true">T</span>
+              <span class="metric-symbol" aria-hidden="true">🌡</span>
               <p>Temperatura</p>
               <strong><span id="temperature-value">—</span><small>°C</small></strong>
             </article>
             <article class="metric-card humidity-card">
-              <span class="metric-symbol" aria-hidden="true">V</span>
+              <span class="metric-symbol" aria-hidden="true">💧</span>
               <p>Relativna vlaga</p>
               <strong><span id="humidity-value">—</span><small>%</small></strong>
             </article>
             <article class="metric-card weight-card">
-              <span class="metric-symbol" aria-hidden="true">kg</span>
+              <span class="metric-symbol" aria-hidden="true">⚖</span>
               <p>Teža panja</p>
               <strong><span id="weight-value">—</span><small>kg</small></strong>
             </article>
@@ -89,55 +88,47 @@
         </section>
 
         <div class="overview-links">
-          <button class="quick-link" type="button" data-view-target="measurements"><span>Meritve</span><strong>Poglej zadnje zapise</strong></button>
           <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Preveri ESP32 in SD</strong></button>
           <button class="quick-link cloud-only-link" type="button" data-view-target="updates"><span>Firmware</span><strong>Preveri OTA posodobitve</strong></button>
         </div>
       </section>
 
-      <section class="app-view" data-view-panel="measurements" aria-labelledby="measurements-heading" hidden>
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Meritve</p>
-            <h1 id="measurements-heading">Zadnji zapisi</h1>
-            <p class="subtitle">Najnovejše meritve iz trenutno izbranega časovnega obdobja.</p>
-          </div>
-          <button class="secondary-button" type="button" data-view-target="history">Prikaži graf</button>
-        </div>
-        <section class="surface measurements-panel">
-          <div class="table-wrap">
-            <table class="measurements-table">
-              <thead><tr><th>Datum in ura</th><th>Temperatura</th><th>Vlaga</th><th>Teža</th></tr></thead>
-              <tbody id="recent-measurements-body"></tbody>
-            </table>
-          </div>
-          <p class="empty-state" id="recent-measurements-empty">Čakam na meritve …</p>
-        </section>
-      </section>
-
       <section class="app-view" data-view-panel="history" aria-labelledby="history-heading" hidden>
         <div class="page-heading history-heading">
           <div>
-            <p class="eyebrow">Zgodovina</p>
-            <h1 id="history-heading">Potek meritev</h1>
-            <p class="subtitle">Izberi obdobje in približaj podrobnosti neposredno na grafu.</p>
+            <p class="eyebrow">Grafi</p>
+            <h1 id="history-heading">Meritve</h1>
+            <p class="subtitle">Izberi časovno obdobje grafov.</p>
           </div>
           <button class="date-range-trigger" id="date-range-trigger" type="button" aria-haspopup="dialog">
             <span>Začetek – konec</span>
             <strong id="date-range-value">Nastavljam obdobje …</strong>
           </button>
         </div>
-        <div class="surface chart-card">
-          <div id="measurement-chart" aria-label="Graf meritev panja" role="img"></div>
-          <p id="history-summary" class="chart-summary">Čakam na zgodovino meritev …</p>
+        <div class="charts-grid">
+          <article class="surface chart-card">
+            <div class="chart-card-heading">
+              <div><p class="eyebrow">Klima v panju</p><h2>Temperatura in vlaga</h2></div>
+              <span class="chart-unit">°C · %</span>
+            </div>
+            <div id="climate-chart" aria-label="Graf temperature in relativne vlage" role="img"></div>
+          </article>
+          <article class="surface chart-card">
+            <div class="chart-card-heading">
+              <div><p class="eyebrow">Masa panja</p><h2>Teža panja</h2></div>
+              <span class="chart-unit">kg</span>
+            </div>
+            <div id="weight-chart" aria-label="Graf teže panja" role="img"></div>
+          </article>
         </div>
+          <p id="history-summary" class="chart-summary">Čakam na zgodovino meritev …</p>
       </section>
 
       <section class="app-view" data-view-panel="device" aria-labelledby="device-heading" hidden>
         <div class="page-heading">
           <div>
             <p class="eyebrow">Naprava</p>
-            <h1 id="device-heading">ESP32-S3 in pomnilnik</h1>
+            <h1 id="device-heading">Pametni kontroler</h1>
             <p class="subtitle">Omrežje, identiteta, delovanje in stanje SD kartice.</p>
           </div>
         </div>
@@ -187,17 +178,23 @@
 
         <section class="account-section surface" id="account-section" aria-labelledby="account-heading" hidden>
           <div class="account-card">
-            <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji čebelnjaki</h2><p class="subtitle" id="account-email">—</p></div>
+            <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji panji</h2><p class="subtitle" id="account-email">—</p></div>
             <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
           </div>
           <div class="account-management">
-            <label class="account-field">Izbrana naprava<select id="cloud-device-select" disabled><option value="">Nobena naprava ni registrirana</option></select></label>
+            <section class="device-selection-card" aria-labelledby="selected-device-heading">
+              <div><p class="eyebrow" id="device-list-eyebrow">Moji panji</p><h3 id="selected-device-heading">Izbrani panj</h3></div>
+              <label class="account-field">Panj<select id="cloud-device-select" disabled><option value="">Noben panj ni registriran</option></select></label>
+              <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
+              <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
+              <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
+            </section>
             <form class="claim-device-form" id="claim-device-form">
-              <div><p class="eyebrow">Dodaj napravo</p><h2>Registriraj čebelnjak</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo iz lokalne strani ESP32.</p></div>
-              <label class="account-field">Ime naprave<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
+              <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
+              <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
               <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
               <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
-              <button class="primary-button" type="submit">Registriraj napravo</button>
+              <button class="primary-button" type="submit">Registriraj panj</button>
               <p class="form-status" id="claim-device-status" aria-live="polite"></p>
             </form>
           </div>
@@ -251,7 +248,7 @@
 
     <dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-dialog-title">
       <form class="auth-form" id="auth-form">
-        <div class="auth-dialog-heading"><p class="eyebrow">Cloud dostop</p><h2 id="auth-dialog-title">Prijava uporabnika</h2><p class="muted">Prijavi se za ogled svojih registriranih čebelnjakov.</p></div>
+        <div class="auth-dialog-heading"><p class="eyebrow">Cloud dostop</p><h2 id="auth-dialog-title">Prijava uporabnika</h2><p class="muted">Prijavi se za ogled svojih registriranih panjev.</p></div>
         <label class="account-field">E-poštni naslov<input id="auth-email" type="email" autocomplete="email" required /></label>
         <label class="account-field">Geslo<input id="auth-password" type="password" minlength="6" autocomplete="current-password" required /></label>
         <button class="primary-button" id="auth-email-signin" type="submit">Prijava z e-pošto</button>

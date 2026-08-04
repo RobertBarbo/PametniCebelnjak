@@ -5,6 +5,7 @@ const CLOUD_DEVICE_QUERY_PARAMETER = "device";
 const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
 const THEME_STORAGE_KEY = "pametni-cebelnjak-theme";
 const DEFAULT_VIEW = "overview";
+const SUPER_ADMIN_UID = "Uv2bGWlFt8h9YTsAFoxsNlNsRK72";
 
 const elements = {
   menuToggle: document.querySelector("#menu-toggle"),
@@ -26,9 +27,14 @@ const elements = {
   authClose: document.querySelector("#auth-close"),
   authStatus: document.querySelector("#auth-status"),
   accountSection: document.querySelector("#account-section"),
+  accountHeading: document.querySelector("#account-heading"),
   accountEmail: document.querySelector("#account-email"),
   authSignout: document.querySelector("#auth-signout"),
   cloudDeviceSelect: document.querySelector("#cloud-device-select"),
+  deviceListEyebrow: document.querySelector("#device-list-eyebrow"),
+  selectedDeviceDescription: document.querySelector("#selected-device-description"),
+  unclaimDevice: document.querySelector("#unclaim-device"),
+  unclaimDeviceStatus: document.querySelector("#unclaim-device-status"),
   claimDeviceForm: document.querySelector("#claim-device-form"),
   claimDeviceName: document.querySelector("#claim-device-name"),
   claimDeviceId: document.querySelector("#claim-device-id"),
@@ -87,12 +93,12 @@ const elements = {
   localActivationCode: document.querySelector("#local-activation-code"),
   cloudSyncStatus: document.querySelector("#cloud-sync-status"),
   cloudResync: document.querySelector("#cloud-resync"),
-  recentMeasurementsBody: document.querySelector("#recent-measurements-body"),
-  recentMeasurementsEmpty: document.querySelector("#recent-measurements-empty"),
 };
 
-let chart;
-let chartHasUserZoom = false;
+let climateChart;
+let weightChart;
+let climateChartHasUserZoom = false;
+let weightChartHasUserZoom = false;
 let stopHistoryListener;
 let refreshHistory;
 let latestDeviceStatus;
@@ -116,6 +122,7 @@ let stopCloudDeviceListListener;
 let stopCloudDeviceListeners = [];
 let cloudDevices = {};
 let authControlsInitialized = false;
+let firebaseRealtimeConnected;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -146,22 +153,29 @@ function getChartTheme() {
 }
 
 function updateChartTheme() {
-  if (!chart) return;
+  if (!climateChart && !weightChart) return;
   const colors = getChartTheme();
-  chart.update({
+  const commonOptions = {
     chart: { backgroundColor: "transparent" },
     xAxis: {
       lineColor: colors.border,
       tickColor: colors.border,
       labels: { style: { color: colors.textSoft } },
     },
+    legend: { itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
+    tooltip: { backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
+  };
+
+  climateChart?.update({
+    ...commonOptions,
     yAxis: [
       { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
       { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineWidth: 0, opposite: true },
-      { title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, visible: false },
     ],
-    legend: { itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
-    tooltip: { backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
+  }, false);
+  weightChart?.update({
+    ...commonOptions,
+    yAxis: [{ title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid }],
   }, false);
   renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
 }
@@ -211,8 +225,11 @@ function showView(viewName, updateLocation = true) {
   if (updateLocation) history.replaceState(null, "", `#${selectedView}`);
   window.scrollTo({ top: 0, behavior: "smooth" });
 
-  if (selectedView === "history" && chart) {
-    requestAnimationFrame(() => chart.reflow());
+  if (selectedView === "history") {
+    requestAnimationFrame(() => {
+      climateChart?.reflow();
+      weightChart?.reflow();
+    });
   }
 }
 
@@ -234,6 +251,21 @@ function isValidDeviceId(deviceId) {
 
 function isValidActivationCode(activationCode) {
   return /^[A-HJ-NP-Z2-9]{8}$/.test(String(activationCode));
+}
+
+function isCloudAdministrator() {
+  return currentCloudUser?.uid === SUPER_ADMIN_UID;
+}
+
+function configureCloudAccountView() {
+  const isAdministrator = isCloudAdministrator();
+  elements.accountHeading.textContent = isAdministrator ? "Vsi panji" : "Moji panji";
+  elements.deviceListEyebrow.textContent = isAdministrator ? "Skrbniški pregled" : "Moji panji";
+  elements.selectedDeviceDescription.textContent = isAdministrator
+    ? "Skrbniški račun ima ogled vseh registriranih panjev."
+    : "Izberi panj, katerega podatke želiš pregledovati.";
+  elements.claimDeviceForm.hidden = isAdministrator;
+  elements.unclaimDevice.hidden = isAdministrator;
 }
 
 function clearCloudDeviceListeners() {
@@ -264,7 +296,7 @@ function renderCloudDeviceSelector() {
 
   elements.cloudDeviceSelect.replaceChildren();
   if (!deviceIds.length) {
-    elements.cloudDeviceSelect.append(new Option("Nobena naprava ni registrirana", ""));
+    elements.cloudDeviceSelect.append(new Option("Noben panj ni registriran", ""));
     elements.cloudDeviceSelect.disabled = true;
     selectCloudDevice("");
     return;
@@ -272,7 +304,8 @@ function renderCloudDeviceSelector() {
 
   deviceIds.sort().forEach((deviceId) => {
     const device = cloudDevices[deviceId] ?? {};
-    elements.cloudDeviceSelect.append(new Option(device.display_name || deviceId, deviceId));
+    const displayName = isCloudAdministrator() ? deviceId : device.display_name || deviceId;
+    elements.cloudDeviceSelect.append(new Option(displayName, deviceId));
   });
   elements.cloudDeviceSelect.disabled = false;
   selectCloudDevice(preferredDeviceId || deviceIds[0]);
@@ -282,6 +315,8 @@ function selectCloudDevice(deviceId) {
   clearCloudDeviceListeners();
   cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
   elements.cloudDeviceSelect.value = deviceId;
+  elements.unclaimDevice.disabled = !cloudDevicePath || isCloudAdministrator();
+  elements.unclaimDeviceStatus.textContent = "";
   elements.otaSection.hidden = !cloudDevicePath;
   if (!cloudDevicePath || !firebaseDatabase) {
     resetCloudDashboard();
@@ -304,6 +339,17 @@ function selectCloudDevice(deviceId) {
 function setConnectionState(text, state = "connected") {
   elements.connectionStatus.className = `connection-status ${state}`;
   elements.connectionText.textContent = text;
+}
+
+function renderCloudConnectionState() {
+  if (!currentCloudUser) return;
+  if (firebaseRealtimeConnected === true) {
+    setConnectionState("Povezano v Cloud", "connected");
+  } else if (firebaseRealtimeConnected === false) {
+    setConnectionState("Brez povezave s Cloud", "error");
+  } else {
+    setConnectionState("Povezovanje s Cloudom …", "connecting");
+  }
 }
 
 function formatValue(value, decimals = 1) {
@@ -764,61 +810,72 @@ function aggregateReadings(readings, range) {
     .sort((first, second) => first.timestamp - second.timestamp);
 }
 
-function renderRecentMeasurements(readings) {
-  const recentReadings = [...readings]
-    .filter((reading) => Number.isFinite(Number(reading.timestamp)))
-    .sort((first, second) => Number(second.timestamp) - Number(first.timestamp))
-    .slice(0, 20);
-
-  const rows = recentReadings.map((reading) => {
-    const row = document.createElement("tr");
-    const values = [
-      formatDashboardDateTime(new Date(Number(reading.timestamp) * 1000), true),
-      `${formatValue(reading.temperature_c)} °C`,
-      `${formatValue(reading.humidity_percent)} %`,
-      `${formatValue(reading.weight_kg, 2)} kg`,
-    ];
-    values.forEach((value) => {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.append(cell);
-    });
-    return row;
-  });
-
-  elements.recentMeasurementsBody.replaceChildren(...rows);
-  elements.recentMeasurementsEmpty.hidden = rows.length > 0;
-  if (!rows.length) elements.recentMeasurementsEmpty.textContent = "Za izbrano obdobje še ni meritev.";
-}
-
 function renderHistory(readings, alreadyAggregated = false) {
   const chartReadings = alreadyAggregated ? readings : aggregateReadings(readings, appliedRange);
   latestHistoryReadings = readings;
   latestHistoryAlreadyAggregated = alreadyAggregated;
-  renderRecentMeasurements(chartReadings);
   elements.historySummary.textContent = chartReadings.length
-    ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po grafu.`
+    ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po izbranem grafu.`
     : "Za izbrano obdobje še ni meritev.";
-  if (!chart) return;
+  if (!climateChart || !weightChart) return;
 
   const colors = getChartTheme();
-  const series = [
-    { name: "Temperatura (°C)", data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]), color: colors.temperature, yAxis: 0 },
-    { name: "Vlaga (%)", data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]), color: colors.humidity, yAxis: 1 },
-    { name: "Teža (kg)", data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]), color: colors.weight, yAxis: 2 },
+  const climateSeries = [
+    {
+      name: "Temperatura (°C)",
+      data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]),
+      color: colors.temperature,
+      yAxis: 0,
+      tooltip: { valueDecimals: 1 },
+    },
+    {
+      name: "Vlaga (%)",
+      data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]),
+      color: colors.humidity,
+      yAxis: 1,
+      tooltip: { valueDecimals: 1 },
+    },
+  ];
+  const weightSeries = [
+    {
+      name: "Teža (kg)",
+      data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]),
+      color: colors.weight,
+      yAxis: 0,
+      tooltip: { valueDecimals: 1 },
+    },
   ];
 
-  chart.update({ series }, false, true);
-  if (!chartHasUserZoom) {
-    chart.xAxis[0].setExtremes(appliedRange.from.getTime(), appliedRange.to.getTime(), false, false);
+  climateChart.update({ series: climateSeries }, false, true);
+  weightChart.update({ series: weightSeries }, false, true);
+  if (!climateChartHasUserZoom) {
+    climateChart.xAxis[0].setExtremes(appliedRange.from.getTime(), appliedRange.to.getTime(), false, false);
   }
-  chart.redraw();
+  if (!weightChartHasUserZoom) {
+    weightChart.xAxis[0].setExtremes(appliedRange.from.getTime(), appliedRange.to.getTime(), false, false);
+  }
+  climateChart.redraw();
+  weightChart.redraw();
 }
 
-function createChart() {
-  if (chart) return;
-  const colors = getChartTheme();
-  chart = Highcharts.chart("measurement-chart", {
+function createTimeAxis(colors, onSetExtremes) {
+  return {
+    type: "datetime",
+    lineColor: colors.border,
+    tickColor: colors.border,
+    labels: {
+      style: { color: colors.textSoft },
+      formatter() {
+        const date = new Date(this.value);
+        return `${formatDashboardDate(date)}<br>${formatDashboardTime(date)}`;
+      },
+    },
+    events: { setExtremes: onSetExtremes },
+  };
+}
+
+function createChartOptions(colors, onSetExtremes) {
+  return {
     chart: {
       backgroundColor: "transparent",
       spacing: [16, 8, 8, 0],
@@ -829,32 +886,32 @@ function createChart() {
     title: { text: null },
     credits: { enabled: false },
     time: { useUTC: false },
-    xAxis: {
-      type: "datetime",
-      lineColor: colors.border,
-      tickColor: colors.border,
-      labels: {
-        style: { color: colors.textSoft },
-        formatter() {
-          const date = new Date(this.value);
-          return `${formatDashboardDate(date)}<br>${formatDashboardTime(date)}`;
-        },
-      },
-      events: {
-        setExtremes(event) {
-          if (event.trigger === "zoom") chartHasUserZoom = event.min !== undefined;
-        },
-      },
-    },
-    yAxis: [
-      { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
-      { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, opposite: true, gridLineWidth: 0 },
-      { title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, visible: false },
-    ],
+    xAxis: createTimeAxis(colors, onSetExtremes),
     tooltip: { shared: true, xDateFormat: "%e/%m/%Y %H:%M", backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
     legend: { align: "left", verticalAlign: "top", itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
     plotOptions: { series: { marker: { enabled: false }, lineWidth: 2, states: { hover: { lineWidth: 3 } } } },
     series: [],
+  };
+}
+
+function createCharts() {
+  if (climateChart || weightChart) return;
+  const colors = getChartTheme();
+  climateChart = Highcharts.chart("climate-chart", {
+    ...createChartOptions(colors, (event) => {
+      if (event.trigger === "zoom") climateChartHasUserZoom = event.min !== undefined;
+    }),
+    yAxis: [
+      { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
+      { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, opposite: true, gridLineWidth: 0 },
+    ],
+  });
+
+  weightChart = Highcharts.chart("weight-chart", {
+    ...createChartOptions(colors, (event) => {
+      if (event.trigger === "zoom") weightChartHasUserZoom = event.min !== undefined;
+    }),
+    yAxis: [{ title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid }],
   });
   renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
 }
@@ -945,6 +1002,15 @@ function isSameDay(first, second) {
   return dateKey(first) === dateKey(second);
 }
 
+function getCalendarDayRange(date) {
+  const dayStart = startOfDay(date);
+  const now = new Date();
+  return {
+    from: dayStart,
+    to: isSameDay(dayStart, now) ? now : endOfDay(dayStart),
+  };
+}
+
 function renderCalendar() {
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
@@ -970,17 +1036,17 @@ function renderCalendar() {
 }
 
 function selectCalendarDate(date) {
+  const selectedRange = getCalendarDayRange(date);
   if (!selectingRangeEnd) {
-    draftRange.from = setDateTime(date, elements.startTime.value);
-    draftRange.to = null;
+    draftRange = selectedRange;
     selectingRangeEnd = true;
   } else {
-    const selectedEnd = setDateTime(date, elements.endTime.value);
-    if (selectedEnd < draftRange.from) {
-      draftRange.to = new Date(draftRange.from);
-      draftRange.from = setDateTime(date, elements.startTime.value);
+    if (selectedRange.from < startOfDay(draftRange.from)) {
+      const previousEnd = new Date(draftRange.to);
+      draftRange.from = selectedRange.from;
+      draftRange.to = isSameDay(previousEnd, new Date()) ? new Date() : endOfDay(previousEnd);
     } else {
-      draftRange.to = selectedEnd;
+      draftRange.to = selectedRange.to;
     }
     selectingRangeEnd = false;
   }
@@ -1004,7 +1070,8 @@ function applyRange() {
   }
 
   appliedRange = cloneRange(draftRange);
-  chartHasUserZoom = false;
+  climateChartHasUserZoom = false;
+  weightChartHasUserZoom = false;
   elements.rangeValue.textContent = formatRange(appliedRange);
   elements.rangeDialog.close();
   refreshHistory?.().catch(showDataError);
@@ -1147,13 +1214,50 @@ async function claimDevice(event) {
     });
     await remove(ref(database, claimPath));
     elements.claimDeviceForm.reset();
-    elements.claimDeviceStatus.textContent = "Naprava je uspešno registrirana na tvoj račun.";
+    elements.claimDeviceStatus.textContent = "Panj je uspešno registriran na tvoj račun.";
   } catch (error) {
     console.error(error);
     try {
       await remove(ref(database, claimPath));
     } catch {}
     elements.claimDeviceStatus.textContent = "Registracija ni uspela. Preveri ID, kodo in ali je ESP32 že povezan v Firebase.";
+  }
+}
+
+async function unclaimDevice() {
+  if (!currentCloudUser || !firebaseDatabase) return;
+
+  const deviceId = elements.cloudDeviceSelect.value;
+  if (!deviceId || !cloudDevices[deviceId]) return;
+
+  const displayName = cloudDevices[deviceId].display_name || deviceId;
+  const isConfirmed = window.confirm(
+    `Ali želiš odregistrirati panj »${displayName}«?\n\nMeritve in zgodovina ostanejo v bazi, panj pa ne bo več viden v tvojem računu. Za ponoven dostop ga bo treba registrirati z aktivacijsko kodo.`,
+  );
+  if (!isConfirmed) return;
+
+  const { database, ref, remove, set } = firebaseDatabase;
+  const userDevicePath = `users/${currentCloudUser.uid}/devices/${deviceId}`;
+  const ownerPath = `devices/${deviceId}/owner_uid`;
+  const registration = cloudDevices[deviceId];
+  elements.unclaimDevice.disabled = true;
+  elements.unclaimDeviceStatus.textContent = "Odregistriram panj …";
+
+  try {
+    await remove(ref(database, userDevicePath));
+    try {
+      await remove(ref(database, ownerPath));
+    } catch (error) {
+      await set(ref(database, userDevicePath), registration);
+      throw error;
+    }
+
+    localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
+    elements.unclaimDeviceStatus.textContent = "Panj je odregistriran. Merilni podatki ostanejo shranjeni.";
+  } catch (error) {
+    console.error(error);
+    elements.unclaimDeviceStatus.textContent = "Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.";
+    elements.unclaimDevice.disabled = false;
   }
 }
 
@@ -1175,10 +1279,14 @@ function handleCloudAuthState(user) {
   }
 
   elements.accountSection.hidden = false;
-  elements.authTrigger.hidden = true;
+  elements.authTrigger.hidden = false;
+  elements.authTrigger.textContent = "Odjava";
   elements.accountEmail.textContent = user.email || "Google račun";
+  configureCloudAccountView();
+  renderCloudConnectionState();
   const { database, onValue, ref } = firebaseDatabase;
-  stopCloudDeviceListListener = onValue(ref(database, `users/${user.uid}/devices`), (snapshot) => {
+  const deviceListPath = isCloudAdministrator() ? "devices" : `users/${user.uid}/devices`;
+  stopCloudDeviceListListener = onValue(ref(database, deviceListPath), (snapshot) => {
     cloudDevices = snapshot.val() ?? {};
     renderCloudDeviceSelector();
   }, showDataError);
@@ -1187,7 +1295,10 @@ function handleCloudAuthState(user) {
 function initializeAuthControls() {
   if (authControlsInitialized) return;
   authControlsInitialized = true;
-  elements.authTrigger.addEventListener("click", openAuthDialog);
+  elements.authTrigger.addEventListener("click", () => {
+    if (currentCloudUser) signOutCurrentUser();
+    else openAuthDialog();
+  });
   elements.authForm.addEventListener("submit", signInWithEmail);
   elements.authRegister.addEventListener("click", registerEmailAccount);
   elements.authGoogle.addEventListener("click", signInWithGoogle);
@@ -1195,6 +1306,7 @@ function initializeAuthControls() {
   elements.authSignout.addEventListener("click", signOutCurrentUser);
   elements.cloudDeviceSelect.addEventListener("change", () => selectCloudDevice(elements.cloudDeviceSelect.value));
   elements.claimDeviceForm.addEventListener("submit", claimDevice);
+  elements.unclaimDevice.addEventListener("click", unclaimDevice);
 }
 
 async function useLocalDataSource() {
@@ -1274,9 +1386,8 @@ async function useFirebaseDataSource() {
   initializeAuthControls();
 
   onValue(ref(database, ".info/connected"), (snapshot) => {
-    if (currentCloudUser) {
-      setConnectionState(snapshot.val() === true ? "Povezano v Cloud" : "Brez povezave s Cloud", snapshot.val() === true ? "connected" : "error");
-    }
+    firebaseRealtimeConnected = snapshot.val() === true;
+    renderCloudConnectionState();
   }, showDataError);
 
   refreshHistory = async () => {
@@ -1317,7 +1428,7 @@ async function startDashboard() {
 
   loadHighcharts()
     .then(() => {
-      createChart();
+      createCharts();
       refreshHistory?.().catch(showDataError);
     })
     .catch((error) => {

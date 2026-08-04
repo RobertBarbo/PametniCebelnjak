@@ -340,7 +340,7 @@ select {
 
 .page-heading h1 {
   max-width: 780px;
-  font-size: clamp(2.3rem, 5vw, 4.8rem);
+  font-size: clamp(2rem, 4vw, 3.6rem);
 }
 
 .section-heading h2,
@@ -348,6 +348,10 @@ select {
 .claim-device-form h2,
 .provisioning-card h2 {
   font-size: clamp(1.5rem, 2.6vw, 2.15rem);
+}
+
+#latest-heading {
+  font-size: clamp(1.35rem, 2.2vw, 1.9rem);
 }
 
 .eyebrow {
@@ -385,8 +389,7 @@ select {
 .latest-panel,
 .device-status-panel,
 .account-section,
-.provisioning-section,
-.measurements-panel {
+.provisioning-section {
   padding: clamp(22px, 3vw, 38px);
 }
 
@@ -470,13 +473,9 @@ select {
 
 .overview-links {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   margin-top: 20px;
-}
-
-:where(body[data-dashboard-mode="local"]) .overview-links {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .quick-link {
@@ -551,53 +550,11 @@ select {
   color: var(--danger);
 }
 
-.table-wrap {
-  overflow-x: auto;
-}
-
-.measurements-table {
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-}
-
-.measurements-table th,
-.measurements-table td {
-  padding: 15px 16px;
-  border-bottom: 1px solid var(--border);
-  text-align: right;
-  white-space: nowrap;
-}
-
-.measurements-table th:first-child,
-.measurements-table td:first-child {
-  text-align: left;
-}
-
-.measurements-table th {
-  color: var(--text-soft);
-  font-size: 0.76rem;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.measurements-table td {
-  font-weight: 700;
-}
-
-.measurements-table tbody tr:hover {
-  background: var(--surface-soft);
-}
-
 .empty-state {
   margin: 0;
   padding: 36px;
   color: var(--text-soft);
   text-align: center;
-}
-
-.measurements-table:not(:has(tbody:empty)) + .empty-state {
-  display: none;
 }
 
 .date-range-trigger {
@@ -623,17 +580,51 @@ select {
   font-size: 0.92rem;
 }
 
-.chart-card {
-  padding: 18px 22px 22px;
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
 }
 
-#measurement-chart {
+.chart-card {
+  padding: 22px;
+}
+
+.chart-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 2px 6px 12px;
+}
+
+.chart-card-heading .eyebrow {
+  margin-bottom: 5px;
+}
+
+.chart-card-heading h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+}
+
+.chart-unit {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+#climate-chart,
+#weight-chart {
   width: 100%;
-  min-height: 490px;
+  min-height: 420px;
 }
 
 .chart-summary {
-  margin: 10px 8px 0;
+  margin: 14px 8px 0;
   color: var(--text-soft);
   font-size: 0.85rem;
 }
@@ -650,8 +641,12 @@ select {
 .provisioning-card,
 .account-management {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.9fr);
+  align-items: start;
   gap: clamp(28px, 5vw, 70px);
+}
+
+.provisioning-card {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.9fr);
 }
 
 .activation-details {
@@ -781,13 +776,13 @@ select:focus {
 }
 
 .device-state-card.online,
-.sd-card.ok {
-  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
-  background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface-solid));
+.device-state-card.offline,
+.sd-card.ok,
+.sd-card.error {
+  border-color: var(--border);
+  background: var(--surface-solid);
 }
 
-.device-state-card.offline,
-.sd-card.error,
 .ota-card.ota-error {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
 }
@@ -798,12 +793,46 @@ select:focus {
 }
 
 .account-management {
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   padding-top: 28px;
   border-top: 1px solid var(--border);
 }
 
+.device-selection-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-medium);
+  background: var(--surface-soft);
+}
+
+.device-selection-card .eyebrow {
+  margin-bottom: 6px;
+}
+
+.device-selection-card h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+}
+
+.device-selection-card .muted {
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.device-selection-card .danger-button {
+  width: 100%;
+}
+
 .claim-device-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 18px 20px;
 }
 
 .claim-device-form > div,
@@ -811,8 +840,24 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.claim-device-form > div {
+  padding-bottom: 10px;
+}
+
+.claim-device-form .muted {
+  max-width: 560px;
+  margin-top: 14px;
+  line-height: 1.55;
+}
+
+.claim-device-form .account-field {
+  min-width: 0;
+  line-height: 1.35;
+}
+
 .claim-device-form .primary-button {
   align-self: end;
+  width: 100%;
 }
 
 .ota-section:not([hidden]) + .ota-empty-state {
@@ -1114,8 +1159,7 @@ dialog::backdrop {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .metrics-grid .metric-card:last-child,
-  .overview-links .quick-link:last-child {
+  .metrics-grid .metric-card:last-child {
     grid-column: 1 / -1;
   }
 
@@ -1128,8 +1172,13 @@ dialog::backdrop {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  #measurement-chart {
-    min-height: 430px;
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #climate-chart,
+  #weight-chart {
+    min-height: 400px;
   }
 }
 
@@ -1190,7 +1239,7 @@ dialog::backdrop {
   }
 
   .page-heading h1 {
-    font-size: clamp(2.15rem, 11vw, 3.2rem);
+    font-size: clamp(1.9rem, 9.5vw, 2.8rem);
   }
 
   .overview-heading {
@@ -1206,8 +1255,7 @@ dialog::backdrop {
   .latest-panel,
   .device-status-panel,
   .account-section,
-  .provisioning-section,
-  .measurements-panel {
+  .provisioning-section {
     padding: 18px;
   }
 
@@ -1219,7 +1267,6 @@ dialog::backdrop {
   }
 
   .metrics-grid .metric-card:last-child,
-  .overview-links .quick-link:last-child,
   .claim-device-form > * {
     grid-column: auto;
   }
@@ -1241,8 +1288,17 @@ dialog::backdrop {
     padding: 10px 8px 18px;
   }
 
-  #measurement-chart {
-    min-height: 390px;
+  .chart-card {
+    padding: 14px 8px 18px;
+  }
+
+  .chart-card-heading {
+    margin-inline: 10px;
+  }
+
+  #climate-chart,
+  #weight-chart {
+    min-height: 340px;
   }
 
   .chart-summary {

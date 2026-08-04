@@ -44,14 +44,17 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Lokalni API: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset` in `/measurements.csv`.
 - Lokalni pogled najprej poskusi lokalni API; kadar ta ni dosegljiv, uporabi Firebase cloud pogled s prijavo uporabnika. Lokalni pogled ne prikaže cloud prijave, registracije naprav ali OTA upravljanja, prikaže pa `device_id` in aktivacijsko kodo za kasnejšo registracijo.
 - Highcharts je v `web/vendor/highcharts.js`, zato grafi na lokalnem ESP32 ne potrebujejo interneta.
-- Lokalni graf uporabi dnevni SD indeks in podatke agregira na ESP32. Če SD trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
-- Cloud graf za obdobja do 7 dni bere surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
+- Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. Če SD trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
+- Cloud grafa za obdobja do 7 dni bereta surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
 - Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze.
-- Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje v lokalnem in cloud pogledu.
-- Glavna navigacija loči poglede **Pregled**, **Meritve**, **Zgodovina**, **Naprava** in **Posodobitve**; lokalni način skrije cloud prijavo in OTA upravljanje.
+- Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje obeh grafov v lokalnem in cloud pogledu. Klik na pretekli dan samodejno izbere obdobje od `00:00` do `23:59`, klik na današnji dan pa od `00:00` do trenutne ure; drugi klik lahko obdobje razširi na drug dan.
+- Glavna navigacija loči poglede **Pregled**, **Grafi**, **Naprava** in **Posodobitve**; lokalni način skrije cloud prijavo in OTA upravljanje.
+- Pogled **Grafi** loči temperaturo z relativno vlago od teže panja, vendar oba grafa uporabljata isto izbrano obdobje in sta zložena navpično.
 - Svetla in temna tema delujeta v obeh načinih, shranjena izbira pa ostane v brskalniku. Highcharts uporablja barve aktivne teme.
 - Datumi v karticah, tabeli, izbirniku obdobja in grafu so prikazani v obliki `d/m/y`; ura uporablja 24-urni zapis.
+- Tooltipi grafov za temperaturo, relativno vlago in težo vrednosti prikažejo zaokrožene na eno decimalko v lokalnem in cloud načinu.
 - Odzivna postavitev prilagodi navigacijo, kartice, tabelo, graf in obrazce telefonu, tablici ter namiznemu računalniku. Upravljalni elementi na dotik so visoki najmanj 44 px.
+- Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani samo `owner_uid` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
 ## OTA firmware
@@ -87,4 +90,4 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
 /device_claims/{device_id}/{firebase_uid}/activation_code
 ```
 
-Cloud pogled zahteva Firebase prijavo in pokaže samo naprave pod `/users/{firebase_uid}/devices`. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.
+Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku pokaže samo naprave pod `/users/{firebase_uid}/devices`. Trenutni beta skrbniški UID lahko bere celotno pot `/devices` in zato samodejno vidi vse panje brez aktivacije, vendar nima dodatnih pravic za spreminjanje podatkov. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.

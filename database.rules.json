@@ -36,10 +36,11 @@
       }
     },
     "devices": {
+      ".read": "auth != null && auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72'",
       "$deviceId": {
-        ".read": "auth != null && data.child('owner_uid').val() === auth.uid",
+        ".read": "auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || data.child('owner_uid').val() === auth.uid)",
         "owner_uid": {
-          ".write": "auth != null && !data.exists() && newData.val() === auth.uid && root.child('device_claims').child($deviceId).child(auth.uid).child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()"
+          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid && root.child('device_claims').child($deviceId).child(auth.uid).child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()) || (data.val() === auth.uid && !newData.exists()))"
         },
         "latest": {
           ".write": "auth == null"

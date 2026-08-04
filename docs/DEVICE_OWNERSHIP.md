@@ -19,7 +19,13 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
   commands
 ```
 
-`database.rules.json` dovoli branje naprave samo takrat, ko je `owner_uid` enak prijavljenemu Firebase UID-ju. Uporabnik lahko registrira več naprav in med njimi preklaplja z izbirnikom na cloud strani.
+`database.rules.json` dovoli branje naprave samo takrat, ko je `owner_uid` enak prijavljenemu Firebase UID-ju. Uporabnik lahko registrira več panjev in med njimi preklaplja z izbirnikom na cloud strani.
+
+## Skrbniški ogled
+
+Za trenutni beta skrbniški UID so Firebase pravila določena neposredno v `database.rules.json`. Ta račun lahko samo bere celotno pot `/devices`, zato cloud nadzorna plošča samodejno prikaže vse registrirane in še neregistrirane panje brez aktivacijske kode. Skrbniški ogled ne razkrije poti `/device_secrets` in ne doda pravic za spreminjanje lastništva, meritev ali uporabniških računov.
+
+Za nadaljnjo produkcijsko administracijo je treba ta enkratni UID zamenjati z vlogo Firebase custom claim, ki jo nastavi zaupanja vreden Admin SDK backend.
 
 ## Prevzem naprave brez Cloud Functions
 
@@ -36,6 +42,12 @@ Ta beta namerno ne uporablja Cloud Functions in zato ne zahteva Blaze paketa. Ak
 4. Firebase pravilo primerja vneseno kodo z zasebnim zapisom. Ob ujemanju cloud stran zapiše `owner_uid` in povezavo pod `/users/{uid}/devices`.
 5. Začasni zahtevek se izbriše; aktivacijska koda ni prikazana v cloud nadzorni plošči.
 
+## Odregistracija panja
+
+Prijavljen lastnik lahko v cloud nadzorni plošči odregistrira izbrani panj. Po potrditvi se najprej odstrani povezava `/users/{uid}/devices/{deviceId}`, nato še `/devices/{deviceId}/owner_uid`.
+
+Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne brišejo. Panj zato ni več viden nobenemu uporabniku, novi lastnik pa ga lahko z istim ID-jem in aktivacijsko kodo ponovno registrira. Firebase pravilo dovoli brisanje `owner_uid` izključno trenutnemu lastniku.
+
 ## Pomembna omejitev
 
 ESP32 v tej izvedbi še vedno anonimno piše meritve, stanje in bere OTA ukaz. Firebase pravila zato lahko zaščitijo **zasebnost in prikaz podatkov**, ne morejo pa dokazati, da je anonimen zapis res poslal fizični ESP32. Kdor pozna ID naprave, lahko teoretično pošilja ponarejene meritve ali izbriše OTA ukaz, ne more pa podatkov brati brez računa lastnika.
@@ -46,7 +58,7 @@ To je sprejemljivo samo za trenutno beta testiranje. Za produkcijo je potreben z
 
 - `device_secrets` je zaseben; anonimen ESP32 ga lahko ustvari in pozneje ponovno zapiše samo z isto aktivacijsko kodo.
 - `device_claims` lahko bere in piše samo uporabnik, katerega UID je v poti.
-- `devices/{deviceId}` lahko bere samo lastnik.
+- `devices/{deviceId}` lahko bere samo lastnik; trenutni beta skrbniški UID lahko bere vse naprave.
 - Lastnik lahko pošlje OTA ukaz, anonimen ESP32 pa ga lahko le prebere in izbriše po obdelavi.
 - Meritve, agregati, status in `latest` dovoljujejo anonimen zapis samo zato, ker ESP32 še nima lastne Firebase avtentikacije.
 

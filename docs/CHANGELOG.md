@@ -4,17 +4,31 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+### Fixed
+
+- Cloud vrstica povezave po uspešni prijavi takoj prikaže povezovanje oziroma povezavo s Firebase in ne obstane več na stanju »Prijava je potrebna«.
+
 ### Added
 
-- Glavna navigacija z ločenimi pogledi **Pregled**, **Meritve**, **Zgodovina**, **Naprava** in **Posodobitve**.
+- Zgornja vrstica cloud nadzorne plošče po prijavi prikaže gumb **Odjava** ob izbiri teme.
+- Določen beta skrbniški Firebase UID samodejno vidi vse panje v cloud nadzorni plošči, brez registracije ali aktivacijske kode.
+- Glavna navigacija z ločenimi pogledi **Pregled**, **Grafi**, **Naprava** in **Posodobitve**.
 - Svetla in temna tema, ki upoštevata sistemsko nastavitev ter shranita uporabnikovo izbiro v brskalnik.
-- Odzivna tabela zadnjih meritev za hiter pregled brez odpiranja grafa.
+- Ločena grafa za temperaturo z relativno vlago ter težo panja z enakim časovnim obdobjem.
 
 ### Changed
 
 - Lokalna in cloud nadzorna plošča sta preurejeni za telefon, tablico in namizni računalnik z mobilnim menijem ter večjimi upravljalnimi elementi na dotik.
+- Zavihek **Meritve** je odstranjen, **Zgodovina** pa je preimenovana v **Grafi**.
 - Vsi datumi v uporabniškem vmesniku so prikazani v obliki `d/m/y`.
 - Highcharts prevzame barve iz izbrane teme in v datumskih oznakah uporablja enak zapis kot preostali vmesnik.
+- Tooltipi grafov prikažejo temperaturo, relativno vlago in težo zaokroženo na eno decimalko.
+- Grafa temperature z vlago in teže panja sta zložena navpično za jasnejši pregled na vseh velikostih zaslona.
+- Izbira uporabnikovega panja je preoblikovana v kompaktno kartico, registracija pa uporablja izraz »panj«.
+- Uporabnik lahko po potrditvi odregistrira izbrani panj, pri čemer meritve ostanejo shranjene.
+- Opis registracije ima več navpičnega razmika, kartici ESP32 in SD pa uporabljata enako nevtralno obliko kot preostale sistemske kartice.
+- Naslovi začetnega pogleda, meritev, pametnega kontrolerja in OTA posodobitev so vsebinsko poenoteni ter manjši na mobilnih zaslonih.
+- Koledarski klik na pretekli dan privzeto izbere celoten dan od `00:00` do `23:59`, zato graf ne dobi več praznega intervala z uro prejšnje izbire.
 
 ## [0.1.0-beta.17] - 2026-08-03
 

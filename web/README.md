@@ -5,7 +5,7 @@ Mapa vsebuje isti odzivni vmesnik za dva načina:
 - **lokalni ESP32 pogled** iz LittleFS prek lokalnega IP-ja ali AP-ja;
 - **cloud pogled** prek Firebase Authentication in Realtime Database za lastne naprave uporabnika.
 
-Vmesnik je razdeljen na poglede **Pregled**, **Meritve**, **Zgodovina**, **Naprava** in **Posodobitve**. Na telefonu se navigacija zloži v meni, postavitev pa se prilagodi tudi tablici in namiznemu računalniku. Uporabnik lahko izbere svetlo ali temno temo; izbira se shrani lokalno. Datumi so povsod prikazani v obliki `d/m/y`.
+Vmesnik je razdeljen na poglede **Pregled**, **Grafi**, **Naprava** in **Posodobitve**. Na telefonu se navigacija zloži v meni, postavitev pa se prilagodi tudi tablici in namiznemu računalniku. Uporabnik lahko izbere svetlo ali temno temo; izbira se shrani lokalno. Datumi so povsod prikazani v obliki `d/m/y`.
 
 ## Lokalni ESP32 pogled brez interneta
 
@@ -18,7 +18,7 @@ Lokalni obrazec ima tudi gumb za brisanje shranjenega Wi-Fi-ja. Po potrditvi se 
 
 Lokalni pogled ne prikazuje cloud prijave ali obrazca za registracijo. Aktivacijska koda je vidna na kartici **Aktivacijska koda** ob stanju naprave; uporabi se skupaj z ID-jem naprave v cloud pogledu.
 
-Lokalni graf bere `/measurements.csv` prek `/api/history`. Highcharts je priložen v `vendor/highcharts.js`, zato za graf in obe temi ne potrebuje interneta. Izbirnik podpira hitra obdobja, začetek in konec z uro ter X-zoomiranje. Pogled **Meritve** prikaže zadnjih 20 zapisov iz izbranega obdobja.
+Lokalna grafa bereta `/measurements.csv` prek `/api/history`. Highcharts je priložen v `vendor/highcharts.js`, zato za grafa in obe temi ne potrebuje interneta. Izbirnik podpira hitra obdobja, začetek in konec z uro ter X-zoomiranje. Temperatura in relativna vlaga sta na prvem grafu, teža panja pa na drugem.
 
 ## Cloud razvojni pogled
 
@@ -30,7 +30,7 @@ py -m http.server 8080 --directory web
 
 Nato odpri `http://localhost:8080`. Datoteka `firebase-config.js` je lokalna in se ne objavi v Git. V Firebase Console pred uporabo omogoči Email/Password in Google prijavo.
 
-Po prijavi cloud pogled prebere samo `/users/{uid}/devices`. Napravo registriraš z njenim ID-jem in aktivacijsko kodo iz lokalne ESP32 strani; nato jo lahko izbereš v seznamu. Celoten postopek je v `../docs/FIREBASE_AUTH_SETUP.md`.
+Po prijavi cloud pogled prebere samo `/users/{uid}/devices`. Panj registriraš z ID-jem naprave in aktivacijsko kodo iz lokalne ESP32 strani; nato ga lahko izbereš v kompaktni kartici. Gumb **Odregistriraj izbrani panj** odstrani povezavo z računom, ne izbriše pa meritev ali zgodovine. Celoten postopek je v `../docs/FIREBASE_AUTH_SETUP.md`.
 
 ## OTA
 

@@ -4,6 +4,17 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.20] - 2026-08-04
+
+### Added
+
+- Lokalni provisioning pogled prikaže SSID domačega Wi-Fi omrežja, kadar je naprava povezana kot postaja.
+
+### Fixed
+
+- Gumb **Posodobi napravo** in gumb **Prezri** se med aktivno OTA posodobitvijo zanesljivo zakleneta tudi po osvežitvi cloud strani.
+- OTA prikaz ne podvaja več imena trenutne faze; vrstica napredka jasno označuje skupni odstotek celotne posodobitve.
+
 ## [0.1.0-beta.19] - 2026-08-04
 
 ### Changed

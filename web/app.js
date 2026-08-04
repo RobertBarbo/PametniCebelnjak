@@ -89,6 +89,7 @@ const elements = {
   wifiForget: document.querySelector("#wifi-forget"),
   localDeviceId: document.querySelector("#local-device-id"),
   activationCode: document.querySelector("#activation-code"),
+  connectedWifiSsid: document.querySelector("#connected-wifi-ssid"),
   localActivationCard: document.querySelector("#local-activation-card"),
   localActivationCode: document.querySelector("#local-activation-code"),
   cloudSyncStatus: document.querySelector("#cloud-sync-status"),
@@ -111,6 +112,7 @@ let firebaseDatabase;
 let latestFirmwareVersion = "";
 let availableOtaRelease;
 let otaCommandPending = false;
+let latestOtaState = "";
 let highchartsLoading;
 let latestHistoryReadings = [];
 let latestHistoryAlreadyAggregated = false;
@@ -136,6 +138,15 @@ const OTA_STATE_LABELS = {
   ignored: "Posodobitev je prezrta",
   error: "Napaka OTA",
 };
+
+const OTA_ACTIVE_STATES = new Set([
+  "preparing",
+  "downloading_filesystem",
+  "installing_filesystem",
+  "downloading",
+  "verifying",
+  "restarting",
+]);
 
 function getCssColor(variableName) {
   return getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
@@ -452,6 +463,7 @@ function renderProvisioning(network) {
   const isConnecting = connectionState === "connecting";
   const isUsingAccessPoint = network?.provisioning_active === true;
   const isConnected = network?.station_connected === true;
+  elements.connectedWifiSsid.textContent = isConnected && network?.station_ssid ? network.station_ssid : "—";
 
   if (isConnecting) {
     elements.provisioningDescription.textContent = `ESP32 preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
@@ -462,7 +474,7 @@ function renderProvisioning(network) {
   } else if (isUsingAccessPoint) {
     elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko ESP32${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
   } else if (isConnected) {
-    elements.provisioningDescription.textContent = "Naprava je povezana v domače Wi‑Fi omrežje. Nastavitve lahko zamenjaš ali izbrišeš brez ponovnega zagona.";
+    elements.provisioningDescription.textContent = "Naprava je povezana v domače Wi‑Fi omrežje.";
   }
 
   elements.wifiScan.disabled = isConnecting;
@@ -639,8 +651,18 @@ function resetOtaProgress() {
   elements.otaProgress.hidden = true;
   elements.otaProgressBar.style.width = "0%";
   elements.otaProgressTrack.setAttribute("aria-valuenow", "0");
-  elements.otaProgressText.textContent = "0 %";
+  elements.otaProgressTrack.removeAttribute("aria-valuetext");
+  elements.otaProgressText.textContent = "Skupaj 0 %";
   elements.otaCard.classList.remove("ota-error");
+}
+
+function updateOtaActionState() {
+  const isOtaActive = otaCommandPending || OTA_ACTIVE_STATES.has(latestOtaState);
+  const hasAvailableRelease = Boolean(availableOtaRelease);
+  elements.otaInstall.disabled = !hasAvailableRelease || isOtaActive;
+  elements.otaIgnore.disabled = !hasAvailableRelease || isOtaActive;
+  elements.otaInstall.textContent = isOtaActive ? "Posodobitev poteka" : "Posodobi napravo";
+  elements.otaCard.setAttribute("aria-busy", String(isOtaActive));
 }
 
 function renderOtaProgress(progressPercent, hasError = false) {
@@ -653,32 +675,34 @@ function renderOtaProgress(progressPercent, hasError = false) {
   const clampedProgress = Math.max(0, Math.min(100, Math.round(numericProgress)));
   elements.otaProgressBar.style.width = `${clampedProgress}%`;
   elements.otaProgressTrack.setAttribute("aria-valuenow", String(clampedProgress));
-  elements.otaProgressText.textContent = `${clampedProgress} %`;
+  elements.otaProgressTrack.setAttribute("aria-valuetext", `Skupni napredek OTA: ${clampedProgress} %`);
+  elements.otaProgressText.textContent = `Skupaj ${clampedProgress} %`;
 }
 
 function renderOtaDeviceStatus(status) {
   if (!status?.state) {
+    latestOtaState = "";
     resetOtaProgress();
+    updateOtaActionState();
     return;
   }
 
   const state = String(status.state);
+  latestOtaState = state;
   const stateLabel = OTA_STATE_LABELS[state] ?? state;
-  const target = status.target_version ? ` ${status.target_version}` : "";
   const message = String(status.message ?? "").trim();
-  elements.otaDeviceStatus.textContent = `${stateLabel}${target}${message ? `: ${message}` : ""}`;
+  const hasRepeatedPhase = message.toLocaleLowerCase().startsWith(stateLabel.toLocaleLowerCase());
+  elements.otaDeviceStatus.textContent = message && hasRepeatedPhase ? message : `${stateLabel}${message ? `: ${message}` : ""}`;
   renderOtaProgress(status.progress_percent, state === "error");
 
   if (state === "error") {
     otaCommandPending = false;
-    if (availableOtaRelease) {
-      elements.otaInstall.disabled = false;
-      elements.otaIgnore.disabled = false;
-      elements.otaActions.hidden = false;
-    }
   } else if (state === "installed") {
     otaCommandPending = false;
+    elements.otaActions.hidden = true;
   }
+  if (state === "error" && availableOtaRelease) elements.otaActions.hidden = false;
+  updateOtaActionState();
 }
 
 function showOtaAvailability(release) {
@@ -690,6 +714,7 @@ function showOtaAvailability(release) {
   elements.otaDetail.textContent = release.name || "Nova firmware izdaja je pripravljena na GitHub Releases.";
   elements.otaActions.hidden = isIgnored;
   if (isIgnored) elements.otaDeviceStatus.textContent = "Prezrto v tem brskalniku.";
+  updateOtaActionState();
 }
 
 async function checkForFirmwareRelease() {
@@ -730,8 +755,7 @@ async function requestFirmwareUpdate() {
   if (!window.confirm(`Ali želiš napravo posodobiti na verzijo ${availableOtaRelease.version}? Med prenosom se bo naprava ponovno zagnala.`)) return;
 
   otaCommandPending = true;
-  elements.otaInstall.disabled = true;
-  elements.otaIgnore.disabled = true;
+  updateOtaActionState();
   renderOtaProgress(0);
   elements.otaDeviceStatus.textContent = "OTA ukaz pošiljam napravi …";
   try {
@@ -746,8 +770,7 @@ async function requestFirmwareUpdate() {
     console.error(error);
     elements.otaDeviceStatus.textContent = "Pošiljanje OTA ukaza ni uspelo.";
     otaCommandPending = false;
-    elements.otaInstall.disabled = false;
-    elements.otaIgnore.disabled = false;
+    updateOtaActionState();
   }
 }
 
@@ -1331,7 +1354,7 @@ async function useLocalDataSource() {
     renderCloudSynchronization(status.sync, status.network, status.sd_card);
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
-    setConnectionState("Lokalna povezava z ESP32");
+    setConnectionState("Lokalna povezava");
   }
 
   async function refreshStatus() {

@@ -269,6 +269,7 @@ bool persistCloudSyncState();
 bool parseMeasurementCsvLine(const char *line, Measurement &measurement);
 void resetCloudAggregateState();
 void rebuildCloudAggregateState();
+void appendJsonEscaped(String &json, const String &value);
 
 bool isCloudSyncRequest(const String &requestId)
 {
@@ -2007,6 +2008,8 @@ void sendLocalStatus()
   const String ipAddress = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   const String accessPointIp = WiFi.softAPIP().toString();
   const String wifiSignal = stationConnected ? String(WiFi.RSSI()) : "null";
+  String escapedStationSsid;
+  appendJsonEscaped(escapedStationSsid, stationConnected ? WiFi.SSID() : "");
   const time_t lastSeenTimestamp = time(nullptr);
   const bool cloudSynchronizationComplete = cloudSyncCaughtUp && !cloudSyncPending &&
                                              !hourlyAggregateReady && !dailyAggregateReady;
@@ -2020,14 +2023,14 @@ void sendLocalStatus()
     snprintf(measurementJson, sizeof(measurementJson), "null");
   }
 
-  static char jsonPayload[1280];
+  static char jsonPayload[1536];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
            stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
-           accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
+           escapedStationSsid.c_str(), accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
            wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
            cloudSyncPending ? "true" : "false", cloudSynchronizationComplete ? "true" : "false",
            static_cast<unsigned long>(lastCloudSyncedTimestamp),

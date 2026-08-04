@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.17`
+**Različica:** `0.1.0-beta.18`
 
 ## Trenutne funkcije
 
@@ -49,8 +49,10 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.17
-git push origin v0.1.0-beta.17
+git tag v0.1.0-beta.18
+git push origin v0.1.0-beta.18
 ```
 
-GitHub Actions prevede univerzalni firmware in objavi `firmware.bin` ter `manifest.json` v GitHub Release. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.
+GitHub Actions prevede univerzalni firmware in LittleFS sliko ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`. ESP32 najprej na SD prenese in s SHA-256 preveri `littlefs.bin`, nato posodobi lokalno spletno stran in šele zatem preverjeno posodobi firmware. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.
+
+Prvi firmware z LittleFS OTA podporo je treba na že nameščeni starejši različici priporočeno naložiti prek USB skupaj z `pio run -t uploadfs`. Starejši OTA odjemalec prenese samo firmware; naslednja OTA izdaja nato že posodobi tudi LittleFS.

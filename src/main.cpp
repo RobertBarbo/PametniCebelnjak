@@ -45,8 +45,9 @@ constexpr char SD_HISTORY_INDEX_TEMP_PATH[] = "/measurements.tmp";
 constexpr uint32_t HOURLY_AGGREGATE_SECONDS = 60 * 60;
 constexpr uint32_t DAILY_AGGREGATE_SECONDS = 24 * 60 * 60;
 
-// GitHub Release vedno vsebuje manifest.json in firmware.bin za najnovejšo izdajo.
+// GitHub Release vedno vsebuje manifest.json, firmware.bin in littlefs.bin za najnovejšo izdajo.
 constexpr char OTA_MANIFEST_URL[] = "https://github.com/RobertBarbo/PametniCebelnjak/releases/latest/download/manifest.json";
+constexpr char OTA_LITTLEFS_STAGE_PATH[] = "/ota-littlefs.bin";
 constexpr size_t OTA_DOWNLOAD_BUFFER_SIZE = 2048;
 constexpr size_t OTA_COMMAND_PAYLOAD_LENGTH = 256;
 constexpr size_t FIRMWARE_VERSION_LENGTH = 24;
@@ -59,6 +60,9 @@ constexpr uint16_t OTA_HTTPS_PORT = 443;
 constexpr uint8_t OTA_MAX_REDIRECTS = 4;
 constexpr uint32_t OTA_HEADER_TIMEOUT_MS = 15000;
 constexpr size_t OTA_HTTP_LINE_MAX_LENGTH = 2048;
+constexpr uint8_t OTA_LITTLEFS_DOWNLOAD_PROGRESS_END = 45;
+constexpr uint8_t OTA_LITTLEFS_INSTALL_PROGRESS_END = 60;
+constexpr uint8_t OTA_FIRMWARE_DOWNLOAD_PROGRESS_END = 95;
 
 constexpr int SD_CS_PIN = 10;
 constexpr int SD_MOSI_PIN = 11;
@@ -118,11 +122,16 @@ struct MeasurementAggregate {
   uint16_t count;
 };
 
-struct FirmwareManifest {
-  char version[FIRMWARE_VERSION_LENGTH];
-  String firmwareUrl;
+struct OtaArtifact {
+  String url;
   char sha256[65];
   size_t size;
+};
+
+struct FirmwareManifest {
+  char version[FIRMWARE_VERSION_LENGTH];
+  OtaArtifact firmware;
+  OtaArtifact littlefs;
 };
 
 enum class WiFiProvisioningState : uint8_t {
@@ -142,6 +151,12 @@ enum class CloudSyncRequestType : uint8_t {
 enum class OtaUpdateState : uint8_t {
   Idle,
   LoadManifest,
+  StartLittlefsDownload,
+  DownloadLittlefs,
+  VerifyLittlefsDownload,
+  StartLittlefsInstall,
+  InstallLittlefs,
+  VerifyLittlefsInstall,
   StartFirmwareDownload,
   DownloadFirmware,
   VerifyFirmware,
@@ -186,6 +201,7 @@ bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
+bool littlefsUnmountedForOta = false;
 bool activationSecretPublishPending = false;
 bool activationSecretRegistrationReported = false;
 bool validTimeWasAvailable = false;
@@ -231,6 +247,7 @@ char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
 uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
 FirmwareManifest otaManifest{};
 WiFiClient *otaDownloadStream = nullptr;
+File otaLittlefsStageFile;
 mbedtls_sha256_context otaSha256Context;
 size_t otaDownloadedBytes = 0;
 uint32_t otaLastDataReceivedMillis = 0;
@@ -786,19 +803,30 @@ bool extractJsonSize(const String &json, const char *key, size_t &value)
   return true;
 }
 
+bool parseOtaArtifact(const String &json, const char *urlKey, const char *sha256Key, const char *sizeKey,
+                      OtaArtifact &artifact)
+{
+  String sha256;
+  if (!extractJsonString(json, urlKey, artifact.url) || !extractJsonString(json, sha256Key, sha256) ||
+      !extractJsonSize(json, sizeKey, artifact.size) || sha256.length() != 64) {
+    return false;
+  }
+
+  sha256.toLowerCase();
+  sha256.toCharArray(artifact.sha256, sizeof(artifact.sha256));
+  return true;
+}
+
 bool parseFirmwareManifest(const String &json, FirmwareManifest &manifest)
 {
   String version;
-  String sha256;
-  if (!extractJsonString(json, "version", version) || !extractJsonString(json, "firmware_url", manifest.firmwareUrl) ||
-      !extractJsonString(json, "sha256", sha256) || !extractJsonSize(json, "size", manifest.size) ||
-      version.length() >= sizeof(manifest.version) || sha256.length() != 64) {
+  if (!extractJsonString(json, "version", version) || version.length() >= sizeof(manifest.version) ||
+      !parseOtaArtifact(json, "firmware_url", "sha256", "size", manifest.firmware) ||
+      !parseOtaArtifact(json, "littlefs_url", "littlefs_sha256", "littlefs_size", manifest.littlefs)) {
     return false;
   }
 
   version.toCharArray(manifest.version, sizeof(manifest.version));
-  sha256.toLowerCase();
-  sha256.toCharArray(manifest.sha256, sizeof(manifest.sha256));
   return true;
 }
 
@@ -847,22 +875,63 @@ void clearFirmwareUpdateCommand()
   database.remove(asyncClient, otaCommandDatabasePath, processData, "clearFirmwareUpdateCommand");
 }
 
-void reportOtaProgress(uint8_t progressPercent)
+uint8_t scaleOtaProgress(size_t completedBytes, size_t totalBytes, uint8_t startPercent, uint8_t endPercent)
 {
-  char message[64];
-  snprintf(message, sizeof(message), "Prenašanje firmware-a: %u %%.", progressPercent);
-  reportOtaStatus("downloading", otaTargetVersion, message, progressPercent);
+  if (totalBytes == 0 || endPercent <= startPercent) return startPercent;
+  const size_t range = static_cast<size_t>(endPercent - startPercent);
+  return startPercent + static_cast<uint8_t>((completedBytes * range) / totalBytes);
 }
 
-void releaseOtaDownloadResources(bool abortFirmwareWrite)
+void reportOtaDownloadProgress(const char *state, const char *artifactName, uint8_t artifactProgress,
+                               uint8_t totalProgress)
+{
+  char message[80];
+  snprintf(message, sizeof(message), "Prenašanje %s: %u %%.", artifactName, artifactProgress);
+  reportOtaStatus(state, otaTargetVersion, message, totalProgress);
+}
+
+void reportOtaInstallProgress(uint8_t artifactProgress, uint8_t totalProgress)
+{
+  char message[80];
+  snprintf(message, sizeof(message), "Nameščanje lokalne strani: %u %%.", artifactProgress);
+  reportOtaStatus("installing_filesystem", otaTargetVersion, message, totalProgress);
+}
+
+void closeOtaDownloadConnection()
+{
+  otaDownloadClient.stop();
+  otaDownloadStream = nullptr;
+}
+
+void closeOtaLittlefsStageFile()
+{
+  if (otaLittlefsStageFile) otaLittlefsStageFile.close();
+}
+
+void discardOtaLittlefsStageFile()
+{
+  closeOtaLittlefsStageFile();
+  if (sdCardReady) SD.remove(OTA_LITTLEFS_STAGE_PATH);
+}
+
+void remountLittlefsAfterOtaFailure()
+{
+  if (!littlefsUnmountedForOta) return;
+
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS remount failed after OTA error.");
+  }
+  littlefsUnmountedForOta = false;
+}
+
+void releaseOtaDownloadResources(bool abortFlashWrite)
 {
   if (otaHashActive) {
     mbedtls_sha256_free(&otaSha256Context);
     otaHashActive = false;
   }
-  otaDownloadClient.stop();
-  otaDownloadStream = nullptr;
-  if (abortFirmwareWrite && otaFlashUpdateActive) {
+  closeOtaDownloadConnection();
+  if (abortFlashWrite && otaFlashUpdateActive) {
     Update.abort();
   }
   otaFlashUpdateActive = false;
@@ -874,6 +943,8 @@ void failOtaUpdate(const String &errorMessage)
   Serial.print("OTA error: ");
   Serial.println(errorMessage);
   releaseOtaDownloadResources(true);
+  discardOtaLittlefsStageFile();
+  remountLittlefsAfterOtaFailure();
   firmwareCommandQueued = false;
   queuedFirmwareCommandInvalid = false;
   queuedFirmwareCommandPayload[0] = '\0';
@@ -933,8 +1004,10 @@ bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
   Serial.print("OTA: manifest v");
   Serial.print(manifest.version);
   Serial.print(", ");
-  Serial.print(manifest.size);
-  Serial.println(" bytes.");
+  Serial.print(manifest.firmware.size);
+  Serial.print(" B firmware, ");
+  Serial.print(manifest.littlefs.size);
+  Serial.println(" B LittleFS.");
   return true;
 }
 
@@ -1005,9 +1078,9 @@ bool isOtaRedirectStatus(int statusCode)
          statusCode == 308;
 }
 
-bool openFirmwareDownloadConnection(String &errorMessage)
+bool openOtaArtifactDownloadConnection(const OtaArtifact &artifact, const char *artifactName, String &errorMessage)
 {
-  String requestUrl = otaManifest.firmwareUrl;
+  String requestUrl = artifact.url;
 
   for (uint8_t redirectCount = 0; redirectCount <= OTA_MAX_REDIRECTS; ++redirectCount) {
     String host;
@@ -1055,7 +1128,9 @@ bool openFirmwareDownloadConnection(String &errorMessage)
       errorMessage = "OTA strežnik je vrnil neveljaven HTTP odgovor.";
       return false;
     }
-    Serial.print("OTA: firmware HTTP ");
+    Serial.print("OTA: ");
+    Serial.print(artifactName);
+    Serial.print(" HTTP ");
     Serial.println(statusCode);
 
     String redirectLocation;
@@ -1109,8 +1184,8 @@ bool openFirmwareDownloadConnection(String &errorMessage)
       errorMessage = "OTA strežnik je vrnil nepodprt chunked prenos.";
       return false;
     }
-    if (contentLength >= 0 && static_cast<size_t>(contentLength) != otaManifest.size) {
-      errorMessage = "Velikost firmware datoteke se ne ujema z manifestom.";
+    if (contentLength >= 0 && static_cast<size_t>(contentLength) != artifact.size) {
+      errorMessage = "Velikost OTA datoteke se ne ujema z manifestom.";
       return false;
     }
 
@@ -1122,34 +1197,93 @@ bool openFirmwareDownloadConnection(String &errorMessage)
   return false;
 }
 
-bool startFirmwareDownload(String &errorMessage)
+bool beginOtaArtifactDownload(const OtaArtifact &artifact, const char *artifactName, String &errorMessage)
 {
-  Serial.println("OTA: downloading firmware.");
-  if (!openFirmwareDownloadConnection(errorMessage)) {
+  if (!openOtaArtifactDownloadConnection(artifact, artifactName, errorMessage)) {
     releaseOtaDownloadResources(false);
     return false;
   }
 
-  if (!Update.begin(otaManifest.size, U_FLASH)) {
+  if (otaDownloadStream == nullptr) {
+    errorMessage = "Podatkovnega toka OTA datoteke ni bilo mogoče odpreti.";
+    releaseOtaDownloadResources(false);
+    return false;
+  }
+
+  mbedtls_sha256_init(&otaSha256Context);
+  mbedtls_sha256_starts(&otaSha256Context, 0);
+  otaHashActive = true;
+  otaDownloadStream->setTimeout(1000);
+  otaDownloadedBytes = 0;
+  otaLastDataReceivedMillis = millis();
+  return true;
+}
+
+bool startLittlefsDownload(String &errorMessage)
+{
+  if (!sdCardReady) {
+    errorMessage = "Za posodobitev lokalne strani je potrebna SD kartica.";
+    return false;
+  }
+
+  discardOtaLittlefsStageFile();
+  if (SD.exists(OTA_LITTLEFS_STAGE_PATH)) {
+    errorMessage = "Stare začasne OTA datoteke lokalne strani ni mogoče odstraniti s SD kartice.";
+    return false;
+  }
+  otaLittlefsStageFile = SD.open(OTA_LITTLEFS_STAGE_PATH, FILE_WRITE);
+  if (!otaLittlefsStageFile) {
+    errorMessage = "Začasne OTA datoteke na SD kartici ni bilo mogoče ustvariti.";
+    return false;
+  }
+
+  Serial.println("OTA: downloading local web page.");
+  if (!beginOtaArtifactDownload(otaManifest.littlefs, "littlefs", errorMessage)) {
+    discardOtaLittlefsStageFile();
+    return false;
+  }
+  return true;
+}
+
+bool startLittlefsInstall(String &errorMessage)
+{
+  closeOtaLittlefsStageFile();
+  otaLittlefsStageFile = SD.open(OTA_LITTLEFS_STAGE_PATH, FILE_READ);
+  if (!otaLittlefsStageFile || otaLittlefsStageFile.size() != otaManifest.littlefs.size) {
+    errorMessage = "Preverjena OTA datoteka lokalne strani na SD kartici manjka.";
+    return false;
+  }
+
+  // Med pisanjem v LittleFS lokalni strežnik ne sme uporabljati iste flash particije.
+  LittleFS.end();
+  littlefsUnmountedForOta = true;
+  if (!Update.begin(otaManifest.littlefs.size, U_SPIFFS)) {
+    closeOtaLittlefsStageFile();
+    remountLittlefsAfterOtaFailure();
+    errorMessage = "Za OTA lokalne strani ni dovolj prostora v LittleFS particiji.";
+    return false;
+  }
+
+  otaFlashUpdateActive = true;
+  mbedtls_sha256_init(&otaSha256Context);
+  mbedtls_sha256_starts(&otaSha256Context, 0);
+  otaHashActive = true;
+  otaDownloadedBytes = 0;
+  Serial.println("OTA: installing local web page.");
+  return true;
+}
+
+bool startFirmwareDownload(String &errorMessage)
+{
+  Serial.println("OTA: downloading firmware.");
+  if (!beginOtaArtifactDownload(otaManifest.firmware, "firmware", errorMessage)) return false;
+
+  if (!Update.begin(otaManifest.firmware.size, U_FLASH)) {
     errorMessage = "Za OTA ni dovolj prostora v neaktivni particiji.";
     releaseOtaDownloadResources(false);
     return false;
   }
   otaFlashUpdateActive = true;
-
-  mbedtls_sha256_init(&otaSha256Context);
-  mbedtls_sha256_starts(&otaSha256Context, 0);
-  otaHashActive = true;
-  if (otaDownloadStream == nullptr) {
-    errorMessage = "Podatkovnega toka OTA firmware-a ni bilo mogoče odpreti.";
-    releaseOtaDownloadResources(true);
-    return false;
-  }
-
-  otaDownloadStream->setTimeout(1000);
-  otaDownloadedBytes = 0;
-  otaLastDataReceivedMillis = millis();
-  otaLastReportedProgress = 0;
   return true;
 }
 
@@ -1160,6 +1294,13 @@ void processOtaDownloadChunk()
     return;
   }
 
+  const bool downloadingLittlefs = otaUpdateState == OtaUpdateState::DownloadLittlefs;
+  const OtaArtifact &artifact = downloadingLittlefs ? otaManifest.littlefs : otaManifest.firmware;
+  const char *artifactName = downloadingLittlefs ? "lokalne strani" : "firmware-a";
+  const uint8_t progressStart = downloadingLittlefs ? 0 : OTA_LITTLEFS_INSTALL_PROGRESS_END;
+  const uint8_t progressEnd = downloadingLittlefs ? OTA_LITTLEFS_DOWNLOAD_PROGRESS_END
+                                                   : OTA_FIRMWARE_DOWNLOAD_PROGRESS_END;
+
   const size_t available = otaDownloadStream->available();
   if (available == 0) {
     if (millis() - otaLastDataReceivedMillis >= OTA_STREAM_IDLE_TIMEOUT_MS) {
@@ -1168,44 +1309,142 @@ void processOtaDownloadChunk()
     return;
   }
 
-  const size_t bytesToRead = min(available, min(sizeof(otaDownloadBuffer), otaManifest.size - otaDownloadedBytes));
+  const size_t bytesToRead = min(available, min(sizeof(otaDownloadBuffer), artifact.size - otaDownloadedBytes));
   const size_t bytesRead = otaDownloadStream->readBytes(otaDownloadBuffer, bytesToRead);
   if (bytesRead == 0) {
     failOtaUpdate("Branje OTA firmware-a ni uspelo.");
     return;
   }
-  if (Update.write(otaDownloadBuffer, bytesRead) != bytesRead) {
-    failOtaUpdate("Zapis OTA firmware-a ni uspel.");
+  const size_t writtenBytes = downloadingLittlefs ? otaLittlefsStageFile.write(otaDownloadBuffer, bytesRead)
+                                                   : Update.write(otaDownloadBuffer, bytesRead);
+  if (writtenBytes != bytesRead) {
+    failOtaUpdate(downloadingLittlefs ? "Zapis OTA datoteke lokalne strani na SD kartico ni uspel."
+                                      : "Zapis OTA firmware-a ni uspel.");
     return;
   }
   mbedtls_sha256_update(&otaSha256Context, otaDownloadBuffer, bytesRead);
   otaDownloadedBytes += bytesRead;
   otaLastDataReceivedMillis = millis();
 
-  const uint8_t progressPercent = static_cast<uint8_t>((otaDownloadedBytes * 100U) / otaManifest.size);
-  if (progressPercent == 100 || progressPercent >= otaLastReportedProgress + OTA_PROGRESS_REPORT_INTERVAL_PERCENT) {
-    otaLastReportedProgress = progressPercent;
+  const uint8_t artifactProgress = static_cast<uint8_t>((otaDownloadedBytes * 100U) / artifact.size);
+  const uint8_t totalProgress = scaleOtaProgress(otaDownloadedBytes, artifact.size, progressStart, progressEnd);
+  if (artifactProgress == 100 || totalProgress >= otaLastReportedProgress + OTA_PROGRESS_REPORT_INTERVAL_PERCENT) {
+    otaLastReportedProgress = totalProgress;
     Serial.print("OTA: ");
-    Serial.print(progressPercent);
+    Serial.print(artifactName);
+    Serial.print(" ");
+    Serial.print(artifactProgress);
     Serial.println("% downloaded.");
-    reportOtaProgress(progressPercent);
+    reportOtaDownloadProgress(downloadingLittlefs ? "downloading_filesystem" : "downloading", artifactName,
+                              artifactProgress, totalProgress);
   }
 
-  if (otaDownloadedBytes == otaManifest.size) {
-    reportOtaStatus("verifying", otaTargetVersion, "Preverjam celovitost firmware-a.", 100);
-    otaUpdateState = OtaUpdateState::VerifyFirmware;
+  if (otaDownloadedBytes == artifact.size) {
+    reportOtaStatus("verifying", otaTargetVersion,
+                    downloadingLittlefs ? "Preverjam celovitost lokalne strani." : "Preverjam celovitost firmware-a.",
+                    totalProgress);
+    otaUpdateState = downloadingLittlefs ? OtaUpdateState::VerifyLittlefsDownload : OtaUpdateState::VerifyFirmware;
   }
 }
 
-void verifyDownloadedFirmware()
+bool verifyOtaArtifactHash(const OtaArtifact &artifact, const char *artifactName, String &errorMessage)
 {
+  if (!otaHashActive) {
+    errorMessage = "OTA SHA-256 preverjanje ni bilo pripravljeno.";
+    return false;
+  }
+
   uint8_t actualHash[32];
   mbedtls_sha256_finish(&otaSha256Context, actualHash);
   mbedtls_sha256_free(&otaSha256Context);
   otaHashActive = false;
+  closeOtaDownloadConnection();
 
-  if (sha256ToHex(actualHash) != otaManifest.sha256) {
-    failOtaUpdate("SHA-256 firmware datoteke se ne ujema z manifestom.");
+  if (sha256ToHex(actualHash) != artifact.sha256) {
+    errorMessage = String("SHA-256 datoteke ") + artifactName + " se ne ujema z manifestom.";
+    return false;
+  }
+  return true;
+}
+
+void verifyLittlefsDownload()
+{
+  String errorMessage;
+  if (!verifyOtaArtifactHash(otaManifest.littlefs, "lokalne strani", errorMessage)) {
+    failOtaUpdate(errorMessage);
+    return;
+  }
+
+  otaLittlefsStageFile.flush();
+  closeOtaLittlefsStageFile();
+  reportOtaStatus("preparing", otaTargetVersion, "Lokalna stran je preverjena; pripravljam zapis v LittleFS.",
+                  OTA_LITTLEFS_DOWNLOAD_PROGRESS_END);
+  otaUpdateState = OtaUpdateState::StartLittlefsInstall;
+}
+
+void processLittlefsInstallChunk()
+{
+  if (!otaLittlefsStageFile) {
+    failOtaUpdate("Preverjene OTA datoteke lokalne strani ni mogoče prebrati.");
+    return;
+  }
+
+  const size_t bytesToRead = min(sizeof(otaDownloadBuffer), otaManifest.littlefs.size - otaDownloadedBytes);
+  const size_t bytesRead = otaLittlefsStageFile.read(otaDownloadBuffer, bytesToRead);
+  if (bytesRead != bytesToRead) {
+    failOtaUpdate("Branje OTA datoteke lokalne strani s SD kartice ni uspelo.");
+    return;
+  }
+  if (Update.write(otaDownloadBuffer, bytesRead) != bytesRead) {
+    failOtaUpdate("Zapis OTA lokalne strani v LittleFS ni uspel.");
+    return;
+  }
+
+  mbedtls_sha256_update(&otaSha256Context, otaDownloadBuffer, bytesRead);
+  otaDownloadedBytes += bytesRead;
+
+  const uint8_t artifactProgress = static_cast<uint8_t>((otaDownloadedBytes * 100U) / otaManifest.littlefs.size);
+  const uint8_t totalProgress = scaleOtaProgress(otaDownloadedBytes, otaManifest.littlefs.size,
+                                                  OTA_LITTLEFS_DOWNLOAD_PROGRESS_END,
+                                                  OTA_LITTLEFS_INSTALL_PROGRESS_END);
+  if (artifactProgress == 100 || totalProgress >= otaLastReportedProgress + OTA_PROGRESS_REPORT_INTERVAL_PERCENT) {
+    otaLastReportedProgress = totalProgress;
+    Serial.print("OTA: local web page ");
+    Serial.print(artifactProgress);
+    Serial.println("% installed.");
+    reportOtaInstallProgress(artifactProgress, totalProgress);
+  }
+
+  if (otaDownloadedBytes == otaManifest.littlefs.size) {
+    reportOtaStatus("verifying", otaTargetVersion, "Preverjam zapis lokalne strani v LittleFS.", totalProgress);
+    otaUpdateState = OtaUpdateState::VerifyLittlefsInstall;
+  }
+}
+
+void verifyLittlefsInstall()
+{
+  String errorMessage;
+  if (!verifyOtaArtifactHash(otaManifest.littlefs, "lokalne strani v LittleFS", errorMessage)) {
+    failOtaUpdate(errorMessage);
+    return;
+  }
+  if (!Update.end(true)) {
+    failOtaUpdate("Zaključek OTA lokalne strani ni uspel.");
+    return;
+  }
+
+  otaFlashUpdateActive = false;
+  discardOtaLittlefsStageFile();
+  reportOtaStatus("preparing", otaTargetVersion, "Lokalna stran je posodobljena; pripravljam firmware.",
+                  OTA_LITTLEFS_INSTALL_PROGRESS_END);
+  otaUpdateState = OtaUpdateState::StartFirmwareDownload;
+}
+
+void verifyDownloadedFirmware()
+{
+  String errorMessage;
+  if (!verifyOtaArtifactHash(otaManifest.firmware, "firmware-a", errorMessage)) {
+    failOtaUpdate(errorMessage);
     return;
   }
 
@@ -1317,10 +1556,50 @@ void processOtaUpdate()
         return;
       }
 
-      reportOtaStatus("preparing", otaTargetVersion, "Manifest je potrjen; pripravljam prenos firmware-a.", 0);
-      otaUpdateState = OtaUpdateState::StartFirmwareDownload;
+      reportOtaStatus("preparing", otaTargetVersion, "Manifest je potrjen; pripravljam lokalno stran.", 0);
+      otaUpdateState = OtaUpdateState::StartLittlefsDownload;
       return;
     }
+
+    case OtaUpdateState::StartLittlefsDownload: {
+      String errorMessage;
+      if (!startLittlefsDownload(errorMessage)) {
+        failOtaUpdate(errorMessage);
+        return;
+      }
+
+      otaUpdateState = OtaUpdateState::DownloadLittlefs;
+      reportOtaDownloadProgress("downloading_filesystem", "lokalne strani", 0, 0);
+      return;
+    }
+
+    case OtaUpdateState::DownloadLittlefs:
+      processOtaDownloadChunk();
+      return;
+
+    case OtaUpdateState::VerifyLittlefsDownload:
+      verifyLittlefsDownload();
+      return;
+
+    case OtaUpdateState::StartLittlefsInstall: {
+      String errorMessage;
+      if (!startLittlefsInstall(errorMessage)) {
+        failOtaUpdate(errorMessage);
+        return;
+      }
+
+      otaUpdateState = OtaUpdateState::InstallLittlefs;
+      reportOtaInstallProgress(0, OTA_LITTLEFS_DOWNLOAD_PROGRESS_END);
+      return;
+    }
+
+    case OtaUpdateState::InstallLittlefs:
+      processLittlefsInstallChunk();
+      return;
+
+    case OtaUpdateState::VerifyLittlefsInstall:
+      verifyLittlefsInstall();
+      return;
 
     case OtaUpdateState::StartFirmwareDownload: {
       String errorMessage;
@@ -1330,7 +1609,7 @@ void processOtaUpdate()
       }
 
       otaUpdateState = OtaUpdateState::DownloadFirmware;
-      reportOtaProgress(0);
+      reportOtaDownloadProgress("downloading", "firmware-a", 0, OTA_LITTLEFS_INSTALL_PROGRESS_END);
       return;
     }
 

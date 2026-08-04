@@ -12,6 +12,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 - Zgornja vrstica cloud nadzorne plošče po prijavi prikaže gumb **Odjava** ob izbiri teme.
 - Določen beta skrbniški Firebase UID samodejno vidi vse panje v cloud nadzorni plošči, brez registracije ali aktivacijske kode.
+- OTA izdaja zdaj vsebuje preverjen `littlefs.bin`; ESP32 ga najprej preverjeno prenese na SD, nato posodobi LittleFS in šele zatem firmware.
 - Glavna navigacija z ločenimi pogledi **Pregled**, **Grafi**, **Naprava** in **Posodobitve**.
 - Svetla in temna tema, ki upoštevata sistemsko nastavitev ter shranita uporabnikovo izbiro v brskalnik.
 - Ločena grafa za temperaturo z relativno vlago ter težo panja z enakim časovnim obdobjem.

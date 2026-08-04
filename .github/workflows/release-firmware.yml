@@ -29,8 +29,10 @@ jobs:
           VERSION=$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' include/version.h)
           test "v$VERSION" = "$GITHUB_REF_NAME"
 
-      - name: Prevedi firmware
-        run: pio run
+      - name: Prevedi firmware in LittleFS
+        run: |
+          pio run
+          pio run -t buildfs
 
       - name: Ustvari OTA manifest
         env:
@@ -44,6 +46,7 @@ jobs:
           from pathlib import Path
 
           firmware = Path(".pio/build/esp32s3/firmware.bin")
+          littlefs = Path(".pio/build/esp32s3/littlefs.bin")
           version = os.environ["RELEASE_TAG"].removeprefix("v")
           repository = os.environ["REPOSITORY"]
           manifest = {
@@ -51,6 +54,9 @@ jobs:
               "firmware_url": f"https://github.com/{repository}/releases/download/{os.environ['RELEASE_TAG']}/firmware.bin",
               "sha256": hashlib.sha256(firmware.read_bytes()).hexdigest(),
               "size": firmware.stat().st_size,
+              "littlefs_url": f"https://github.com/{repository}/releases/download/{os.environ['RELEASE_TAG']}/littlefs.bin",
+              "littlefs_sha256": hashlib.sha256(littlefs.read_bytes()).hexdigest(),
+              "littlefs_size": littlefs.stat().st_size,
           }
           Path("manifest.json").write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
           PY
@@ -62,11 +68,13 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
               .pio/build/esp32s3/firmware.bin#firmware.bin \
+              .pio/build/esp32s3/littlefs.bin#littlefs.bin \
               manifest.json#manifest.json \
               --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               .pio/build/esp32s3/firmware.bin#firmware.bin \
+              .pio/build/esp32s3/littlefs.bin#littlefs.bin \
               manifest.json#manifest.json \
               --title "Firmware $GITHUB_REF_NAME" \
               --generate-notes

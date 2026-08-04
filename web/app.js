@@ -127,6 +127,8 @@ let firebaseRealtimeConnected;
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
   installing: "Namestitev posodobitve",
+  downloading_filesystem: "Prenašanje lokalne strani",
+  installing_filesystem: "Nameščanje lokalne strani",
   downloading: "Prenašanje firmware-a",
   verifying: "Preverjanje firmware-a",
   restarting: "Ponovni zagon naprave",

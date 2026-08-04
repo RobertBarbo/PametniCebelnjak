@@ -4,6 +4,14 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.19] - 2026-08-04
+
+### Changed
+
+- Lokalna stran pri uspešni povezavi z domačim Wi-Fi uporablja nevtralen izraz »naprava« namesto »ESP32«; sprememba je namenjena potrditvi LittleFS OTA posodobitve.
+
+## [0.1.0-beta.18] - 2026-08-04
+
 ### Fixed
 
 - Cloud vrstica povezave po uspešni prijavi takoj prikaže povezovanje oziroma povezavo s Firebase in ne obstane več na stanju »Prijava je potrebna«.

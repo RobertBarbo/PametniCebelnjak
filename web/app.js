@@ -462,7 +462,7 @@ function renderProvisioning(network) {
   } else if (isUsingAccessPoint) {
     elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko ESP32${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
   } else if (isConnected) {
-    elements.provisioningDescription.textContent = "ESP32 je povezan v domače Wi‑Fi omrežje. Nastavitve lahko zamenjaš ali izbrišeš brez ponovnega zagona.";
+    elements.provisioningDescription.textContent = "Naprava je povezana v domače Wi‑Fi omrežje. Nastavitve lahko zamenjaš ali izbrišeš brez ponovnega zagona.";
   }
 
   elements.wifiScan.disabled = isConnecting;

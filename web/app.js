@@ -1,4 +1,4 @@
-const DEVICE_ONLINE_TIMEOUT_SECONDS = 150;
+const DEVICE_ONLINE_TIMEOUT_SECONDS = 90;
 const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
@@ -129,7 +129,6 @@ let stopCloudDeviceListListener;
 let stopCloudDeviceListeners = [];
 let cloudDevices = {};
 let authControlsInitialized = false;
-let firebaseRealtimeConnected;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -341,6 +340,8 @@ function selectCloudDevice(deviceId) {
     return;
   }
 
+  // Ne prikazuj stanja prej izbranega panja, dokler Firebase ne vrne novega odziva.
+  renderDeviceStatus(null);
   localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
   const { database, onValue, ref } = firebaseDatabase;
   const subscribe = (path, renderer) => {
@@ -359,15 +360,36 @@ function setConnectionState(text, state = "connected") {
   elements.connectionText.textContent = text;
 }
 
-function renderCloudConnectionState() {
-  if (!currentCloudUser) return;
-  if (firebaseRealtimeConnected === true) {
-    setConnectionState("Povezano v Cloud", "connected");
-  } else if (firebaseRealtimeConnected === false) {
-    setConnectionState("Brez povezave s Cloud", "error");
-  } else {
-    setConnectionState("Povezovanje s Cloudom …", "connecting");
+function isDeviceOnline(status) {
+  const lastSeenTimestamp = Number(status?.last_seen_timestamp);
+  const secondsSinceLastSeen = Math.floor(Date.now() / 1000) - lastSeenTimestamp;
+  return Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
+    && secondsSinceLastSeen <= DEVICE_ONLINE_TIMEOUT_SECONDS;
+}
+
+function renderHeaderDeviceState() {
+  if (isLocalDashboard) {
+    setConnectionState("Lokalna povezava", "connected");
+    return;
   }
+  if (!currentCloudUser) {
+    setConnectionState("Prijava je potrebna", "error");
+    return;
+  }
+  if (!cloudDevicePath) {
+    setConnectionState("Izberi panj", "connecting");
+    return;
+  }
+  if (isDeviceOnline(latestDeviceStatus)) {
+    setConnectionState("Naprava online", "connected");
+    return;
+  }
+
+  const lastSeenTimestamp = Number(latestDeviceStatus?.last_seen_timestamp);
+  setConnectionState(
+    Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0 ? "Naprava offline" : "Čakam na odziv naprave …",
+    Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0 ? "error" : "connecting",
+  );
 }
 
 function formatValue(value, decimals = 1) {
@@ -445,8 +467,7 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
     : "—";
 
   const lastSeenTimestamp = Number(status?.last_seen_timestamp);
-  const secondsSinceLastSeen = Math.floor(Date.now() / 1000) - lastSeenTimestamp;
-  const isOnline = localDashboard || (Number.isFinite(lastSeenTimestamp) && secondsSinceLastSeen <= DEVICE_ONLINE_TIMEOUT_SECONDS);
+  const isOnline = localDashboard || isDeviceOnline(status);
   elements.deviceStateCard.classList.toggle("online", isOnline);
   elements.deviceStateCard.classList.toggle("offline", !isOnline);
   elements.deviceOnlineStatus.textContent = isOnline ? "Online" : "Brez povezave";
@@ -455,6 +476,8 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
     : Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
       ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
        : "Čakam na prvi odziv naprave.";
+
+  renderHeaderDeviceState();
 }
 
 function renderProvisioning(network) {
@@ -1314,7 +1337,7 @@ function handleCloudAuthState(user) {
   elements.authTrigger.textContent = "Odjava";
   elements.accountEmail.textContent = user.email || "Google račun";
   configureCloudAccountView();
-  renderCloudConnectionState();
+  renderHeaderDeviceState();
   const { database, onValue, ref } = firebaseDatabase;
   const deviceListPath = isCloudAdministrator() ? "devices" : `users/${user.uid}/devices`;
   stopCloudDeviceListListener = onValue(ref(database, deviceListPath), (snapshot) => {
@@ -1425,11 +1448,6 @@ async function useFirebaseDataSource() {
   elements.otaSection.hidden = true;
   elements.provisioningSection.hidden = true;
   initializeAuthControls();
-
-  onValue(ref(database, ".info/connected"), (snapshot) => {
-    firebaseRealtimeConnected = snapshot.val() === true;
-    renderCloudConnectionState();
-  }, showDataError);
 
   refreshHistory = async () => {
     stopHistoryListener?.();

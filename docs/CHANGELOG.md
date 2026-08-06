@@ -4,6 +4,14 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.34] - 2026-08-06
+
+### Changed
+
+- Zgornji indikator cloud nadzorne plošče zdaj prikazuje dosegljivost izbranega panja (`Naprava online` oziroma `Naprava offline`) glede na njegov zadnji odziv, ne več povezave brskalnika s Firebase.
+- Pred prvim odzivom novo izbranega panja indikator prikaže `Čakam na odziv naprave …`; brez izbire prikaže `Izberi panj`.
+- Čas brez novega odziva do prikaza `Naprava offline` je skrajšan s 150 na 90 sekund.
+
 ## [0.1.0-beta.33] - 2026-08-05
 
 ### Added

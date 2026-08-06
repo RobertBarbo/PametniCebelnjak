@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.19`
+**Različica:** `0.1.0-beta.33`
 
 ## Trenutne funkcije
 
@@ -13,7 +13,7 @@ Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na
 - Dostopni AP kot rezerva, kadar domači Wi-Fi ni nastavljen ali ni dosegljiv.
 - Trajni ID, aktivacijska koda in Firebase prijava za registracijo več naprav na uporabnika.
 - Odzivna lokalna nadzorna plošča z merjenjem, SD zgodovino in grafi tudi brez interneta.
-- OTA posodobitev iz preverjenega GitHub Release manifesta.
+- OTA posodobitev iz preverjenega GitHub Release manifesta in ročna lokalna posodobitev firmware-a ali LittleFS prek ElegantOTA.
 
 ## Prvi zagon
 
@@ -22,8 +22,9 @@ Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na
 3. Če naprava nima shranjenega Wi-Fi-ja, se na telefonu poveži na odprti AP `Cebelnjak-XXXXXX`. ID naprave in aktivacijska koda sta izpisana v serijskem monitorju.
 4. Na telefonu odpri `http://192.168.4.1/`, vpiši domači Wi-Fi SSID in geslo ter potrdi obrazec.
 5. ESP32 povezavo najprej preizkusi brez ponovnega zagona. Ob uspehu shrani podatke, na strani pokaže potrditev in nato zapre AP.
+6. Za ročno lokalno posodobitev odpri zavihek **Posodobitve**, nato portal ElegantOTA na portu `8080`. Izberi **Firmware** za `firmware.bin` ali **Filesystem** za `littlefs.bin`; datoteki namesti ločeno, naprava pa se po vsaki uspešni namestitvi znova zažene.
 
-Wi-Fi podatki se hranijo v NVS na ESP32 in niso del firmwarea, Git-a ali GitHub Actions. Lokalni obrazec omogoča skeniranje omrežij in brisanje shranjenih nastavitev. Po izpadu Wi-Fi-ja lokalna stran in SD zgodovina ostaneta dostopni prek AP-ja. Odprt AP je začasna nastavitev za beta testiranje in pred produkcijo ne sme ostati odprt.
+Wi-Fi podatki se hranijo v NVS na ESP32 in niso del firmwarea, Git-a ali GitHub Actions. Lokalni obrazec omogoča skeniranje omrežij in brisanje shranjenih nastavitev. Po izpadu Wi-Fi-ja lokalna stran in SD zgodovina ostaneta dostopni prek AP-ja. Watchdog vsakih 30 sekund poskusi ponovno povezavo, po treh neuspelih poskusih pa znova zažene STA povezavo z NVS poverilnicami. Odprt AP je začasna nastavitev za beta testiranje in pred produkcijo ne sme ostati odprt.
 
 ## Zahteve
 
@@ -31,6 +32,7 @@ Wi-Fi podatki se hranijo v NVS na ESP32 in niso del firmwarea, Git-a ali GitHub 
 - microSD kartica, formatirana kot FAT32
 - Firebase Realtime Database za trenutni razvojni cloud pogled
 - PlatformIO z Arduino frameworkom
+- ElegantOTA 3.1.7; odprtokodna izdaja uporablja licenco AGPL-3.0, zato je treba pred zaprto komercialno distribucijo preveriti licenčne obveznosti ali uporabiti ustrezno Pro licenco.
 
 ## Cloud in lastništvo naprav
 
@@ -49,8 +51,8 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.19
-git push origin v0.1.0-beta.19
+git tag v0.1.0-beta.33
+git push origin v0.1.0-beta.33
 ```
 
 GitHub Actions prevede univerzalni firmware in LittleFS sliko ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`. ESP32 najprej na SD prenese in s SHA-256 preveri `littlefs.bin`, nato posodobi lokalno spletno stran in šele zatem preverjeno posodobi firmware. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

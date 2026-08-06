@@ -4,6 +4,131 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.33] - 2026-08-05
+
+### Added
+
+- Wi-Fi watchdog po izpadu povezave vsakih 30 sekund sproži ponovni poskus povezave.
+
+### Changed
+
+- Po treh neuspelih reconnect poskusih firmware brez blokiranja znova zažene STA povezavo iz shranjenih NVS poverilnic, medtem ko fallback AP ostane aktiven.
+
+## [0.1.0-beta.32] - 2026-08-05
+
+### Changed
+
+- Serijski monitor med ElegantOTA prenosom poroča vsakih 128 KiB namesto pri vsakem paketu, ker sinhroni callback ne podaja končne velikosti datoteke.
+- Ponovni zagon po lokalni posodobitvi upravlja firmware in ni več odvisen od končnega HTTP odgovora ElegantOTA.
+
+### Fixed
+
+- Če brskalnik po zadnjem prenesenem bajtu prekine povezavo, firmware zazna uspešno zaključen `Update`, počaka dve sekundi in ponovno zažene napravo.
+- LittleFS po popolnem prenosu ne ostane več odklopljen samo zato, ker ElegantOTA ni prejel zaključnega HTTP callbacka.
+
+## [0.1.0-beta.31] - 2026-08-05
+
+### Changed
+
+- Lokalna nadzorna plošča ostaja na asinhronem strežniku na portu `80`, ElegantOTA pa uporablja ločen sinhroni `WebServer` na portu `8080`.
+- Pot `/update` na glavnem lokalnem strežniku preusmeri na namenski ElegantOTA portal, zato deluje tudi s starejšo LittleFS stranjo.
+
+### Fixed
+
+- Odklop LittleFS ne poteka več v AsyncTCP opravilu, kjer je lahko zaustavil začetek prenosa in pustil lokalno stran v stanju `503`.
+- Sinhroni ElegantOTA prenos ne zapisuje flasha znotraj AsyncTCP callbacka, kar odpravlja prekinitev s statusom HTTP `0` pri začetku posodobitve.
+
+## [0.1.0-beta.30] - 2026-08-05
+
+### Changed
+
+- ElegantOTA pred lokalno posodobitvijo odklopi LittleFS, medtem ko vgrajeni portal ostane dosegljiv iz programske vsebine knjižnice.
+
+### Fixed
+
+- Lokalna namestitev `littlefs.bin` ne zapisuje več v še vedno priklopljeno LittleFS particijo.
+- Ob neuspehu se LittleFS ponovno priklopi, serijski monitor pa izpiše natančen razlog iz sistema `Update`.
+- Če se flash posodobitev po začetni zahtevi ne začne, petsekundni varovalni mehanizem obnovi lokalno stran.
+
+## [0.1.0-beta.29] - 2026-08-05
+
+### Added
+
+- Lokalni portal ElegantOTA 3.1.7 na poti `/update` omogoča ločeno namestitev `firmware.bin` in `littlefs.bin` prek asinhronega spletnega strežnika.
+
+### Changed
+
+- Lokalni zavihek **Posodobitve** odpre namenski ElegantOTA vmesnik, ki sam prikazuje potek prenosa in po uspešni namestitvi ponovno zažene ESP32.
+- Lokalna posodobitev ne potrebuje SD kartice; firmware in LittleFS se zaradi varnosti namestita vsak posebej.
+
+### Removed
+
+- Odstranjeni so lasten surovi HTTP prenos, začasne OTA datoteke na SD kartici, API poti `/api/update/*` in pripadajoča logika napredka v nadzorni plošči.
+
+## [0.1.0-beta.28] - 2026-08-05
+
+### Changed
+
+- AsyncTCP opravilo za lokalni prenos teče na aplikacijskem jedru 1 s priporočenimi nastavitvami knjižnice, zato SD zapis ne zadržuje Wi-Fi sklada na jedru 0.
+- Začasni datoteki ročne posodobitve uporabljata 16-KB pisalni medpomnilnik, brskalnik pa ob aktivnem prenosu dopušča do deset minut.
+
+### Fixed
+
+- Prekinjen sprejem datoteke ne kliče več `Update.abort()`, kadar flash posodobitev sploh ni bila začeta, zato ne sproži napačnega opozorila za GPIO 0.
+- Odpravljeno je glavno ozko grlo, zaradi katerega je lokalni prenos na SD dosegal le približno 2–3 kB/s in po treh minutah potekel.
+
+## [0.1.0-beta.27] - 2026-08-05
+
+### Changed
+
+- Ročna lokalna posodobitev datoteki `littlefs.bin` in `firmware.bin` najprej asinhrono prenese v začasni datoteki na SD kartici, nato pa ju glavna zanka po 4-KB korakih namesti v flash.
+- Lokalni obrazec jasno loči prenos datotek na SD kartico od poznejše namestitve in za prenos dopušča do tri minute.
+
+### Fixed
+
+- HTTP prenos ne zapisuje več neposredno v LittleFS ali OTA flash particijo, zato se preprečijo večminutni zastoji, potek prenosa in nedosegljiv lokalni ESP32.
+- Med odklopljenim LittleFS statične datoteke vrnejo `503`, API za stanje posodobitve pa ostane dosegljiv.
+
+## [0.1.0-beta.26] - 2026-08-05
+
+### Changed
+
+- Ročni lokalni OTA HTTP callback prejeti tok kopira v šest 4-KB RAM medpomnilnikov, ločeno FreeRTOS opravilo na drugem jedru pa izvaja `Update.write()` in `Update.end()`.
+
+### Fixed
+
+- Pisanje LittleFS v flash ne zavira več TCP callbacka za vsak prejeti paket, kar odpravlja prenos s hitrostjo okoli 2 kB/s in posledične zastoje lokalnega strežnika.
+- Med aktivno posodobitvijo LittleFS statične poti vrnejo `503`, namesto da bi poskušale brati odklopljen datotečni sistem.
+
+## [0.1.0-beta.25] - 2026-08-05
+
+### Changed
+
+- Lokalni OTA uporablja `ESPAsyncWebServer` 3.12.0; `AsyncTCP` teče na ločenem jedru z večjo čakalno vrsto in daljšim TCP potrditvenim intervalom.
+- Lokalni obrazec prenos prekine po 45 sekundah brez zaključka zahteve.
+
+### Fixed
+
+- Zastali ročni prenos se po 30 sekundah brez prejetega dela datoteke varno prekine, prekliče zapis v flash in znova priklopi LittleFS namesto da ostane naprava v nedokončanem stanju.
+- Serijski monitor vsakih 10 % prikaže prejeti obseg ročne posodobitve, zato je mogoče izmeriti dejansko hitrost in mesto morebitnega zastoja.
+
+## [0.1.0-beta.24] - 2026-08-05
+
+### Added
+
+- Lokalni zavihek **Posodobitve** omogoča ročni prenos `littlefs.bin` in `firmware.bin` neposredno iz telefona ali računalnika, tudi brez interneta.
+- ESP32 ročno najprej varno namesti lokalno stran, LittleFS znova priklopi in nato sprejme firmware; po firmware zapisu se samodejno znova zažene.
+- Lokalni obrazec prikaže napredek prenosa, stanje namestitve in razumljivo napako ob prekinjenem ali neveljavnem prenosu.
+
+### Changed
+
+- Lokalni HTTP strežnik uporablja `ESPAsyncWebServer` in ročni prenos kot surovo binarno telo zahteve namesto počasnega `multipart/form-data` prenosa.
+- Ročna posodobitev binarnih datotek ne uporablja več začasnih datotek na SD kartici.
+
+### Fixed
+
+- Prenos `littlefs.bin` ne blokira več lokalnega strežnika zaradi bajtnega `multipart` razčlenjevanja, zato mora med posodobitvijo ostati bistveno bolj odziven.
+
 ## [0.1.0-beta.20] - 2026-08-04
 
 ### Added
@@ -14,6 +139,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 - Gumb **Posodobi napravo** in gumb **Prezri** se med aktivno OTA posodobitvijo zanesljivo zakleneta tudi po osvežitvi cloud strani.
 - OTA prikaz ne podvaja več imena trenutne faze; vrstica napredka jasno označuje skupni odstotek celotne posodobitve.
+- Serijski monitor ob potrditvi asinhronega Firebase zapisa izpiše eno samo potrditev namesto podvojenega zapisa.
+- Prazno 30-sekundno preverjanje OTA ukaza (`null`) ne ustvarja več zavajajočih izpisov o čakalni vrsti ali odsotnem ukazu.
 
 ## [0.1.0-beta.19] - 2026-08-04
 

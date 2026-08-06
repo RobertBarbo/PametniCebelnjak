@@ -88,8 +88,9 @@
         </section>
 
         <div class="overview-links">
-          <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Preveri ESP32 in SD</strong></button>
+          <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Podrobnosti naprave</strong></button>
           <button class="quick-link cloud-only-link" type="button" data-view-target="updates"><span>Firmware</span><strong>Preveri OTA posodobitve</strong></button>
+          <button class="quick-link local-only-link" type="button" data-view-target="updates" hidden><span>Firmware</span><strong>Ročna lokalna posodobitev</strong></button>
         </div>
       </section>
 
@@ -203,7 +204,7 @@
 
       <section class="app-view" data-view-panel="updates" aria-labelledby="updates-heading" hidden>
         <div class="page-heading">
-          <div><p class="eyebrow">Posodobitve</p><h1 id="updates-heading">Firmware OTA</h1><p class="subtitle">Varna namestitev nove različice na izbrano napravo.</p></div>
+          <div><p class="eyebrow">Posodobitve</p><h1 id="updates-heading">Firmware OTA</h1><p class="subtitle" id="updates-subtitle">Varna namestitev nove različice na izbrano napravo.</p></div>
         </div>
         <section class="ota-section" id="ota-section" aria-labelledby="ota-heading" hidden>
           <h2 class="sr-only" id="ota-heading">Razpoložljiva OTA posodobitev</h2>
@@ -224,7 +225,20 @@
             </div>
           </article>
         </section>
-        <p class="surface empty-state ota-empty-state">Za pregled posodobitev se prijavi in izberi registrirano napravo.</p>
+        <section class="local-manual-update-section" id="local-manual-update-section" aria-labelledby="local-manual-update-heading" hidden>
+          <article class="surface local-manual-update-card">
+            <div>
+              <p class="ota-label">Brez interneta</p>
+              <h2 id="local-manual-update-heading">ElegantOTA</h2>
+              <p class="muted">Na ločeni strani izberi <strong>Firmware</strong> za <code>firmware.bin</code> ali <strong>Filesystem</strong> za <code>littlefs.bin</code>. Po uspešni posodobitvi se naprava znova zažene.</p>
+            </div>
+            <div class="local-elegantota-actions">
+              <a class="primary-button" id="local-elegantota-link" href="/update">Odpri ElegantOTA</a>
+              <small>Uporabi samo datoteke iz zaupanja vredne izdaje za ta ESP32-S3. Firmware in LittleFS namesti ločeno.</small>
+            </div>
+          </article>
+        </section>
+        <p class="surface empty-state ota-empty-state" id="ota-empty-state">Za pregled posodobitev se prijavi in izberi registrirano napravo.</p>
       </section>
     </main>
 

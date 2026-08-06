@@ -64,7 +64,10 @@ const elements = {
   calendarDays: document.querySelector("#calendar-days"),
   startTime: document.querySelector("#range-start-time"),
   endTime: document.querySelector("#range-end-time"),
+  updatesHeading: document.querySelector("#updates-heading"),
+  updatesSubtitle: document.querySelector("#updates-subtitle"),
   otaSection: document.querySelector("#ota-section"),
+  otaEmptyState: document.querySelector("#ota-empty-state"),
   otaCard: document.querySelector("#ota-card"),
   otaLabel: document.querySelector("#ota-label"),
   otaVersion: document.querySelector("#ota-version"),
@@ -77,6 +80,8 @@ const elements = {
   otaActions: document.querySelector("#ota-actions"),
   otaInstall: document.querySelector("#ota-install"),
   otaIgnore: document.querySelector("#ota-ignore"),
+  localManualUpdateSection: document.querySelector("#local-manual-update-section"),
+  localElegantOtaLink: document.querySelector("#local-elegantota-link"),
   provisioningSection: document.querySelector("#provisioning-section"),
   provisioningDescription: document.querySelector("#provisioning-description"),
   wifiForm: document.querySelector("#wifi-form"),
@@ -785,6 +790,7 @@ function initializeOtaControls() {
   elements.otaIgnore.addEventListener("click", ignoreFirmwareUpdate);
 }
 
+
 function getBucketSeconds(range) {
   const rangeSeconds = (range.to.getTime() - range.from.getTime()) / 1000;
   if (rangeSeconds <= 24 * 60 * 60) return 5 * 60;
@@ -1340,12 +1346,17 @@ async function useLocalDataSource() {
   const initialStatus = await response.json();
   isLocalDashboard = true;
   document.body.dataset.dashboardMode = "local";
+  elements.updatesHeading.textContent = "Lokalna posodobitev";
+  elements.updatesSubtitle.textContent = "Odpri ElegantOTA za lokalno posodobitev firmware-a ali LittleFS.";
   elements.otaSection.hidden = true;
-  elements.updatesNavigationItem.hidden = true;
+  elements.otaEmptyState.hidden = true;
+  elements.localManualUpdateSection.hidden = false;
+  elements.localElegantOtaLink.href = `${window.location.protocol}//${window.location.hostname}:8080/update`;
+  elements.updatesNavigationItem.hidden = false;
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = true; });
+  document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = false; });
   elements.authTrigger.hidden = true;
   elements.accountSection.hidden = true;
-  if (document.querySelector('[data-view-panel="updates"]').classList.contains("active")) showView(DEFAULT_VIEW);
 
   function renderLocalStatus(status) {
     renderLatestMeasurement(status.latest);
@@ -1392,8 +1403,13 @@ async function useLocalDataSource() {
 async function useFirebaseDataSource() {
   isLocalDashboard = false;
   document.body.dataset.dashboardMode = "cloud";
+  elements.updatesHeading.textContent = "Firmware OTA";
+  elements.updatesSubtitle.textContent = "Varna namestitev nove različice na izbrano napravo.";
   elements.updatesNavigationItem.hidden = false;
+  elements.otaEmptyState.hidden = false;
+  elements.localManualUpdateSection.hidden = true;
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = false; });
+  document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = true; });
   const [{ initializeApp }, authModule, databaseModule, configModule] = await Promise.all([
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js"),
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js"),

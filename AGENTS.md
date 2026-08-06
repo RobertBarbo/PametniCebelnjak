@@ -18,6 +18,7 @@
 
 - Wi-Fi SSID in geslo ne smeta biti v izvorni kodi, GitHub Actions skrivnostih ali sledeni datoteki. Nastavljata se le prek lokalnega provisioning obrazca in se shranita v NVS.
 - Brez shranjenega ali dosegljivega Wi-Fi-ja naprava odpre AP in iz LittleFS streže lokalno nadzorno ploščo. Med beta testiranjem je AP odprt; pred produkcijo mora biti ponovno zaščiten.
+- Ob izpadu shranjenega Wi-Fi-ja mora fallback AP ostati aktiven; watchdog vsakih 30 sekund poskusi `WiFi.reconnect()` in po treh neuspelih poskusih znova zažene STA povezavo iz NVS poverilnic.
 - `device_id` je trajni identifikator naprave. Aktivacijska koda je lokalna skrivnost: ne prikaži je v cloud UI ali Git-u. Firebase-only beta jo enkrat zapiše pod zasebno `/device_secrets/{device_id}` za preverjanje registracije.
 - Trenutni beta firmware uporablja lastno razvojno pot `/devices/{device_id}/` in Firebase Authentication za lastništvo uporabnika. Anonimno ESP32 pisanje je dovoljeno samo za beta testiranje; omejitve morajo ostati dokumentirane v `docs/DEVICE_OWNERSHIP.md`.
 
@@ -39,10 +40,11 @@
 ## Spletna nadzorna plošča
 
 - Statična lokalna nadzorna plošča je v mapi `web/` in mora ostati odzivna za telefon, tablico in namizni računalnik.
-- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi` in `/api/sync/reset`.
+- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja z `ESPAsyncWebServer` na portu `80`; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi` in `/api/sync/reset`, ElegantOTA pa uporablja ločen sinhroni `WebServer` na portu `8080`.
 - Lokalni pogled mora delovati brez interneta, vključno z grafi iz SD CSV dnevnika.
 - Highcharts mora biti lokalno priložen v `web/vendor/`, saj lokalni pogled ne sme uporabljati CDN povezave.
 - Izbirnik zgodovine uporablja začetni in končni datum z urama, hitrimi izbirami in X-zoomiranjem grafa v obeh načinih.
+- Lokalna ročna posodobitev uporablja ElegantOTA 3.1.7 na ločenem sinhronem strežniku; ne dodajaj lastnih upload endpointov ali handlerjev. `firmware.bin` se izbere kot **Firmware**, `littlefs.bin` kot **Filesystem**, vsaka datoteka pa se namesti ločeno. Ker je AP med beta testiranjem odprt, je treba pred produkcijo zaščititi lokalni dostop in ElegantOTA portal.
 - Firebase spletna konfiguracija je samo v `web/firebase-config.js`; v Git se doda le `web/firebase-config.example.js`.
 - Nadzorna plošča ne sme vsebovati Firebase Admin poverilnic.
 - Ob spremembi Firebase podatkovnega modela posodobi nadzorno ploščo in `docs/PROJECT.md`.

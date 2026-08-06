@@ -460,7 +460,7 @@ select {
   margin-bottom: 20px;
   border-radius: 12px;
   color: var(--text-inverse);
-  font-size: 0.76rem;
+  font-size: 1.3rem;
   font-weight: 900;
 }
 
@@ -754,6 +754,12 @@ select:focus {
   font-size: 0.82rem;
 }
 
+.account-field small {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .status-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -870,6 +876,44 @@ select:focus {
   justify-content: space-between;
   gap: 32px;
   padding: clamp(24px, 4vw, 40px);
+}
+
+.local-manual-update-card {
+  display: grid;
+  gap: 26px;
+  padding: clamp(24px, 4vw, 40px);
+}
+
+.local-manual-update-card h2 {
+  margin: 0 0 10px;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  letter-spacing: -0.035em;
+}
+
+.local-manual-update-card .muted {
+  max-width: 680px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.local-elegantota-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.local-elegantota-actions .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.local-elegantota-actions small {
+  max-width: 680px;
+  color: var(--text-soft);
+  line-height: 1.5;
 }
 
 .ota-label {

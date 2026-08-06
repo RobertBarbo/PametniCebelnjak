@@ -1,6 +1,8 @@
 #define ENABLE_DATABASE
 
 #include <Arduino.h>
+#include <ElegantOTA.h>
+#include <ESPAsyncWebServer.h>
 #include <esp_timer.h>
 #include <FirebaseClient.h>
 #include <HTTPClient.h>
@@ -9,9 +11,9 @@
 #include <SD.h>
 #include <SPI.h>
 #include <Update.h>
+#include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <WebServer.h>
 #include <esp_system.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
@@ -31,8 +33,10 @@ constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 1500;
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60000;
 constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
+constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000;
 constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 10000;
 constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;
+constexpr uint8_t WIFI_RECONNECTS_BEFORE_RESTART = 3;
 constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;
 constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;
 
@@ -55,8 +59,12 @@ constexpr uint32_t OTA_MANIFEST_TIMEOUT_MS = 15000;
 constexpr uint32_t OTA_FIRMWARE_TIMEOUT_MS = 20000;
 constexpr uint32_t OTA_STREAM_IDLE_TIMEOUT_MS = 15000;
 constexpr uint32_t OTA_RESTART_DELAY_MS = 1500;
+constexpr uint32_t LOCAL_ELEGANT_OTA_START_TIMEOUT_MS = 5000;
+constexpr uint32_t LOCAL_ELEGANT_OTA_RESTART_DELAY_MS = 2000;
+constexpr size_t LOCAL_ELEGANT_OTA_REPORT_INTERVAL_BYTES = 128 * 1024;
 constexpr uint8_t OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;
 constexpr uint16_t OTA_HTTPS_PORT = 443;
+constexpr uint16_t LOCAL_ELEGANT_OTA_PORT = 8080;
 constexpr uint8_t OTA_MAX_REDIRECTS = 4;
 constexpr uint32_t OTA_HEADER_TIMEOUT_MS = 15000;
 constexpr size_t OTA_HTTP_LINE_MAX_LENGTH = 2048;
@@ -170,7 +178,8 @@ WiFiClientSecure otaDownloadClient;
 using AsyncClient = AsyncClientClass;
 AsyncClient asyncClient(sslClient);
 SPIClass sdSpi(FSPI);
-WebServer localServer(80);
+AsyncWebServer localServer(80);
+WebServer localUpdateServer(LOCAL_ELEGANT_OTA_PORT);
 Preferences preferences;
 
 NoAuth noAuth;
@@ -188,6 +197,7 @@ uint32_t lastCloudAggregateRefreshMillis = 0;
 uint32_t accessPointShutdownMillis = 0;
 uint32_t scheduledWiFiSettingsClearMillis = 0;
 uint32_t wifiConnectionStartedMillis = 0;
+uint32_t lastWiFiReconnectAttemptMillis = 0;
 uint32_t cloudSyncFileOffset = 0;
 uint32_t cloudSyncPendingFileOffset = 0;
 uint8_t cloudSyncWritesSincePersist = 0;
@@ -202,6 +212,10 @@ bool queuedFirmwareCommandInvalid = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool littlefsUnmountedForOta = false;
+bool localElegantOtaSessionActive = false;
+bool localElegantOtaAwaitingUpdateStart = false;
+bool littlefsUnmountedForLocalElegantOta = false;
+bool localElegantOtaRestartScheduled = false;
 bool activationSecretPublishPending = false;
 bool activationSecretRegistrationReported = false;
 bool validTimeWasAvailable = false;
@@ -215,6 +229,7 @@ bool stationConnected = false;
 bool accessPointActive = false;
 bool savedWiFiCredentialsAvailable = false;
 bool stationGotIpAddress = false;
+uint8_t wifiReconnectAttempts = 0;
 WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
 String pendingWiFiSsid;
 String pendingWiFiPassword;
@@ -252,7 +267,10 @@ mbedtls_sha256_context otaSha256Context;
 size_t otaDownloadedBytes = 0;
 uint32_t otaLastDataReceivedMillis = 0;
 uint32_t otaRestartScheduledMillis = 0;
+uint32_t localElegantOtaStartedMillis = 0;
+uint32_t localElegantOtaRestartScheduledMillis = 0;
 uint8_t otaLastReportedProgress = 0;
+size_t localElegantOtaLastReportedBytes = 0;
 time_t lastIndexedDayTimestamp = 0;
 time_t lastPublishedHourlyBucket = 0;
 time_t lastPublishedDailyBucket = 0;
@@ -265,6 +283,7 @@ void processFirmwareUpdateCommand(const String &payload);
 void queueFirmwareUpdateCommand(const String &payload);
 void processQueuedFirmwareUpdateCommand();
 void processOtaUpdate();
+void appendJsonEscaped(String &json, const String &value);
 bool persistCloudSyncState();
 bool parseMeasurementCsvLine(const char *line, Measurement &measurement);
 void resetCloudAggregateState();
@@ -380,7 +399,10 @@ void processData(AsyncResult &result)
   if (result.available()) {
     if (result.uid() == "readFirmwareUpdateCommand") {
       firmwareCommandPending = false;
-      queueFirmwareUpdateCommand(result.payload());
+      const String payload = result.payload();
+      if (payload != "null" && payload.length() > 0) {
+        queueFirmwareUpdateCommand(payload);
+      }
       return;
     }
     if (result.uid() == "publishActivationSecret") {
@@ -413,6 +435,8 @@ void processData(AsyncResult &result)
       }
       return;
     }
+    // Preberemo odgovor, da knjižnica zaključene asinhrone zahteve ne vrne še enkrat.
+    result.payload();
     Serial.print("Firebase write complete: ");
     Serial.println(result.uid());
   }
@@ -605,6 +629,7 @@ void startWiFiConnectionAttempt(const String &ssid, const String &password)
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   stationGotIpAddress = false;
+  wifiReconnectAttempts = 0;
   WiFi.begin(pendingWiFiSsid.c_str(), pendingWiFiPassword.c_str());
   Serial.printf("Testing Wi-Fi '%s' without restarting.\n", pendingWiFiSsid.c_str());
 }
@@ -616,6 +641,7 @@ void updateWiFiConnectionAttempt()
   if (stationGotIpAddress) {
     stationConnected = true;
     WiFi.setAutoReconnect(true);
+    wifiReconnectAttempts = 0;
     if (storeWiFiCredentials(pendingWiFiSsid, pendingWiFiPassword)) {
       savedWiFiCredentialsAvailable = true;
       wifiProvisioningState = WiFiProvisioningState::Connected;
@@ -653,6 +679,8 @@ void clearStoredWiFiCredentials()
   stationConnected = false;
   stationGotIpAddress = false;
   savedWiFiCredentialsAvailable = false;
+  wifiReconnectAttempts = 0;
+  lastWiFiReconnectAttemptMillis = 0;
   wifiProvisioningState = WiFiProvisioningState::Idle;
   accessPointShutdownMillis = 0;
   accessPointActive = false;
@@ -704,6 +732,7 @@ bool connectToStoredWiFi()
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   stationGotIpAddress = false;
+  wifiReconnectAttempts = 0;
   WiFi.begin(ssid.c_str(), password.c_str());
   Serial.printf("Connecting to saved Wi-Fi '%s'", ssid.c_str());
 
@@ -722,6 +751,27 @@ bool connectToStoredWiFi()
   return stationConnected;
 }
 
+bool restartSavedWiFiConnection()
+{
+  String ssid;
+  String password;
+  if (!loadWiFiCredentials(ssid, password)) {
+    savedWiFiCredentialsAvailable = false;
+    return false;
+  }
+
+  // AP ostane aktiven, da lokalni dostop deluje tudi med ponovnim zagonom STA povezave.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(false);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
+  stationGotIpAddress = false;
+  WiFi.disconnect(false, false);
+  WiFi.begin(ssid.c_str(), password.c_str());
+  Serial.printf("Wi-Fi watchdog: restarting saved connection to '%s'.\n", ssid.c_str());
+  return true;
+}
+
 void connectToWiFi()
 {
   createDeviceIdentity();
@@ -734,6 +784,8 @@ void maintainNetworkConnection()
 {
   if (stationConnected && !stationGotIpAddress) {
     stationConnected = false;
+    wifiReconnectAttempts = 0;
+    lastWiFiReconnectAttemptMillis = millis();
     Serial.println("Wi-Fi connection was lost; enabling provisioning access point.");
     if (!accessPointActive) startProvisioningAccessPoint(true);
     return;
@@ -747,7 +799,31 @@ void maintainNetworkConnection()
       accessPointActive = false;
       WiFi.mode(WIFI_STA);
     }
+    wifiReconnectAttempts = 0;
     Serial.printf("Wi-Fi connection restored. IP address: %s\n", WiFi.localIP().toString().c_str());
+    return;
+  }
+
+  if (!stationConnected && savedWiFiCredentialsAvailable &&
+      wifiProvisioningState != WiFiProvisioningState::Connecting && !stationGotIpAddress &&
+      millis() - lastWiFiReconnectAttemptMillis >= WIFI_RECONNECT_INTERVAL_MS) {
+    lastWiFiReconnectAttemptMillis = millis();
+    ++wifiReconnectAttempts;
+    if (!accessPointActive) startProvisioningAccessPoint(true);
+
+    if (wifiReconnectAttempts >= WIFI_RECONNECTS_BEFORE_RESTART) {
+      wifiReconnectAttempts = 0;
+      if (!restartSavedWiFiConnection() && !accessPointActive) {
+        startProvisioningAccessPoint(false);
+      }
+      return;
+    }
+
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.reconnect();
+    Serial.printf("Wi-Fi watchdog: reconnect attempt %u/%u.\n", wifiReconnectAttempts,
+                  WIFI_RECONNECTS_BEFORE_RESTART);
   }
 }
 
@@ -1463,7 +1539,6 @@ void verifyDownloadedFirmware()
 void processFirmwareUpdateCommand(const String &payload)
 {
   if (payload == "null" || payload.length() == 0) {
-    Serial.println("OTA: no update command available.");
     return;
   }
 
@@ -1522,7 +1597,9 @@ void processFirmwareUpdateCommand(const String &payload)
 
 void processQueuedFirmwareUpdateCommand()
 {
-  if (!firmwareCommandQueued || firmwareUpdateInProgress) return;
+  if (!firmwareCommandQueued || firmwareUpdateInProgress || Update.isRunning()) {
+    return;
+  }
 
   firmwareCommandQueued = false;
   if (queuedFirmwareCommandInvalid) {
@@ -1893,6 +1970,111 @@ uint32_t findHistoryFileOffset(time_t firstTimestamp)
 
 // --- Lokalni web strežnik ---------------------------------------------------
 
+void sendLocalJsonResponse(AsyncWebServerRequest *request, int statusCode, const String &jsonPayload)
+{
+  AsyncWebServerResponse *response =
+      request->beginResponse(statusCode, "application/json; charset=utf-8", jsonPayload);
+  response->addHeader("Cache-Control", "no-store");
+  request->send(response);
+}
+
+void initializeElegantOta()
+{
+  ElegantOTA.setAutoReboot(false);
+  ElegantOTA.onStart([]() {
+    LittleFS.end();
+    littlefsUnmountedForLocalElegantOta = true;
+    localElegantOtaSessionActive = true;
+    localElegantOtaAwaitingUpdateStart = true;
+    localElegantOtaRestartScheduled = false;
+    localElegantOtaStartedMillis = millis();
+    localElegantOtaLastReportedBytes = 0;
+    Serial.println("ElegantOTA: local update started.");
+  });
+  ElegantOTA.onProgress([](size_t currentBytes, size_t totalBytes) {
+    (void)totalBytes;
+    if (currentBytes < localElegantOtaLastReportedBytes + LOCAL_ELEGANT_OTA_REPORT_INTERVAL_BYTES) return;
+
+    localElegantOtaLastReportedBytes = currentBytes;
+    Serial.printf("ElegantOTA: received %u KiB.\n", static_cast<unsigned>(currentBytes / 1024));
+  });
+  ElegantOTA.onEnd([](bool success) {
+    if (success) {
+      Serial.println("ElegantOTA: update completed; restarting device.");
+      localElegantOtaRestartScheduled = true;
+      localElegantOtaRestartScheduledMillis = millis();
+      return;
+    }
+
+    Update.printError(Serial);
+    localElegantOtaSessionActive = false;
+    localElegantOtaAwaitingUpdateStart = false;
+    localElegantOtaRestartScheduled = false;
+    if (littlefsUnmountedForLocalElegantOta) {
+      littlefsUnmountedForLocalElegantOta = false;
+      if (!LittleFS.begin()) {
+        Serial.println("ElegantOTA: LittleFS remount failed after update error.");
+      }
+    }
+    Serial.println("ElegantOTA: update failed.");
+  });
+  ElegantOTA.begin(&localUpdateServer);
+  localUpdateServer.begin();
+  Serial.printf("ElegantOTA: http://<device-ip>:%u/update\n", LOCAL_ELEGANT_OTA_PORT);
+}
+
+void maintainElegantOtaSession()
+{
+  if (!localElegantOtaSessionActive) return;
+
+  if (localElegantOtaAwaitingUpdateStart) {
+    if (Update.isRunning()) {
+      localElegantOtaAwaitingUpdateStart = false;
+      return;
+    }
+
+    if (millis() - localElegantOtaStartedMillis < LOCAL_ELEGANT_OTA_START_TIMEOUT_MS) return;
+
+    localElegantOtaSessionActive = false;
+    localElegantOtaAwaitingUpdateStart = false;
+    if (littlefsUnmountedForLocalElegantOta) {
+      littlefsUnmountedForLocalElegantOta = false;
+      if (!LittleFS.begin()) {
+        Serial.println("ElegantOTA: LittleFS remount failed after update start error.");
+      }
+    }
+    Serial.println("ElegantOTA: update did not start; local page restored.");
+    return;
+  }
+
+  if (localElegantOtaRestartScheduled) {
+    if (millis() - localElegantOtaRestartScheduledMillis >= LOCAL_ELEGANT_OTA_RESTART_DELAY_MS) {
+      Serial.println("ElegantOTA: restarting device.");
+      ESP.restart();
+    }
+    return;
+  }
+
+  if (Update.isRunning()) return;
+
+  if (Update.hasError()) {
+    Update.printError(Serial);
+    localElegantOtaSessionActive = false;
+    if (littlefsUnmountedForLocalElegantOta) {
+      littlefsUnmountedForLocalElegantOta = false;
+      if (!LittleFS.begin()) {
+        Serial.println("ElegantOTA: LittleFS remount failed after update error.");
+      }
+    }
+    Serial.println("ElegantOTA: update failed before the final HTTP response.");
+    return;
+  }
+
+  Serial.println("ElegantOTA: flash write completed without the final HTTP response; restarting device.");
+  localElegantOtaRestartScheduled = true;
+  localElegantOtaRestartScheduledMillis = millis();
+}
+
 const char *contentTypeForPath(const String &path)
 {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
@@ -1901,18 +2083,19 @@ const char *contentTypeForPath(const String &path)
   return "application/octet-stream";
 }
 
-bool serveLocalAsset(String path)
+bool serveLocalAsset(AsyncWebServerRequest *request, String path)
 {
+  if (littlefsUnmountedForLocalElegantOta) {
+    request->send(503, "text/plain; charset=utf-8", "Lokalna stran se posodablja.");
+    return true;
+  }
   if (path == "/") path = "/index.html";
   if (!LittleFS.exists(path)) return false;
 
-  File asset = LittleFS.open(path, FILE_READ);
-  if (!asset) return false;
-  localServer.sendHeader("Cache-Control", path.startsWith("/vendor/")
-                                            ? "public, max-age=86400"
-                                            : "no-cache");
-  localServer.streamFile(asset, contentTypeForPath(path));
-  asset.close();
+  AsyncWebServerResponse *response = request->beginResponse(LittleFS, path, contentTypeForPath(path));
+  if (response == nullptr) return false;
+  response->addHeader("Cache-Control", path.startsWith("/vendor/") ? "public, max-age=86400" : "no-cache");
+  request->send(response);
   return true;
 }
 
@@ -1935,16 +2118,16 @@ void appendJsonEscaped(String &json, const String &value)
   }
 }
 
-void sendAvailableWiFiNetworks()
+void sendAvailableWiFiNetworks(AsyncWebServerRequest *request)
 {
   if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
-    localServer.send(409, "application/json", "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
 
   const int scanResult = WiFi.scanComplete();
   if (scanResult == WIFI_SCAN_RUNNING) {
-    localServer.send(202, "application/json", "{\"state\":\"scanning\"}");
+    sendLocalJsonResponse(request, 202, "{\"state\":\"scanning\"}");
     return;
   }
 
@@ -1953,7 +2136,7 @@ void sendAvailableWiFiNetworks()
     WiFi.mode(WIFI_AP_STA);
     WiFi.setSleep(false);
     WiFi.scanNetworks(true, true);
-    localServer.send(202, "application/json", "{\"state\":\"scanning\"}");
+    sendLocalJsonResponse(request, 202, "{\"state\":\"scanning\"}");
     return;
   }
 
@@ -1971,38 +2154,38 @@ void sendAvailableWiFiNetworks()
   }
   jsonPayload += "]}";
   WiFi.scanDelete();
-  localServer.send(200, "application/json; charset=utf-8", jsonPayload);
+  sendLocalJsonResponse(request, 200, jsonPayload);
 }
 
-void saveWiFiConfiguration()
+void saveWiFiConfiguration(AsyncWebServerRequest *request)
 {
-  const String ssid = localServer.arg("ssid");
-  const String password = localServer.arg("password");
+  const String ssid = request->arg("ssid");
+  const String password = request->arg("password");
   if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 63) {
-    localServer.send(400, "application/json", "{\"error\":\"Invalid Wi-Fi configuration\"}");
+    sendLocalJsonResponse(request, 400, "{\"error\":\"Invalid Wi-Fi configuration\"}");
     return;
   }
   if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
-    localServer.send(409, "application/json", "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
 
   startWiFiConnectionAttempt(ssid, password);
-  localServer.send(202, "application/json", "{\"state\":\"connecting\"}");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"connecting\"}");
 }
 
-void deleteWiFiConfiguration()
+void deleteWiFiConfiguration(AsyncWebServerRequest *request)
 {
   if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
-    localServer.send(409, "application/json", "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
 
-  localServer.send(202, "application/json", "{\"state\":\"clearing\"}");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"clearing\"}");
   scheduledWiFiSettingsClearMillis = millis() + WIFI_SETTINGS_CLEAR_DELAY_MS;
 }
 
-void sendLocalStatus()
+void sendLocalStatus(AsyncWebServerRequest *request)
 {
   const Uptime uptime = getUptime();
   const String ipAddress = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
@@ -2037,18 +2220,18 @@ void sendLocalStatus()
            static_cast<unsigned long>(cloudSyncRetryIntervalMs / 1000),
            sdCardReady ? "true" : "false", sdInitializationFailures,
            sdErrorReported ? "true" : "false", FIRMWARE_VERSION);
-  localServer.sendHeader("Cache-Control", "no-store");
-  localServer.send(200, "application/json; charset=utf-8", jsonPayload);
+  sendLocalJsonResponse(request, 200, jsonPayload);
 }
 
-bool getLocalHistoryWindow(time_t &firstTimestamp, time_t &lastTimestamp, uint32_t &bucketDuration)
+bool getLocalHistoryWindow(AsyncWebServerRequest *request, time_t &firstTimestamp, time_t &lastTimestamp,
+                           uint32_t &bucketDuration)
 {
   const time_t now = time(nullptr);
-  firstTimestamp = localServer.hasArg("from")
-                       ? static_cast<time_t>(localServer.arg("from").toInt())
+  firstTimestamp = request->hasParam("from")
+                       ? static_cast<time_t>(request->arg("from").toInt())
                        : now - 24 * 60 * 60;
-  lastTimestamp = localServer.hasArg("to")
-                      ? static_cast<time_t>(localServer.arg("to").toInt())
+  lastTimestamp = request->hasParam("to")
+                      ? static_cast<time_t>(request->arg("to").toInt())
                       : now;
 
   const time_t duration = lastTimestamp - firstTimestamp;
@@ -2068,24 +2251,24 @@ bool getLocalHistoryWindow(time_t &firstTimestamp, time_t &lastTimestamp, uint32
   return true;
 }
 
-void sendLocalHistory()
+void sendLocalHistory(AsyncWebServerRequest *request)
 {
   if (!sdCardReady) {
-    localServer.send(503, "application/json", "{\"error\":\"SD card is unavailable\"}");
+    sendLocalJsonResponse(request, 503, "{\"error\":\"SD card is unavailable\"}");
     return;
   }
 
   time_t firstTimestamp;
   time_t lastTimestamp;
   uint32_t bucketDuration;
-  if (!getLocalHistoryWindow(firstTimestamp, lastTimestamp, bucketDuration)) {
-    localServer.send(400, "application/json", "{\"error\":\"Invalid history time range\"}");
+  if (!getLocalHistoryWindow(request, firstTimestamp, lastTimestamp, bucketDuration)) {
+    sendLocalJsonResponse(request, 400, "{\"error\":\"Invalid history time range\"}");
     return;
   }
 
   File logFile = SD.open(SD_LOG_PATH, FILE_READ);
   if (!logFile) {
-    localServer.send(404, "application/json", "{\"error\":\"Measurement log is unavailable\"}");
+    sendLocalJsonResponse(request, 404, "{\"error\":\"Measurement log is unavailable\"}");
     return;
   }
 
@@ -2136,14 +2319,13 @@ void sendLocalHistory()
     jsonPayload += ",\"weight_kg\":" + String(bucket.weightSum / bucket.count, 2) + '}';
   }
   jsonPayload += "]}";
-  localServer.sendHeader("Cache-Control", "no-store");
-  localServer.send(200, "application/json; charset=utf-8", jsonPayload);
+  sendLocalJsonResponse(request, 200, jsonPayload);
 }
 
-void resetCloudSynchronization()
+void resetCloudSynchronization(AsyncWebServerRequest *request)
 {
   if (cloudSyncPending) {
-    localServer.send(409, "application/json", "{\"error\":\"Cloud synchronization is in progress\"}");
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Cloud synchronization is in progress\"}");
     return;
   }
 
@@ -2158,28 +2340,25 @@ void resetCloudSynchronization()
   resetCloudAggregateState();
 
   if (!persistCloudSyncState()) {
-    localServer.send(500, "application/json", "{\"error\":\"Cloud synchronization state could not be saved\"}");
+    sendLocalJsonResponse(request, 500, "{\"error\":\"Cloud synchronization state could not be saved\"}");
     return;
   }
 
   Serial.println("Cloud history synchronization was reset from the local dashboard.");
-  localServer.send(202, "application/json", "{\"state\":\"resynchronizing\"}");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"resynchronizing\"}");
 }
 
-void serveMeasurementLog()
+void serveMeasurementLog(AsyncWebServerRequest *request)
 {
   if (!sdCardReady) {
-    localServer.send(503, "text/plain", "SD card is unavailable.");
+    request->send(503, "text/plain", "SD card is unavailable.");
     return;
   }
-  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
-  if (!logFile) {
-    localServer.send(404, "text/plain", "Measurement log is unavailable.");
+  if (!SD.exists(SD_LOG_PATH)) {
+    request->send(404, "text/plain", "Measurement log is unavailable.");
     return;
   }
-  localServer.sendHeader("Content-Disposition", "attachment; filename=measurements.csv");
-  localServer.streamFile(logFile, "text/csv; charset=utf-8");
-  logFile.close();
+  request->send(SD, SD_LOG_PATH, "text/csv; charset=utf-8", true);
 }
 
 void initializeLocalWebServer()
@@ -2195,11 +2374,21 @@ void initializeLocalWebServer()
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
   localServer.on("/measurements.csv", HTTP_GET, serveMeasurementLog);
-  localServer.onNotFound([]() {
-    if (!serveLocalAsset(localServer.uri())) localServer.send(404, "text/plain", "Not found");
+  localServer.on("/update", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String host = request->host();
+    const int portSeparator = host.indexOf(':');
+    if (portSeparator >= 0) host.remove(portSeparator);
+    const String targetUrl = "http://" + host + ":" + String(LOCAL_ELEGANT_OTA_PORT) + "/update";
+    AsyncWebServerResponse *response = request->beginResponse(302);
+    response->addHeader("Location", targetUrl);
+    request->send(response);
   });
-  localServer.on("/", HTTP_GET, []() { serveLocalAsset("/"); });
+  localServer.onNotFound([](AsyncWebServerRequest *request) {
+    if (!serveLocalAsset(request, request->url())) request->send(404, "text/plain", "Not found");
+  });
+  localServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) { serveLocalAsset(request, "/"); });
   localServer.begin();
+  initializeElegantOta();
   const String dashboardIp = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   Serial.printf("Local dashboard: http://%s/\n", dashboardIp.c_str());
 }
@@ -2695,13 +2884,15 @@ void setup()
 
 void loop()
 {
-  localServer.handleClient();
   updateWiFiConnectionAttempt();
   maintainProvisioningAccessPoint();
   maintainNetworkConnection();
   if (stationConnected) {
     app.loop();
   }
+  localUpdateServer.handleClient();
+  ElegantOTA.loop();
+  maintainElegantOtaSession();
 
   processOtaUpdate();
   processQueuedFirmwareUpdateCommand();
@@ -2722,7 +2913,7 @@ void loop()
 
   // Med OTA prenosom ohranimo odzivnost lokalnega strežnika in Firebase app.loop(),
   // druge cloud zahteve pa začasno ustavimo, da ne tekmujejo z OTA statusom.
-  if (!firmwareUpdateInProgress) {
+  if (!firmwareUpdateInProgress && !Update.isRunning()) {
     if (isFirebaseReady() && !activationSecretPublishPending &&
         (lastActivationSecretAttemptMillis == 0 ||
          currentMillis - lastActivationSecretAttemptMillis >= ACTIVATION_SECRET_REFRESH_INTERVAL_MS)) {

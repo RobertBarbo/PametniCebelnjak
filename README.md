@@ -2,18 +2,19 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.34`
+**Različica:** `0.1.0-beta.49`
 
 ## Trenutne funkcije
 
-- Simulirane meritve temperature, relativne vlage in teže vsakih 5 minut.
-- Zapis vsake meritve v CSV dnevnik na SD kartici ter postopna sinhronizacija surove zgodovine in agregatov v Firebase.
+- Dejanske trenutne meritve temperature, relativne vlage in teže z BME680 ter HX711 vsakih 10 sekund.
+- Enominutni zapis skupne meritve v CSV dnevnik na SD kartici ter postopna sinhronizacija surove zgodovine in agregatov v Firebase.
 - Dnevni SD indeks za hitro lokalno zgodovino ter urni/dnevni Firebase agregati za daljša cloud obdobja.
 - Samodejni Wi-Fi provisioning brez trdo vpisanega SSID-ja ali gesla.
 - Dostopni AP kot rezerva, kadar domači Wi-Fi ni nastavljen ali ni dosegljiv.
 - Trajni ID, aktivacijska koda in Firebase prijava za registracijo več naprav na uporabnika.
 - Odzivna lokalna nadzorna plošča z merjenjem, SD zgodovino in grafi tudi brez interneta.
 - OTA posodobitev iz preverjenega GitHub Release manifesta in ročna lokalna posodobitev firmware-a ali LittleFS prek ElegantOTA.
+- Varen izbris cloud zgodovine ali celotne SD in cloud zgodovine za izbrani panj.
 
 ## Prvi zagon
 
@@ -51,8 +52,8 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.34
-git push origin v0.1.0-beta.34
+git tag v0.1.0-beta.49
+git push origin v0.1.0-beta.49
 ```
 
 GitHub Actions prevede univerzalni firmware in LittleFS sliko ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`. ESP32 najprej na SD prenese in s SHA-256 preveri `littlefs.bin`, nato posodobi lokalno spletno stran in šele zatem preverjeno posodobi firmware. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

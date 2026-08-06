@@ -43,20 +43,23 @@
           ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid && root.child('device_claims').child($deviceId).child(auth.uid).child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()) || (data.val() === auth.uid && !newData.exists()))"
         },
         "latest": {
-          ".write": "auth == null"
+          ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))"
         },
         "measurements": {
+          ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
           "$timestamp": {
             ".write": "auth == null"
           }
         },
         "aggregates": {
           "hourly": {
+            ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             "$timestamp": {
               ".write": "auth == null"
             }
           },
           "daily": {
+            ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             "$timestamp": {
               ".write": "auth == null"
             }
@@ -74,12 +77,15 @@
           },
           "ota": {
             ".write": "auth == null"
+          },
+          "history": {
+            ".write": "auth == null"
           }
         },
         "commands": {
           "firmware_update": {
-            ".read": "auth == null || (auth != null && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)",
-            ".write": "(auth != null && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid) || (auth == null && !newData.exists())"
+            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
+            ".write": "(auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)) || (auth == null && !newData.exists())"
           }
         }
       }

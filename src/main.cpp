@@ -1,19 +1,21 @@
 #define ENABLE_DATABASE
 
 #include <Arduino.h>
+#include <Adafruit_BME680.h>
 #include <ElegantOTA.h>
 #include <ESPAsyncWebServer.h>
 #include <esp_timer.h>
 #include <FirebaseClient.h>
 #include <HTTPClient.h>
+#include <HX711.h>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <SD.h>
 #include <SPI.h>
 #include <Update.h>
-#include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <Wire.h>
 #include <esp_system.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
@@ -24,11 +26,13 @@
 namespace {
 
 // Časovni intervali posameznih opravil v glavni zanki.
-constexpr uint32_t MEASUREMENT_INTERVAL_MS = 5 * 60 * 1000;
+// Začasni diagnostični interval za preverjanje stabilnosti merilnih celic.
+constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10 * 1000;
+constexpr uint32_t SD_MEASUREMENT_INTERVAL_MS = 60 * 1000;
 constexpr uint32_t SD_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
-constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = MEASUREMENT_INTERVAL_MS;
+constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 1500;
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60000;
 constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
@@ -64,7 +68,6 @@ constexpr uint32_t LOCAL_ELEGANT_OTA_RESTART_DELAY_MS = 2000;
 constexpr size_t LOCAL_ELEGANT_OTA_REPORT_INTERVAL_BYTES = 128 * 1024;
 constexpr uint8_t OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;
 constexpr uint16_t OTA_HTTPS_PORT = 443;
-constexpr uint16_t LOCAL_ELEGANT_OTA_PORT = 8080;
 constexpr uint8_t OTA_MAX_REDIRECTS = 4;
 constexpr uint32_t OTA_HEADER_TIMEOUT_MS = 15000;
 constexpr size_t OTA_HTTP_LINE_MAX_LENGTH = 2048;
@@ -77,19 +80,35 @@ constexpr int SD_MOSI_PIN = 11;
 constexpr int SD_SCK_PIN = 12;
 constexpr int SD_MISO_PIN = 13;
 
+constexpr int BME680_SDA_PIN = 8;
+constexpr int BME680_SCL_PIN = 9;
+constexpr uint8_t BME680_PRIMARY_ADDRESS = 0x76;
+constexpr uint8_t BME680_SECONDARY_ADDRESS = 0x77;
+constexpr int HX711_DOUT_PIN = 4;
+constexpr int HX711_SCK_PIN = 5;
+constexpr uint8_t HX711_TARE_SAMPLES = 20;
+// Ena meritev uporabi povprečje 20 vzorcev, da zmanjša šum HX711 in merilnih celic.
+constexpr uint8_t HX711_READ_SAMPLES = 20;
+constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;
+// Umerjeno 6. 8. 2026 z referenčnima utežema 1,464 kg in 2,470 kg na tej merilni konstrukciji.
+constexpr float HX711_CALIBRATION_FACTOR = 22500.0F;
+
 constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 constexpr char NTP_SERVER_1[] = "pool.ntp.org";
 constexpr char NTP_SERVER_2[] = "time.google.com";
-constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 366;
+// Do 24 ur uporabljamo minutne koše, zato potrebujemo še en koš za vključen končni trenutek.
+constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 1441;
 constexpr time_t MAX_LOCAL_HISTORY_DURATION_SECONDS = 366 * 24 * 60 * 60;
 constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;
 constexpr char DEVICE_SETTINGS_NAMESPACE[] = "device";
 constexpr char WIFI_SETTINGS_NAMESPACE[] = "wifi";
+constexpr char SENSOR_SETTINGS_NAMESPACE[] = "sensors";
 constexpr char DEVICE_ID_KEY[] = "device_id";
 constexpr char ACTIVATION_CODE_KEY[] = "activation";
 constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";
 constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";
 constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";
+constexpr char HX711_OFFSET_KEY[] = "hx_offset";
 constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 1;
 constexpr char WIFI_SSID_KEY[] = "ssid";
 constexpr char WIFI_PASSWORD_KEY[] = "password";
@@ -179,14 +198,16 @@ using AsyncClient = AsyncClientClass;
 AsyncClient asyncClient(sslClient);
 SPIClass sdSpi(FSPI);
 AsyncWebServer localServer(80);
-WebServer localUpdateServer(LOCAL_ELEGANT_OTA_PORT);
 Preferences preferences;
+Adafruit_BME680 bme680;
+HX711 loadCell;
 
 NoAuth noAuth;
 FirebaseApp app;
 RealtimeDatabase database;
 
 uint32_t lastMeasurementMillis = 0;
+uint32_t lastSDMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
 uint32_t lastFirmwareCommandCheckMillis = 0;
@@ -209,6 +230,7 @@ bool firmwareCommandPending = false;
 bool firmwareCommandQueued = false;
 bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
+bool historyDeletionQueued = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool littlefsUnmountedForOta = false;
@@ -229,6 +251,8 @@ bool stationConnected = false;
 bool accessPointActive = false;
 bool savedWiFiCredentialsAvailable = false;
 bool stationGotIpAddress = false;
+bool bme680Ready = false;
+bool loadCellReady = false;
 uint8_t wifiReconnectAttempts = 0;
 WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
 String pendingWiFiSsid;
@@ -256,6 +280,7 @@ char deviceStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
+char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
 char queuedFirmwareCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
@@ -282,6 +307,8 @@ OtaUpdateState otaUpdateState = OtaUpdateState::Idle;
 void processFirmwareUpdateCommand(const String &payload);
 void queueFirmwareUpdateCommand(const String &payload);
 void processQueuedFirmwareUpdateCommand();
+void queueHistoryDeleteAction();
+void processPendingHistoryDeletion();
 void processOtaUpdate();
 void appendJsonEscaped(String &json, const String &value);
 bool persistCloudSyncState();
@@ -442,21 +469,103 @@ void processData(AsyncResult &result)
   }
 }
 
-// --- Simulirani vir meritev -------------------------------------------------
+// --- Senzorji ---------------------------------------------------------------
 
-float simulatedTemperatureC()
+bool loadStoredLoadCellOffset(long &offset)
 {
-  return random(300, 361) / 10.0F;
+  if (!preferences.begin(SENSOR_SETTINGS_NAMESPACE, true)) return false;
+
+  const bool offsetAvailable = preferences.isKey(HX711_OFFSET_KEY);
+  if (offsetAvailable) {
+    offset = preferences.getLong(HX711_OFFSET_KEY, 0);
+  }
+  preferences.end();
+  return offsetAvailable;
 }
 
-float simulatedHumidityPercent()
+bool storeLoadCellOffset(long offset)
 {
-  return random(450, 751) / 10.0F;
+  if (!preferences.begin(SENSOR_SETTINGS_NAMESPACE, false)) return false;
+
+  const size_t writtenBytes = preferences.putLong(HX711_OFFSET_KEY, offset);
+  preferences.end();
+  return writtenBytes == sizeof(int32_t);
 }
 
-float simulatedWeightKg()
+bool initializeBme680()
 {
-  return random(3500, 4501) / 100.0F;
+  Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
+  if (!bme680.begin(BME680_PRIMARY_ADDRESS) && !bme680.begin(BME680_SECONDARY_ADDRESS)) {
+    Serial.println("BME680 was not detected on I2C addresses 0x76 or 0x77.");
+    return false;
+  }
+
+  bme680.setTemperatureOversampling(BME680_OS_8X);
+  bme680.setHumidityOversampling(BME680_OS_2X);
+  bme680.setIIRFilterSize(BME680_FILTER_SIZE_3);
+  bme680.setGasHeater(320, 150);
+  Serial.println("BME680 initialized.");
+  return true;
+}
+
+bool initializeLoadCell()
+{
+  loadCell.begin(HX711_DOUT_PIN, HX711_SCK_PIN);
+  if (!loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
+    Serial.println("HX711 is not ready. Check power, DOUT and SCK wiring.");
+    return false;
+  }
+
+  loadCell.set_scale(HX711_CALIBRATION_FACTOR);
+  long offset = 0;
+  if (loadStoredLoadCellOffset(offset)) {
+    loadCell.set_offset(offset);
+    Serial.printf("HX711 initialized with saved tare offset %ld.\n", offset);
+    return true;
+  }
+
+  // Prvo tariranje se izvede samo brez shranjenega odmika. Ploščad mora biti takrat prazna.
+  Serial.println("HX711 has no saved tare offset; taring with an empty platform.");
+  loadCell.tare(HX711_TARE_SAMPLES);
+  offset = loadCell.get_offset();
+  if (!storeLoadCellOffset(offset)) {
+    Serial.println("HX711 tare offset could not be saved to NVS.");
+  }
+  Serial.printf("HX711 initialized. Tare offset: %ld, calibration factor: %.2f.\n", offset,
+                HX711_CALIBRATION_FACTOR);
+  return true;
+}
+
+bool readBme680(float &temperatureC, float &humidityPercent)
+{
+  if (!bme680Ready) {
+    Serial.println("Measurement skipped: BME680 is unavailable.");
+    return false;
+  }
+  if (!bme680.performReading()) {
+    Serial.println("Measurement skipped: BME680 reading failed.");
+    return false;
+  }
+
+  temperatureC = bme680.temperature;
+  humidityPercent = bme680.humidity;
+  return isfinite(temperatureC) && isfinite(humidityPercent);
+}
+
+bool readLoadCell(float &weightKg)
+{
+  if (!loadCellReady || !loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
+    Serial.println("Measurement skipped: HX711 is unavailable.");
+    return false;
+  }
+
+  weightKg = loadCell.get_units(HX711_READ_SAMPLES);
+  if (!isfinite(weightKg)) {
+    Serial.println("Measurement skipped: HX711 returned an invalid value.");
+    return false;
+  }
+  if (fabsf(weightKg) < 0.02F) weightKg = 0.0F;
+  return true;
 }
 
 // --- Omrežje in čas ---------------------------------------------------------
@@ -548,6 +657,7 @@ void initializeDeviceDatabasePaths()
   snprintf(firmwareStatusDatabasePath, sizeof(firmwareStatusDatabasePath), "%s/status/firmware", deviceDatabasePath);
   snprintf(otaStatusDatabasePath, sizeof(otaStatusDatabasePath), "%s/status/ota", deviceDatabasePath);
   snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
+  snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
   snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
 }
 
@@ -729,6 +839,8 @@ bool connectToStoredWiFi()
 
   savedWiFiCredentialsAvailable = true;
   WiFi.mode(WIFI_STA);
+  // Lokalni spletni strežnik potrebuje nizko zakasnitev; varčevanje z energijo upočasni HTTP prenose.
+  WiFi.setSleep(false);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   stationGotIpAddress = false;
@@ -1544,9 +1656,21 @@ void processFirmwareUpdateCommand(const String &payload)
 
   String action;
   String targetVersion;
-  if (!extractJsonString(payload, "action", action) || !extractJsonString(payload, "target_version", targetVersion)) {
+  if (!extractJsonString(payload, "action", action)) {
     Serial.println("OTA error: invalid update command.");
     reportOtaStatus("error", "", "Neveljaven OTA ukaz.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  if (action == "delete_history") {
+    queueHistoryDeleteAction();
+    return;
+  }
+
+  if (!extractJsonString(payload, "target_version", targetVersion)) {
+    Serial.println("OTA error: update command has no target version.");
+    reportOtaStatus("error", "", "OTA ukaz nima ciljne različice.");
     clearFirmwareUpdateCommand();
     return;
   }
@@ -1716,6 +1840,100 @@ void requestFirmwareUpdateCommand()
 {
   firmwareCommandPending = true;
   database.get(asyncClient, otaCommandDatabasePath, processData, false, "readFirmwareUpdateCommand");
+}
+
+void reportHistoryDeletionStatus(const char *state, const char *message)
+{
+  char jsonPayload[256];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"state\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
+           state, message, static_cast<unsigned long>(time(nullptr)));
+  object_t historyStatus(jsonPayload);
+  database.set(asyncClient, historyStatusDatabasePath, historyStatus, processData, "updateHistoryDeletionStatus");
+}
+
+bool deleteMeasurementHistoryFromSD()
+{
+  if (!sdCardReady) {
+    Serial.println("History deletion error: SD card is unavailable.");
+    return false;
+  }
+
+  if (SD.exists(SD_LOG_PATH) && !SD.remove(SD_LOG_PATH)) {
+    Serial.println("History deletion error: measurements.csv could not be removed.");
+    return false;
+  }
+  SD.remove(SD_HISTORY_INDEX_PATH);
+  SD.remove(SD_HISTORY_INDEX_TEMP_PATH);
+
+  File logFile = SD.open(SD_LOG_PATH, FILE_WRITE);
+  if (!logFile) {
+    Serial.println("History deletion error: measurements.csv could not be recreated.");
+    return false;
+  }
+  logFile.println("date,time,unix_timestamp,temperature_c,humidity_percent,weight_kg");
+  logFile.close();
+
+  hasLatestMeasurement = false;
+  latestMeasurement = {};
+  historyIndexReady = false;
+  lastIndexedDayTimestamp = 0;
+  cloudSyncFileOffset = 0;
+  cloudSyncPendingFileOffset = 0;
+  lastCloudSyncedTimestamp = 0;
+  cloudSyncWritesSincePersist = 0;
+  cloudSyncStateSavePending = false;
+  cloudSyncCaughtUp = true;
+  cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
+  lastCloudSyncAttemptMillis = millis();
+  resetCloudAggregateState();
+  return persistCloudSyncState();
+}
+
+void deleteCloudMeasurementHistory()
+{
+  database.remove(asyncClient, latestDatabasePath, processData, "deleteHistoryLatest");
+  database.remove(asyncClient, historyDatabasePath, processData, "deleteHistoryMeasurements");
+  database.remove(asyncClient, hourlyAggregateDatabasePath, processData, "deleteHistoryHourlyAggregates");
+  database.remove(asyncClient, dailyAggregateDatabasePath, processData, "deleteHistoryDailyAggregates");
+}
+
+void queueHistoryDeleteAction()
+{
+  if (historyDeletionQueued) {
+    return;
+  }
+  historyDeletionQueued = true;
+  Serial.println("History deletion command queued.");
+  reportHistoryDeletionStatus("queued", "Ukaz čaka na zaključek trenutne SD sinhronizacije.");
+}
+
+void processPendingHistoryDeletion()
+{
+  if (!historyDeletionQueued || firmwareUpdateInProgress || Update.isRunning() || cloudSyncPending) {
+    return;
+  }
+
+  historyDeletionQueued = false;
+  if (!sdCardReady) {
+    Serial.println("History deletion error: SD card is unavailable.");
+    reportHistoryDeletionStatus("error", "SD kartica ni dosegljiva; zgodovina ni bila izbrisana.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  Serial.println("History deletion: deleting SD and cloud history.");
+  reportHistoryDeletionStatus("deleting", "Brišem SD dnevnik in cloud zgodovino …");
+  if (!deleteMeasurementHistoryFromSD()) {
+    Serial.println("History deletion error: SD log could not be recreated.");
+    reportHistoryDeletionStatus("error", "SD dnevnika ni bilo mogoče varno ponastaviti.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
+  deleteCloudMeasurementHistory();
+  reportHistoryDeletionStatus("completed", "SD dnevnik in cloud zgodovina sta izbrisana.");
+  clearFirmwareUpdateCommand();
 }
 
 // --- SD kartica -------------------------------------------------------------
@@ -2018,9 +2236,8 @@ void initializeElegantOta()
     }
     Serial.println("ElegantOTA: update failed.");
   });
-  ElegantOTA.begin(&localUpdateServer);
-  localUpdateServer.begin();
-  Serial.printf("ElegantOTA: http://<device-ip>:%u/update\n", LOCAL_ELEGANT_OTA_PORT);
+  ElegantOTA.begin(&localServer);
+  Serial.println("ElegantOTA: http://<device-ip>/update");
 }
 
 void maintainElegantOtaSession()
@@ -2240,7 +2457,7 @@ bool getLocalHistoryWindow(AsyncWebServerRequest *request, time_t &firstTimestam
   }
 
   if (duration <= 24 * 60 * 60) {
-    bucketDuration = 5 * 60;
+    bucketDuration = 60;
   } else if (duration <= 7 * 24 * 60 * 60) {
     bucketDuration = 60 * 60;
   } else if (duration <= 31 * 24 * 60 * 60) {
@@ -2374,21 +2591,12 @@ void initializeLocalWebServer()
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
   localServer.on("/measurements.csv", HTTP_GET, serveMeasurementLog);
-  localServer.on("/update", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String host = request->host();
-    const int portSeparator = host.indexOf(':');
-    if (portSeparator >= 0) host.remove(portSeparator);
-    const String targetUrl = "http://" + host + ":" + String(LOCAL_ELEGANT_OTA_PORT) + "/update";
-    AsyncWebServerResponse *response = request->beginResponse(302);
-    response->addHeader("Location", targetUrl);
-    request->send(response);
-  });
   localServer.onNotFound([](AsyncWebServerRequest *request) {
     if (!serveLocalAsset(request, request->url())) request->send(404, "text/plain", "Not found");
   });
   localServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) { serveLocalAsset(request, "/"); });
-  localServer.begin();
   initializeElegantOta();
+  localServer.begin();
   const String dashboardIp = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   Serial.printf("Local dashboard: http://%s/\n", dashboardIp.c_str());
 }
@@ -2398,9 +2606,10 @@ void initializeLocalWebServer()
 bool createMeasurement(Measurement &measurement)
 {
   struct tm timeInfo;
-  measurement.temperatureC = simulatedTemperatureC();
-  measurement.humidityPercent = simulatedHumidityPercent();
-  measurement.weightKg = simulatedWeightKg();
+  if (!readBme680(measurement.temperatureC, measurement.humidityPercent) ||
+      !readLoadCell(measurement.weightKg)) {
+    return false;
+  }
   measurement.timestamp = time(nullptr);
 
   if (measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP && getLocalTime(&timeInfo)) {
@@ -2838,16 +3047,23 @@ void sendMeasurements()
            measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
   object_t measurements(jsonPayload);
 
-  const bool savedToSDCard = appendToSDCard(measurement);
-  if (savedToSDCard) {
-    cloudSyncCaughtUp = false;
+  const uint32_t currentMillis = millis();
+  const bool shouldArchiveMeasurement = lastSDMeasurementMillis == 0 ||
+                                        currentMillis - lastSDMeasurementMillis >= SD_MEASUREMENT_INTERVAL_MS;
+  bool savedToSDCard = false;
+  if (shouldArchiveMeasurement) {
+    lastSDMeasurementMillis = currentMillis;
+    savedToSDCard = appendToSDCard(measurement);
+    if (savedToSDCard) {
+      cloudSyncCaughtUp = false;
+    }
   }
   Serial.printf("Measurement: %s %s, %.1f C, %.1f %%, %.2f kg\n", measurement.date,
                 measurement.time, measurement.temperatureC, measurement.humidityPercent,
                 measurement.weightKg);
   if (isFirebaseReady() && measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
     // SD sinhronizacija je običajna pot zgodovine; neposredni zapis je le rezerva ob napaki SD.
-    if (!savedToSDCard) {
+    if (shouldArchiveMeasurement && !savedToSDCard) {
       char historyPath[DATABASE_PATH_LENGTH];
       snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
                static_cast<unsigned long>(measurement.timestamp));
@@ -2867,6 +3083,8 @@ void setup()
   initializeWiFiEventHandlers();
   initializeSDCard();
   initializeMeasurementHistoryIndex();
+  bme680Ready = initializeBme680();
+  loadCellReady = initializeLoadCell();
   connectToWiFi();
   rebuildCloudAggregateState();
   initializeLocalWebServer();
@@ -2890,12 +3108,12 @@ void loop()
   if (stationConnected) {
     app.loop();
   }
-  localUpdateServer.handleClient();
   ElegantOTA.loop();
   maintainElegantOtaSession();
 
   processOtaUpdate();
   processQueuedFirmwareUpdateCommand();
+  processPendingHistoryDeletion();
 
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.
   const uint32_t currentMillis = millis();
@@ -2906,6 +3124,7 @@ void loop()
   if (validTimeAvailable && !validTimeWasAvailable) {
     validTimeWasAvailable = true;
     lastMeasurementMillis = 0;
+    lastSDMeasurementMillis = 0;
     Serial.println("Time synchronized; sending the first timestamped measurement.");
   } else if (!validTimeAvailable) {
     validTimeWasAvailable = false;

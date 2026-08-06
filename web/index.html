@@ -189,6 +189,16 @@
               <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
               <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
               <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
+              <section class="history-management" aria-labelledby="history-management-heading">
+                <p class="eyebrow">Nevarno območje</p>
+                <h4 id="history-management-heading">Merilna zgodovina</h4>
+                <p class="muted">Počisti samo cloud podatke ali trajno izbriši dnevnik iz SD kartice in Firebase.</p>
+                <div class="history-management-actions">
+                  <button class="secondary-button danger-button" id="clear-cloud-history" type="button" disabled>Počisti cloud zgodovino</button>
+                  <button class="secondary-button danger-button" id="delete-device-history" type="button" disabled>Izbriši SD in cloud</button>
+                </div>
+                <p class="form-status" id="history-management-status" aria-live="polite">Izberi panj za upravljanje zgodovine.</p>
+              </section>
             </section>
             <form class="claim-device-form" id="claim-device-form">
               <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>

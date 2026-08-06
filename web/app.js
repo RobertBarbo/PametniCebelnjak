@@ -35,6 +35,9 @@ const elements = {
   selectedDeviceDescription: document.querySelector("#selected-device-description"),
   unclaimDevice: document.querySelector("#unclaim-device"),
   unclaimDeviceStatus: document.querySelector("#unclaim-device-status"),
+  clearCloudHistory: document.querySelector("#clear-cloud-history"),
+  deleteDeviceHistory: document.querySelector("#delete-device-history"),
+  historyManagementStatus: document.querySelector("#history-management-status"),
   claimDeviceForm: document.querySelector("#claim-device-form"),
   claimDeviceName: document.querySelector("#claim-device-name"),
   claimDeviceId: document.querySelector("#claim-device-id"),
@@ -129,6 +132,7 @@ let stopCloudDeviceListListener;
 let stopCloudDeviceListeners = [];
 let cloudDevices = {};
 let authControlsInitialized = false;
+let latestHistoryManagementStatus;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -294,6 +298,7 @@ function clearCloudDeviceListeners() {
 
 function resetCloudDashboard() {
   latestDeviceStatus = undefined;
+  latestHistoryManagementStatus = undefined;
   renderLatestMeasurement(null);
   renderDeviceStatus(null);
   renderSDStatus(null);
@@ -302,6 +307,7 @@ function resetCloudDashboard() {
   resetOtaProgress();
   elements.otaActions.hidden = true;
   renderHistory([]);
+  renderHistoryManagementStatus(null);
 }
 
 function renderCloudDeviceSelector() {
@@ -342,6 +348,7 @@ function selectCloudDevice(deviceId) {
 
   // Ne prikazuj stanja prej izbranega panja, dokler Firebase ne vrne novega odziva.
   renderDeviceStatus(null);
+  renderHistoryManagementStatus(null);
   localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
   const { database, onValue, ref } = firebaseDatabase;
   const subscribe = (path, renderer) => {
@@ -352,6 +359,7 @@ function selectCloudDevice(deviceId) {
   subscribe("status/sd_card", renderSDStatus);
   subscribe("status/firmware", renderFirmwareVersion);
   subscribe("status/ota", renderOtaDeviceStatus);
+  subscribe("status/history", renderHistoryManagementStatus);
   refreshHistory?.().catch(showDataError);
 }
 
@@ -535,6 +543,86 @@ function renderCloudSynchronization(sync, network, sdCard) {
   }
 
   elements.cloudResync.disabled = isPending || !hasSDCard;
+}
+
+function renderHistoryManagementStatus(status) {
+  latestHistoryManagementStatus = status;
+  const hasSelectedDevice = Boolean(cloudDevicePath && currentCloudUser && firebaseDatabase);
+  const state = status?.state;
+  const isDeleting = state === "queued" || state === "deleting";
+  elements.clearCloudHistory.disabled = !hasSelectedDevice || isDeleting;
+  elements.deleteDeviceHistory.disabled = !hasSelectedDevice || isDeleting;
+
+  if (!hasSelectedDevice) {
+    elements.historyManagementStatus.textContent = "Izberi panj za upravljanje zgodovine.";
+    return;
+  }
+  if (!state) {
+    elements.historyManagementStatus.textContent = "Brisanje SD dnevnika zahteva povezano napravo.";
+    return;
+  }
+
+  const messages = {
+    queued: "Ukaz za brisanje čaka, da ga ESP32 prevzame.",
+    deleting: "ESP32 briše SD dnevnik in cloud zgodovino …",
+    completed: "SD dnevnik in cloud zgodovina sta izbrisana.",
+    error: "Brisanje ni uspelo. Preveri stanje naprave in SD kartice.",
+  };
+  elements.historyManagementStatus.textContent = status?.message || messages[state] || "Stanje brisanja ni znano.";
+}
+
+function confirmPermanentHistoryDeletion(message) {
+  return window.prompt(`${message}\n\nZa potrditev vpiši IZBRIŠI.`) === "IZBRIŠI";
+}
+
+async function clearCloudHistory() {
+  if (!cloudDevicePath || !firebaseDatabase) return;
+  if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve in agregate iz Firebase? SD kartica ostane nedotaknjena.")) return;
+
+  elements.clearCloudHistory.disabled = true;
+  elements.deleteDeviceHistory.disabled = true;
+  elements.historyManagementStatus.textContent = "Brišem cloud zgodovino …";
+  try {
+    const { database, ref, remove } = firebaseDatabase;
+    await Promise.all([
+      remove(ref(database, `${cloudDevicePath}/latest`)),
+      remove(ref(database, `${cloudDevicePath}/measurements`)),
+      remove(ref(database, `${cloudDevicePath}/aggregates`)),
+    ]);
+    elements.historyManagementStatus.textContent = "Cloud zgodovina je izbrisana. SD dnevnik ostaja shranjen.";
+    renderLatestMeasurement(null);
+    renderHistory([]);
+  } catch (error) {
+    console.error(error);
+    elements.historyManagementStatus.textContent = "Brisanje cloud zgodovine ni uspelo.";
+  } finally {
+    renderHistoryManagementStatus(latestHistoryManagementStatus);
+  }
+}
+
+async function deleteDeviceHistory() {
+  if (!cloudDevicePath || !firebaseDatabase) return;
+  if (!isDeviceOnline(latestDeviceStatus)) {
+    elements.historyManagementStatus.textContent = "Za popoln izbris mora biti ESP32 online.";
+    return;
+  }
+  if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
+
+  elements.clearCloudHistory.disabled = true;
+  elements.deleteDeviceHistory.disabled = true;
+  elements.historyManagementStatus.textContent = "Ukaz za popoln izbris pošiljam ESP32 napravi …";
+  try {
+    const { database, ref, set } = firebaseDatabase;
+    await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
+      action: "delete_history",
+      requested_at: Math.floor(Date.now() / 1000),
+    });
+    elements.historyManagementStatus.textContent = "Ukaz je poslan. ESP32 ga preveri v največ 30 sekundah.";
+  } catch (error) {
+    console.error(error);
+    elements.historyManagementStatus.textContent = "Pošiljanje ukaza za brisanje ni uspelo.";
+    renderHistoryManagementStatus(latestHistoryManagementStatus);
+  }
 }
 
 async function saveWiFiConfiguration(event) {
@@ -816,7 +904,7 @@ function initializeOtaControls() {
 
 function getBucketSeconds(range) {
   const rangeSeconds = (range.to.getTime() - range.from.getTime()) / 1000;
-  if (rangeSeconds <= 24 * 60 * 60) return 5 * 60;
+  if (rangeSeconds <= 24 * 60 * 60) return 60;
   if (rangeSeconds <= 7 * 24 * 60 * 60) return 60 * 60;
   if (rangeSeconds <= 31 * 24 * 60 * 60) return 6 * 60 * 60;
   return 24 * 60 * 60;
@@ -896,7 +984,7 @@ function renderHistory(readings, alreadyAggregated = false) {
       data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]),
       color: colors.weight,
       yAxis: 0,
-      tooltip: { valueDecimals: 1 },
+      tooltip: { valueDecimals: 2 },
     },
   ];
 
@@ -1361,6 +1449,8 @@ function initializeAuthControls() {
   elements.cloudDeviceSelect.addEventListener("change", () => selectCloudDevice(elements.cloudDeviceSelect.value));
   elements.claimDeviceForm.addEventListener("submit", claimDevice);
   elements.unclaimDevice.addEventListener("click", unclaimDevice);
+  elements.clearCloudHistory.addEventListener("click", clearCloudHistory);
+  elements.deleteDeviceHistory.addEventListener("click", deleteDeviceHistory);
 }
 
 async function useLocalDataSource() {

@@ -4,6 +4,109 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.49] - 2026-08-06
+
+### Fixed
+
+- Tooltipi grafov zdaj dosledno prikažejo temperaturo in relativno vlago na eno decimalko, težo pa na dve decimalni mesti.
+
+## [0.1.0-beta.48] - 2026-08-06
+
+### Fixed
+
+- Popravljena je nastavitev tooltipa grafa teže: masa panja se zdaj prikaže na dve decimalni mesti.
+
+## [0.1.0-beta.47] - 2026-08-06
+
+### Changed
+
+- Lokalni in cloud graf za obdobja do 24 ur zdaj prikažeta minutne točke namesto petminutnih povprečij.
+
+## [0.1.0-beta.46] - 2026-08-06
+
+### Changed
+
+- Tooltip grafa teže v lokalnem in cloud pogledu zdaj prikaže dve decimalni mesti v kilogramih.
+
+## [0.1.0-beta.45] - 2026-08-06
+
+### Changed
+
+- Temperatura, relativna vlaga in teža se zdaj izmerijo ter posodobijo kot trenutne vrednosti lokalne in cloud nadzorne plošče vsakih `10` sekund.
+- SD CSV dnevnik in Firebase zgodovina se dopolnita le enkrat na minuto; s tem ostanejo zgodovinski grafi varčni s prostorom in številom Firebase zapisov.
+- Objavljanje aktivacijske kode ostane omejeno na petminutni interval in se ne pospeši skupaj s trenutnimi meritvami.
+
+## [0.1.0-beta.44] - 2026-08-06
+
+### Changed
+
+- Začasno je interval meritev skrajšan na `15` sekund za diagnostiko stabilnosti HX711; po testu se vrne na produkcijskih 5 minut.
+
+## [0.1.0-beta.43] - 2026-08-06
+
+### Changed
+
+- Posamezna meritev teže zdaj povpreči `20` HX711 vzorcev namesto `5`, kar zmanjša naključni šum ADC in merilnih celic.
+
+## [0.1.0-beta.42] - 2026-08-06
+
+### Changed
+
+- HX711 faktor teže je dodatno umerjen na `22500,0` z referenčnima utežema `1,464 kg` in `2,470 kg`, da bolje pokrije celotno preskušeno območje.
+
+## [0.1.0-beta.41] - 2026-08-06
+
+### Changed
+
+- HX711 faktor teže je umerjen na `22296,0` z referenčno utežjo `1,464 kg`; pri prvem testu je enaka utež prikazala `-4,63 kg` ob začetnem faktorju `-7050,0`.
+
+## [0.1.0-beta.40] - 2026-08-06
+
+### Added
+
+- Firmware bere temperaturo in relativno vlago z BME680 prek I²C (`SDA=8`, `SCL=9`) ter težo prek HX711 (`DOUT=4`, `SCK=5`).
+- HX711 ob prvem zagonu prazne merilne ploščadi izvede tariranje in njegov odmik shrani v NVS, zato se ob naslednjih zagonih ne ponovi.
+
+### Changed
+
+- Odstranjene so simulirane meritve; neodziven BME680 ali HX711 meritev jasno prekine namesto ustvarjanja izmišljenih podatkov.
+
+## [0.1.0-beta.39] - 2026-08-06
+
+### Changed
+
+- Lokalni ElegantOTA in nadzorna plošča zdaj uporabljata isti asinhroni HTTP strežnik na vratih `80`; odstranjeno je periodično izvajanje ločenega sinhronega strežnika na vratih `8080`, ki je lahko poslabšalo odzivnost naprave.
+
+## [0.1.0-beta.38] - 2026-08-06
+
+### Fixed
+
+- Shranjena STA povezava po zagonu izklopi Wi-Fi varčevanje z energijo, da lokalni HTTP strežnik in prenos grafov ne trpita zaradi visokih zakasnitev.
+
+## [0.1.0-beta.37] - 2026-08-06
+
+### Fixed
+
+- Popoln izbris zgodovine se med aktivnim SD→Firebase prenosom ne prekine več z napako; ukaz počaka na zaključek prenosa in se nato samodejno izvede.
+- Serijski monitor zdaj ločeno izpiše, ali ni bilo mogoče odstraniti ali znova ustvariti `measurements.csv`.
+
+## [0.1.0-beta.36] - 2026-08-06
+
+### Fixed
+
+- Ukaz za brisanje zgodovine uporablja isti preverjeni Firebase ukazni kanal kot OTA, zato ga ESP32 zanesljivo prevzame v največ 30 sekundah.
+
+## [0.1.0-beta.35] - 2026-08-06
+
+### Added
+
+- Cloud pogled omogoča lastniku ali glavnemu skrbniku izbranega panja brisanje samo Firebase zgodovine ali trajni izbris SD dnevnika skupaj s cloud zgodovino.
+- Popoln izbris uporablja akcijo `delete_history` v obstoječem Firebase ukazu `/commands/firmware_update`, ki jo ESP32 potrdi z zapisom pod `/status/history`.
+
+### Changed
+
+- Firebase pravila dovolijo lastniku in glavnemu skrbniku brisanje vej `latest`, `measurements` in `aggregates` samo za izbrani panj.
+
 ## [0.1.0-beta.34] - 2026-08-06
 
 ### Changed

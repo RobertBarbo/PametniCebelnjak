@@ -682,6 +682,29 @@ select {
   line-height: 1.5;
 }
 
+.history-management {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.history-management h4 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.history-management .muted {
+  margin: 0;
+}
+
+.history-management-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .wifi-form,
 .claim-device-form,
 .auth-form {
@@ -1209,6 +1232,10 @@ dialog::backdrop {
 
   .provisioning-card,
   .account-management {
+    grid-template-columns: 1fr;
+  }
+
+  .history-management-actions {
     grid-template-columns: 1fr;
   }
 

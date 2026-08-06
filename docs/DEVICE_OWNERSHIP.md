@@ -23,7 +23,7 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
 
 ## Skrbniški ogled
 
-Za trenutni beta skrbniški UID so Firebase pravila določena neposredno v `database.rules.json`. Ta račun lahko samo bere celotno pot `/devices`, zato cloud nadzorna plošča samodejno prikaže vse registrirane in še neregistrirane panje brez aktivacijske kode. Skrbniški ogled ne razkrije poti `/device_secrets` in ne doda pravic za spreminjanje lastništva, meritev ali uporabniških računov.
+Za trenutni beta skrbniški UID so Firebase pravila določena neposredno v `database.rules.json`. Ta račun lahko bere celotno pot `/devices`, zato cloud nadzorna plošča samodejno prikaže vse registrirane in še neregistrirane panje brez aktivacijske kode. Skrbnik lahko za izbrani panj pošlje OTA ukaz ter počisti merilno zgodovino, ne more pa spreminjati lastništva, zasebnih aktivacijskih podatkov ali uporabniških računov.
 
 Za nadaljnjo produkcijsko administracijo je treba ta enkratni UID zamenjati z vlogo Firebase custom claim, ki jo nastavi zaupanja vreden Admin SDK backend.
 
@@ -50,7 +50,7 @@ Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne br
 
 ## Pomembna omejitev
 
-ESP32 v tej izvedbi še vedno anonimno piše meritve, stanje in bere OTA ukaz. Firebase pravila zato lahko zaščitijo **zasebnost in prikaz podatkov**, ne morejo pa dokazati, da je anonimen zapis res poslal fizični ESP32. Kdor pozna ID naprave, lahko teoretično pošilja ponarejene meritve ali izbriše OTA ukaz, ne more pa podatkov brati brez računa lastnika.
+ESP32 v tej izvedbi še vedno anonimno piše meritve, stanje in bere OTA ukaz, ki ima lahko tudi akcijo za brisanje zgodovine. Firebase pravila zato lahko zaščitijo **zasebnost in prikaz podatkov**, ne morejo pa dokazati, da je anonimen zapis res poslal fizični ESP32. Kdor pozna ID naprave, lahko teoretično pošilja ponarejene meritve ali izbriše OTA ukaz, ne more pa podatkov brati brez računa lastnika.
 
 To je sprejemljivo samo za trenutno beta testiranje. Za produkcijo je potreben zaupanja vreden strežniški vmesnik ali avtentikacija naprave z lastnim žetonom oziroma certifikatom.
 

@@ -638,6 +638,30 @@ select {
   margin-top: 22px;
 }
 
+.load-cell-tare-control {
+  display: grid;
+  gap: 10px;
+  /* margin-top: 24px; */
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.load-cell-tare-control h3,
+.load-cell-tare-control h4,
+.load-cell-tare-control .muted,
+.load-cell-tare-control .form-status {
+  margin: 0;
+}
+
+.load-cell-tare-control h3,
+.load-cell-tare-control h4 {
+  font-size: 1.08rem;
+}
+
+.load-cell-tare-control .secondary-button {
+  justify-self: start;
+}
+
 .provisioning-card,
 .account-management {
   display: grid;

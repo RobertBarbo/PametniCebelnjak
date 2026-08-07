@@ -80,6 +80,9 @@
           },
           "history": {
             ".write": "auth == null"
+          },
+          "load_cell": {
+            ".write": "auth == null"
           }
         },
         "commands": {

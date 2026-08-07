@@ -40,7 +40,7 @@
 ## Spletna nadzorna plošča
 
 - Statična lokalna nadzorna plošča je v mapi `web/` in mora ostati odzivna za telefon, tablico in namizni računalnik.
-- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja z `ESPAsyncWebServer` na portu `80`; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi` in `/api/sync/reset`, ElegantOTA pa uporablja ločen sinhroni `WebServer` na portu `8080`.
+- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja z `ESPAsyncWebServer` na portu `80`; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset` in `/api/sensors/load-cell/tare`.
 - Lokalni pogled mora delovati brez interneta, vključno z grafi iz SD CSV dnevnika.
 - Highcharts mora biti lokalno priložen v `web/vendor/`, saj lokalni pogled ne sme uporabljati CDN povezave.
 - Izbirnik zgodovine uporablja začetni in končni datum z urama, hitrimi izbirami in X-zoomiranjem grafa v obeh načinih.

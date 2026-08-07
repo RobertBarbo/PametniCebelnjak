@@ -4,6 +4,37 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.54] - 2026-08-07
+
+### Fixed
+
+- Gumb lokalnega ElegantOTA ne prepiše več poti `/update` s starim naslovom na portu `8080`.
+
+## [0.1.0-beta.53] - 2026-08-07
+
+### Changed
+
+- Vsi lokalni in cloud prikazi teže, tudi tooltip grafa, zdaj uporabljajo eno decimalno mesto; shranjeni podatki ostanejo natančni na dve decimalni mesti.
+
+## [0.1.0-beta.52] - 2026-08-06
+
+### Fixed
+
+- Lokalni API zgodovine za daljša obdobja ne sestavlja več celotnega JSON odgovora v RAM-u. Cel dan minutnih točk se pripravi na SD in pretočno pošlje brskalniku, zato graf »Danes« ostane prikazan.
+
+## [0.1.0-beta.51] - 2026-08-06
+
+### Changed
+
+- Tariranje tehtnice je na cloud strani prestavljeno v kartico izbranega panja ob upravljanje zgodovine, lokalni gumb pa v lokalni omrežni panel.
+
+## [0.1.0-beta.50] - 2026-08-06
+
+### Added
+
+- Lokalna in cloud nadzorna plošča omogočata varno tariranje HX711, kadar je merilna ploščad prazna.
+- ESP32 po tariranju odmik shrani v NVS, takoj izmeri novo trenutno težo in stanje postopka objavi v Firebase pod `status/load_cell`.
+
 ## [0.1.0-beta.49] - 2026-08-06
 
 ### Fixed

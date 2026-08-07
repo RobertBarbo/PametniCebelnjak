@@ -17,6 +17,7 @@ Firmware na ESP32-S3 spremlja en čebelji panj. Temperaturo in relativno vlago b
 - SD CSV dnevnik prejme skupen zapis vseh treh vrednosti enkrat na minuto. Samo ti enominutni zapisi se sinhronizirajo v Firebase zgodovino in agregate, zato grafi ne ustvarjajo nepotrebne količine podatkov.
 - Če prvi zapis nastane pred NTP sinhronizacijo, se takoj po pridobitvi časa ustvari dodatna meritev z veljavnim časom za Firebase in SD dnevnik.
 - Ob prvem zagonu brez shranjenega HX711 odmika mora biti merilna ploščad prazna. Firmware izvede tariranje in odmik shrani v NVS. Faktor `HX711_CALIBRATION_FACTOR=22500,0` je trenutno umerjen z referenčnima utežema `1,464 kg` in `2,470 kg` na testni merilni konstrukciji; ob spremembi mehanske izvedbe ga je treba ponovno umeriti.
+- Tariranje je mogoče zahtevati v lokalnem omrežnem panelu ali cloud kartici izbranega online panja, ob upravljanju zgodovine. Pred potrditvijo mora biti ploščad prazna; ESP32 tariranje izvede v glavni zanki, nov HX711 odmik shrani v NVS in takoj ustvari novo trenutno meritev.
 - Teža vsake meritve je povprečje `20` zaporednih vzorcev HX711. To zmanjša električni šum, ne more pa odpraviti mehanskega posedanja ali dotika panja s podlago.
 - Če BME680 ali HX711 ni dosegljiv oziroma vrne neveljavno vrednost, se meritev ne zapiše na SD ali v Firebase; firmware ne ustvarja simuliranih nadomestnih podatkov.
 - Ob uspešni NTP sinhronizaciji zapis vsebuje slovenski datum, uro in Unix čas.
@@ -47,12 +48,12 @@ Firmware je univerzalen in ne vsebuje Wi-Fi poverilnic.
 
 Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 
-- Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/measurements.csv` in portal `http://<device-ip>/update`.
+- Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare`, `/measurements.csv` in portal `http://<device-ip>/update`.
 - Lokalni pogled najprej poskusi lokalni API; kadar ta ni dosegljiv, uporabi Firebase cloud pogled s prijavo uporabnika. Lokalni pogled ne prikaže cloud prijave ali registracije naprav, prikaže pa `device_id`, aktivacijsko kodo za kasnejšo registracijo in povezavo do ElegantOTA.
 - Ob uspešni povezavi z domačim Wi-Fi lokalni provisioning pogled uporablja nevtralen izraz »naprava«, ne strojno specifičnega imena ESP32.
 - Lokalni provisioning pogled ob aktivni povezavi prikaže tudi ime trenutno povezanega domačega Wi-Fi omrežja (SSID).
 - Highcharts je v `web/vendor/highcharts.js`, zato grafi na lokalnem ESP32 ne potrebujejo interneta.
-- Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. Če SD trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
+- Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. Pri velikih odgovorih, kot je cel dan minutnih točk, ESP32 JSON najprej pripravi v začasni datoteki na SD in ga nato pretočno pošlje brskalniku; s tem ne izčrpa delovnega pomnilnika. Če SD trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
 - Cloud grafa za obdobja do 7 dni bereta surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
 - Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje obeh grafov v lokalnem in cloud pogledu. Klik na pretekli dan samodejno izbere obdobje od `00:00` do `23:59`, klik na današnji dan pa od `00:00` do trenutne ure; drugi klik lahko obdobje razširi na drug dan.
@@ -60,7 +61,7 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Pogled **Grafi** loči temperaturo z relativno vlago od teže panja, vendar oba grafa uporabljata isto izbrano obdobje in sta zložena navpično.
 - Svetla in temna tema delujeta v obeh načinih, shranjena izbira pa ostane v brskalniku. Highcharts uporablja barve aktivne teme.
 - Datumi v karticah, tabeli, izbirniku obdobja in grafu so prikazani v obliki `d/m/y`; ura uporablja 24-urni zapis.
-- Tooltipi grafov za temperaturo in relativno vlago vrednosti prikažejo na eno decimalko, teža pa na dve decimalni mesti v lokalnem in cloud načinu.
+- Vsi prikazi meritev, vključno s tooltipi grafov, temperaturo, relativno vlago in težo prikažejo na eno decimalko v lokalnem in cloud načinu. SD in Firebase še vedno hranita težo na dve decimalki za poznejše analize.
 - Graf za obdobja do 24 ur uporablja minutne točke; daljša obdobja ostanejo agregirana na urne, šesturne oziroma dnevne točke.
 - Zgornji cloud indikator prikazuje stanje izbranega panja glede na `status/device/last_seen_timestamp`: `Naprava online` do 90 sekund po odzivu, sicer `Naprava offline`. To ni več indikator povezave brskalnika s Firebase.
 - Odzivna postavitev prilagodi navigacijo, kartice, tabelo, graf in obrazce telefonu, tablici ter namiznemu računalniku. Upravljalni elementi na dotik so visoki najmanj 44 px.
@@ -98,6 +99,7 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
     device/{device_id,ip_address,wifi_rssi_dbm,uptime_days,uptime_hours,uptime_minutes,uptime_total_minutes,last_seen_timestamp}
     ota/{state,current_version,target_version,message,progress_percent,updated_at}
     history/{state,message,updated_at}
+    load_cell/{state,message,updated_at}
   commands/
     firmware_update/{action,target_version?,requested_at}
 

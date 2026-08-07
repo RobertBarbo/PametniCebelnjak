@@ -147,6 +147,13 @@
                 <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
                 <!-- <small>Uporabi po brisanju Firebase baze ali za ponovni prenos SD dnevnika.</small> -->
               </div>
+              <section class="load-cell-tare-control" aria-labelledby="local-load-cell-tare-heading">
+                <p class="eyebrow">Tehtnica</p>
+                <h3 id="local-load-cell-tare-heading">Tariranje tehtnice</h3>
+                <p class="muted">S ploščadi odstrani vse. Trenutno prazno stanje bo nastavljeno na 0,00 kg.</p>
+                <button class="secondary-button" id="local-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
+                <p class="form-status" id="local-load-cell-tare-status" aria-live="polite">Čakam na stanje tehtnice …</p>
+              </section>
             </div>
             <form class="wifi-form" id="wifi-form">
               <label>Ime Wi‑Fi omrežja<input id="wifi-ssid" name="ssid" type="text" maxlength="32" autocomplete="wifi ssid" required /></label>
@@ -189,6 +196,13 @@
               <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
               <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
               <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
+              <section class="load-cell-tare-control" aria-labelledby="cloud-load-cell-tare-heading">
+                <p class="eyebrow">Tehtnica</p>
+                <h4 id="cloud-load-cell-tare-heading">Tariranje tehtnice</h4>
+                <p class="muted">Odstrani panj in vse uteži s ploščadi. ESP32 bo prazno stanje shranil kot 0,00 kg.</p>
+                <button class="secondary-button" id="cloud-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
+                <p class="form-status" id="cloud-load-cell-tare-status" aria-live="polite">Izberi online panj za tariranje.</p>
+              </section>
               <section class="history-management" aria-labelledby="history-management-heading">
                 <p class="eyebrow">Nevarno območje</p>
                 <h4 id="history-management-heading">Merilna zgodovina</h4>

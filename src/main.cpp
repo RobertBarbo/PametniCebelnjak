@@ -50,6 +50,8 @@ constexpr size_t DATABASE_PATH_LENGTH = 96;
 constexpr char SD_LOG_PATH[] = "/measurements.csv";
 constexpr char SD_HISTORY_INDEX_PATH[] = "/measurements.idx";
 constexpr char SD_HISTORY_INDEX_TEMP_PATH[] = "/measurements.tmp";
+// Velik odgovor zgodovine se pripravi na SD, da 24 ur minutnih točk ne izčrpa RAM-a ESP32.
+constexpr char SD_HISTORY_RESPONSE_PATH[] = "/history-response.json";
 constexpr uint32_t HOURLY_AGGREGATE_SECONDS = 60 * 60;
 constexpr uint32_t DAILY_AGGREGATE_SECONDS = 24 * 60 * 60;
 
@@ -190,6 +192,14 @@ enum class OtaUpdateState : uint8_t {
   RestartDevice,
 };
 
+enum class LoadCellTareState : uint8_t {
+  Idle,
+  Queued,
+  Taring,
+  Completed,
+  Error,
+};
+
 // Firebase uporablja asinhrone zahteve, da beleženje ne ustavi glavne zanke.
 WiFiClientSecure sslClient;
 WiFiClientSecure otaClient;
@@ -231,6 +241,8 @@ bool firmwareCommandQueued = false;
 bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
 bool historyDeletionQueued = false;
+// Nastavlja ga lokalni HTTP zahtevek ali Firebase ukaz; obdelava ostane v glavni zanki.
+volatile bool loadCellTareQueued = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool littlefsUnmountedForOta = false;
@@ -279,6 +291,7 @@ char sdStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char deviceStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char loadCellStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
@@ -303,12 +316,15 @@ uint16_t lastPublishedHourlyCount = 0;
 uint16_t lastPublishedDailyCount = 0;
 CloudSyncRequestType cloudSyncRequestType = CloudSyncRequestType::None;
 OtaUpdateState otaUpdateState = OtaUpdateState::Idle;
+LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
 
 void processFirmwareUpdateCommand(const String &payload);
 void queueFirmwareUpdateCommand(const String &payload);
 void processQueuedFirmwareUpdateCommand();
 void queueHistoryDeleteAction();
 void processPendingHistoryDeletion();
+bool queueLoadCellTare();
+void processPendingLoadCellTare();
 void processOtaUpdate();
 void appendJsonEscaped(String &json, const String &value);
 bool persistCloudSyncState();
@@ -656,6 +672,7 @@ void initializeDeviceDatabasePaths()
   snprintf(deviceStatusDatabasePath, sizeof(deviceStatusDatabasePath), "%s/status/device", deviceDatabasePath);
   snprintf(firmwareStatusDatabasePath, sizeof(firmwareStatusDatabasePath), "%s/status/firmware", deviceDatabasePath);
   snprintf(otaStatusDatabasePath, sizeof(otaStatusDatabasePath), "%s/status/ota", deviceDatabasePath);
+  snprintf(loadCellStatusDatabasePath, sizeof(loadCellStatusDatabasePath), "%s/status/load_cell", deviceDatabasePath);
   snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
   snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
   snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
@@ -1668,6 +1685,14 @@ void processFirmwareUpdateCommand(const String &payload)
     return;
   }
 
+  if (action == "tare_load_cell") {
+    if (!queueLoadCellTare()) {
+      Serial.println("Load cell tare command ignored: taring is already in progress.");
+    }
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
   if (!extractJsonString(payload, "target_version", targetVersion)) {
     Serial.println("OTA error: update command has no target version.");
     reportOtaStatus("error", "", "OTA ukaz nima ciljne različice.");
@@ -1850,6 +1875,75 @@ void reportHistoryDeletionStatus(const char *state, const char *message)
            state, message, static_cast<unsigned long>(time(nullptr)));
   object_t historyStatus(jsonPayload);
   database.set(asyncClient, historyStatusDatabasePath, historyStatus, processData, "updateHistoryDeletionStatus");
+}
+
+const char *loadCellTareStateName()
+{
+  switch (loadCellTareState) {
+    case LoadCellTareState::Queued: return "queued";
+    case LoadCellTareState::Taring: return "taring";
+    case LoadCellTareState::Completed: return "completed";
+    case LoadCellTareState::Error: return "error";
+    case LoadCellTareState::Idle:
+    default: return "idle";
+  }
+}
+
+void reportLoadCellTareStatus(const char *message)
+{
+  if (!isFirebaseReady()) return;
+
+  char jsonPayload[256];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"state\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
+           loadCellTareStateName(), message, static_cast<unsigned long>(time(nullptr)));
+  object_t tareStatus(jsonPayload);
+  database.set(asyncClient, loadCellStatusDatabasePath, tareStatus, processData, "updateLoadCellTareStatus");
+}
+
+bool queueLoadCellTare()
+{
+  if (!loadCellReady || loadCellTareQueued || loadCellTareState == LoadCellTareState::Taring) {
+    return false;
+  }
+
+  loadCellTareQueued = true;
+  loadCellTareState = LoadCellTareState::Queued;
+  Serial.println("Load cell tare command queued.");
+  reportLoadCellTareStatus("Ukaz za tariranje čaka na izvedbo.");
+  return true;
+}
+
+void processPendingLoadCellTare()
+{
+  if (!loadCellTareQueued || firmwareUpdateInProgress || Update.isRunning()) {
+    return;
+  }
+
+  loadCellTareQueued = false;
+  loadCellTareState = LoadCellTareState::Taring;
+  reportLoadCellTareStatus("Tariram prazno ploščad tehtnice …");
+
+  if (!loadCellReady || !loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
+    loadCellTareState = LoadCellTareState::Error;
+    Serial.println("Load cell tare failed: HX711 is unavailable.");
+    reportLoadCellTareStatus("Tariranje ni uspelo: HX711 ni dosegljiv.");
+    return;
+  }
+
+  loadCell.tare(HX711_TARE_SAMPLES);
+  const long offset = loadCell.get_offset();
+  if (!storeLoadCellOffset(offset)) {
+    loadCellTareState = LoadCellTareState::Error;
+    Serial.println("Load cell tare failed: offset could not be saved to NVS.");
+    reportLoadCellTareStatus("Tariranje ni uspelo: odmika ni bilo mogoče shraniti.");
+    return;
+  }
+
+  loadCellTareState = LoadCellTareState::Completed;
+  lastMeasurementMillis = 0;
+  Serial.printf("Load cell tare completed. Saved offset: %ld.\n", offset);
+  reportLoadCellTareStatus("Tariranje je uspešno; nova ničla je shranjena.");
 }
 
 bool deleteMeasurementHistoryFromSD()
@@ -2402,6 +2496,19 @@ void deleteWiFiConfiguration(AsyncWebServerRequest *request)
   scheduledWiFiSettingsClearMillis = millis() + WIFI_SETTINGS_CLEAR_DELAY_MS;
 }
 
+void requestLoadCellTare(AsyncWebServerRequest *request)
+{
+  if (!loadCellReady) {
+    sendLocalJsonResponse(request, 503, "{\"error\":\"HX711 is unavailable\"}");
+    return;
+  }
+  if (!queueLoadCellTare()) {
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Load cell taring is already in progress\"}");
+    return;
+  }
+  sendLocalJsonResponse(request, 202, "{\"state\":\"queued\"}");
+}
+
 void sendLocalStatus(AsyncWebServerRequest *request)
 {
   const Uptime uptime = getUptime();
@@ -2423,9 +2530,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
     snprintf(measurementJson, sizeof(measurementJson), "null");
   }
 
-  static char jsonPayload[1536];
+  static char jsonPayload[1792];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
@@ -2436,7 +2543,8 @@ void sendLocalStatus(AsyncWebServerRequest *request)
            static_cast<unsigned long>(lastCloudSyncedTimestamp),
            static_cast<unsigned long>(cloudSyncRetryIntervalMs / 1000),
            sdCardReady ? "true" : "false", sdInitializationFailures,
-           sdErrorReported ? "true" : "false", FIRMWARE_VERSION);
+           sdErrorReported ? "true" : "false", loadCellReady ? "true" : "false",
+           loadCellTareStateName(), FIRMWARE_VERSION);
   sendLocalJsonResponse(request, 200, jsonPayload);
 }
 
@@ -2524,19 +2632,39 @@ void sendLocalHistory(AsyncWebServerRequest *request)
   }
   logFile.close();
 
-  String jsonPayload = "{\"readings\":[";
-  bool firstReading = true;
-  for (const HistoryBucket &bucket : localHistoryBuckets) {
-    if (bucket.count == 0) continue;
-    if (!firstReading) jsonPayload += ',';
-    firstReading = false;
-    jsonPayload += "{\"timestamp\":" + String(static_cast<unsigned long>(bucket.timestamp));
-    jsonPayload += ",\"temperature_c\":" + String(bucket.temperatureSum / bucket.count, 2);
-    jsonPayload += ",\"humidity_percent\":" + String(bucket.humiditySum / bucket.count, 2);
-    jsonPayload += ",\"weight_kg\":" + String(bucket.weightSum / bucket.count, 2) + '}';
+  if (SD.exists(SD_HISTORY_RESPONSE_PATH) && !SD.remove(SD_HISTORY_RESPONSE_PATH)) {
+    sendLocalJsonResponse(request, 500, "{\"error\":\"History response could not be replaced\"}");
+    return;
   }
-  jsonPayload += "]}";
-  sendLocalJsonResponse(request, 200, jsonPayload);
+  File responseFile = SD.open(SD_HISTORY_RESPONSE_PATH, FILE_WRITE);
+  if (!responseFile) {
+    sendLocalJsonResponse(request, 500, "{\"error\":\"History response could not be created\"}");
+    return;
+  }
+
+  responseFile.print("{\"readings\":[");
+  bool firstReading = true;
+  for (size_t bucketIndex = 0; bucketIndex < MAX_LOCAL_HISTORY_BUCKETS; ++bucketIndex) {
+    const HistoryBucket &bucket = localHistoryBuckets[bucketIndex];
+    if (bucket.count == 0) continue;
+    if (!firstReading) responseFile.print(',');
+    firstReading = false;
+    responseFile.printf("{\"timestamp\":%lu,\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f}",
+                        static_cast<unsigned long>(bucket.timestamp), bucket.temperatureSum / bucket.count,
+                        bucket.humiditySum / bucket.count, bucket.weightSum / bucket.count);
+    if (bucketIndex % 32 == 0) yield();
+  }
+  responseFile.print("]}");
+  responseFile.close();
+
+  AsyncWebServerResponse *response =
+      request->beginResponse(SD, SD_HISTORY_RESPONSE_PATH, "application/json; charset=utf-8");
+  if (response == nullptr) {
+    sendLocalJsonResponse(request, 500, "{\"error\":\"History response could not be sent\"}");
+    return;
+  }
+  response->addHeader("Cache-Control", "no-store");
+  request->send(response);
 }
 
 void resetCloudSynchronization(AsyncWebServerRequest *request)
@@ -2587,6 +2715,7 @@ void initializeLocalWebServer()
   localServer.on("/api/status", HTTP_GET, sendLocalStatus);
   localServer.on("/api/history", HTTP_GET, sendLocalHistory);
   localServer.on("/api/sync/reset", HTTP_POST, resetCloudSynchronization);
+  localServer.on("/api/sensors/load-cell/tare", HTTP_POST, requestLoadCellTare);
   localServer.on("/api/wifi", HTTP_POST, saveWiFiConfiguration);
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
@@ -3114,6 +3243,7 @@ void loop()
   processOtaUpdate();
   processQueuedFirmwareUpdateCommand();
   processPendingHistoryDeletion();
+  processPendingLoadCellTare();
 
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.
   const uint32_t currentMillis = millis();

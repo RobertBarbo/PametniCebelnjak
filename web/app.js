@@ -59,6 +59,10 @@ const elements = {
   sdStatus: document.querySelector("#sd-status"),
   sdStatusDetail: document.querySelector("#sd-status-detail"),
   sdCard: document.querySelector(".sd-card"),
+  localLoadCellTare: document.querySelector("#local-load-cell-tare"),
+  localLoadCellTareStatus: document.querySelector("#local-load-cell-tare-status"),
+  cloudLoadCellTare: document.querySelector("#cloud-load-cell-tare"),
+  cloudLoadCellTareStatus: document.querySelector("#cloud-load-cell-tare-status"),
   rangeTrigger: document.querySelector("#date-range-trigger"),
   rangeValue: document.querySelector("#date-range-value"),
   rangeDialog: document.querySelector("#date-range-dialog"),
@@ -133,6 +137,7 @@ let stopCloudDeviceListeners = [];
 let cloudDevices = {};
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
+let latestLoadCellTareStatus;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -303,6 +308,7 @@ function resetCloudDashboard() {
   renderDeviceStatus(null);
   renderSDStatus(null);
   renderFirmwareVersion(null);
+  renderLoadCellTareStatus(null);
   elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
   resetOtaProgress();
   elements.otaActions.hidden = true;
@@ -349,6 +355,7 @@ function selectCloudDevice(deviceId) {
   // Ne prikazuj stanja prej izbranega panja, dokler Firebase ne vrne novega odziva.
   renderDeviceStatus(null);
   renderHistoryManagementStatus(null);
+  renderLoadCellTareStatus(null);
   localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
   const { database, onValue, ref } = firebaseDatabase;
   const subscribe = (path, renderer) => {
@@ -360,6 +367,7 @@ function selectCloudDevice(deviceId) {
   subscribe("status/firmware", renderFirmwareVersion);
   subscribe("status/ota", renderOtaDeviceStatus);
   subscribe("status/history", renderHistoryManagementStatus);
+  subscribe("status/load_cell", renderLoadCellTareStatus);
   refreshHistory?.().catch(showDataError);
 }
 
@@ -460,7 +468,7 @@ function formatRange(range) {
 function renderLatestMeasurement(measurement) {
   elements.temperature.textContent = formatValue(measurement?.temperature_c);
   elements.humidity.textContent = formatValue(measurement?.humidity_percent);
-  elements.weight.textContent = formatValue(measurement?.weight_kg, 2);
+  elements.weight.textContent = formatValue(measurement?.weight_kg, 1);
   elements.latestTime.textContent = formatDateTime(measurement);
 }
 
@@ -486,6 +494,28 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
        : "Čakam na prvi odziv naprave.";
 
   renderHeaderDeviceState();
+  renderLoadCellTareStatus(latestLoadCellTareStatus);
+}
+
+function renderLoadCellTareStatus(status) {
+  latestLoadCellTareStatus = status;
+  const state = status?.state ?? status?.tare_state ?? "idle";
+  const messages = {
+    idle: "S ploščadi odstrani vse in nato tariraj tehtnico.",
+    queued: "Ukaz za tariranje čaka na izvedbo.",
+    taring: "Nastavljam prazno ploščad na 0,00 kg …",
+    completed: "Tariranje je uspešno; nova ničla je shranjena.",
+    error: "Tariranje ni uspelo. Preveri povezavo HX711.",
+  };
+  const isBusy = state === "queued" || state === "taring";
+  const loadCellReady = status?.ready !== false;
+  const cloudDeviceReady = Boolean(cloudDevicePath && currentCloudUser && isDeviceOnline(latestDeviceStatus));
+  const canTare = isLocalDashboard ? loadCellReady : cloudDeviceReady;
+  const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
+  const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
+
+  button.disabled = !canTare || isBusy;
+  statusElement.textContent = status?.message ?? messages[state] ?? messages.idle;
 }
 
 function renderProvisioning(network) {
@@ -741,11 +771,46 @@ async function resetCloudHistorySynchronization() {
   }
 }
 
+async function requestLoadCellTare() {
+  if (!window.confirm("Odstrani panj in vse uteži s ploščadi. Trenutno stanje bo nastavljeno na 0,00 kg. Nadaljujem?")) return;
+
+  const previousStatus = latestLoadCellTareStatus;
+  const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
+  const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
+  button.disabled = true;
+  statusElement.textContent = isLocalDashboard
+    ? "Tariranje pošiljam ESP32 …"
+    : "Ukaz za tariranje pošiljam napravi …";
+  try {
+    if (isLocalDashboard) {
+      const response = await fetch("/api/sensors/load-cell/tare", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Tariranja ni bilo mogoče začeti");
+    } else {
+      if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
+        throw new Error("Za tariranje mora biti izbrani ESP32 online");
+      }
+      const { database, ref, set } = firebaseDatabase;
+      await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
+        action: "tare_load_cell",
+        requested_at: Math.floor(Date.now() / 1000),
+      });
+    }
+    renderLoadCellTareStatus({ state: "queued" });
+  } catch (error) {
+    latestLoadCellTareStatus = previousStatus;
+    renderLoadCellTareStatus(previousStatus);
+    statusElement.textContent = error.message;
+  }
+}
+
 function initializeProvisioningForm() {
   elements.wifiForm.addEventListener("submit", saveWiFiConfiguration);
   elements.wifiScan.addEventListener("click", scanWiFiNetworks);
   elements.wifiForget.addEventListener("click", forgetWiFiConfiguration);
   elements.cloudResync.addEventListener("click", resetCloudHistorySynchronization);
+  elements.localLoadCellTare.addEventListener("click", requestLoadCellTare);
+  elements.cloudLoadCellTare.addEventListener("click", requestLoadCellTare);
 }
 
 function renderSDStatus(status) {
@@ -984,7 +1049,7 @@ function renderHistory(readings, alreadyAggregated = false) {
       data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]),
       color: colors.weight,
       yAxis: 0,
-      tooltip: { valueDecimals: 2 },
+      tooltip: { valueDecimals: 1 },
     },
   ];
 
@@ -1464,7 +1529,7 @@ async function useLocalDataSource() {
   elements.otaSection.hidden = true;
   elements.otaEmptyState.hidden = true;
   elements.localManualUpdateSection.hidden = false;
-  elements.localElegantOtaLink.href = `${window.location.protocol}//${window.location.hostname}:8080/update`;
+  elements.localElegantOtaLink.href = "/update";
   elements.updatesNavigationItem.hidden = false;
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = true; });
   document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = false; });
@@ -1478,6 +1543,7 @@ async function useLocalDataSource() {
     renderCloudSynchronization(status.sync, status.network, status.sd_card);
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
+    renderLoadCellTareStatus(status.sensors?.load_cell);
     setConnectionState("Lokalna povezava");
   }
 

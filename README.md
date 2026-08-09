@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.54`
+**Različica:** `0.1.0-beta.71`
 
 ## Trenutne funkcije
 
@@ -50,11 +50,23 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 
 ## GitHub in OTA
 
+### PlatformIO Wi-Fi OTA
+
+Firmware `0.1.0-beta.56` omogoča nalaganje firmware-a in LittleFS neposredno iz PlatformIO prek ArduinoOTA. Prvo namestitev te različice še vedno naredi prek USB. Nato v lokalni, Git-ignorirani datoteki `platformio.local.ini` vnesi aktivacijsko kodo z lokalne strani:
+
+```ini
+[env:esp32s3_ota]
+upload_port = 192.168.64.116
+custom_ota_password = AKTIVACIJSKA_KODA
+```
+
+V repozitoriju je samo vzorčna datoteka `platformio.local.ini.example`; dejanska lokalna datoteka je izključena iz Git-a. Ukaza zahtevata povezavo naprave v domače Wi-Fi omrežje; prek same rezervne AP točke ne delujeta.
+
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.54
-git push origin v0.1.0-beta.54
+git tag v0.1.0-beta.71
+git push origin v0.1.0-beta.71
 ```
 
 GitHub Actions prevede univerzalni firmware in LittleFS sliko ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`. ESP32 najprej na SD prenese in s SHA-256 preveri `littlefs.bin`, nato posodobi lokalno spletno stran in šele zatem preverjeno posodobi firmware. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

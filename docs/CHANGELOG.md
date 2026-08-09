@@ -4,6 +4,180 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.71] - 2026-08-09
+
+### Changed
+
+- Omrežne cloud storitve se po pridobitvi STA naslova zaženejo zaporedno: po stabilizaciji povezave se najprej inicializira NTP, Firebase pa šele po kratkem varnostnem zamiku.
+
+### Fixed
+
+- Odpravljeno je lwIP sesutje `udp_new_ip_type` po uspešnem vnosu Wi-Fi podatkov prek provisioning strani, ki ga je povzročilo prekrivanje NTP in Firebase DNS zahtev.
+
+## [0.1.0-beta.70] - 2026-08-09
+
+### Changed
+
+- Provisioning AP na ESP32-S3 vedno uporablja kombinirani `AP+STA` način; brez shranjenih poverilnic STA ostane nepovezan in ne ustvarja internetnega prometa.
+- PlatformIO uporablja uradni profil `esp32-s3-devkitc1-n16r8` namesto generičnega N8 profila z ročnimi pomnilniškimi preglasitvami.
+
+### Fixed
+
+- Odpravljen je primer, ko je gonilnik čisti AP vmesnik označil kot aktiven, njegovega BSSID-ja pa telefon in računalnik nista zaznala v radijskem skenu.
+
+## [0.1.0-beta.69] - 2026-08-09
+
+### Changed
+
+- Provisioning AP uporablja kanal 6, 20 MHz način, združljive protokole 802.11b/g/n in največjo dovoljeno oddajno moč 19,5 dBm.
+- Periodična diagnostika ločeno prikazuje stanje STA in AP vmesnika, oba IP naslova ter število odjemalcev AP-ja.
+
+### Fixed
+
+- Zagon provisioning AP-ja eksplicitno nastavi radijske parametre, zato nova ESP32-S3 ploščica ne podeduje nezdružljivih nastavitev prejšnjega Wi-Fi načina.
+
+## [0.1.0-beta.68] - 2026-08-09
+
+### Added
+
+- Zagonska diagnostika izpiše zaznavo, skupno in prosto velikost PSRAM ter stanje notranjega heap-a.
+- Periodični 15-sekundni izpis `[SYS]` spremlja notranji heap, največji prosti blok, PSRAM, Wi-Fi, RSSI, IP, Firebase opravila in prioriteto lokalnega HTTP.
+
+### Changed
+
+- PlatformIO zdaj uporablja dejansko strojno konfiguracijo 16 MB QIO flash in 8 MB OPI PSRAM (`qio_opi`) ter standardno `default_16MB.csv` shemo z dvema 6,4 MB OTA particijama in 3,375 MB LittleFS particijo.
+- Med nalaganjem lokalnih datotek se ustavi samo razporejanje novih Firebase zahtev; aktivna TLS zahteva in `app.loop()` tečeta naprej.
+- Lokalna zgodovina se bere in JSON pripravlja postopno v glavni zanki, frontend pa med pripravo varno ponavlja isti `/api/history` zahtevek.
+- Velik medpomnilnik 1441 lokalnih history košev je prestavljen iz notranjega heap-a v PSRAM.
+- Kratek Wi-Fi odklop ima trisekundni debounce, preden firmware povezavo razglasi za izgubljeno in odpre fallback AP.
+
+### Fixed
+
+- Popravljen je napačen PlatformIO define v dejansko podprti `FIREBASE_ASYNC_QUEUE_LIMIT=4`.
+- Odpiranje ali hitro osveževanje lokalne strani ne kliče več `asyncClient.stopAsync(true)` in `sslClient.stop()`.
+- Dolgo branje SD dnevnika ne teče več v AsyncTCP callbacku in zato ne blokira lokalnega strežnika.
+
+## [0.1.0-beta.67] - 2026-08-07
+
+### Changed
+
+- Brisanje SD in cloud zgodovine zdaj uporablja zaporedni state machine: vsaka Firebase operacija se začne šele po potrditvi prejšnje.
+- Med brisanjem zgodovine so običajne Firebase objave začasno ustavljene, zato se ne morejo vriniti med posamezne korake.
+- Zagonski izpis jasno pove, da je Firebase odjemalec samo konfiguriran; uspešne zapise še vedno potrjujejo izpisi `Firebase write complete`.
+
+### Fixed
+
+- Ukaz za brisanje zgodovine ne ustvari več osmih sočasnih Firebase opravil in zato ne povzroča verige napak `operation was cancelled (-118)` ter večminutnega odmora.
+
+## [0.1.0-beta.66] - 2026-08-07
+
+### Changed
+
+- Lokalna nadzorna plošča Highcharts in SD zgodovino naloži šele ob odprtju zavihka `Grafi`, zato začetni prikaz ne sproži več več velikih vzporednih prenosov.
+- Lokalni HTTP odzivi po končanem prenosu zaprejo povezavo in tako preprečijo kopičenje povezav brskalnika na ESP32.
+
+### Fixed
+
+- Odpravljeno je dvojno branje lokalne zgodovine ob prvem odprtju nadzorne plošče, ki je lahko zasičilo omrežni sklad, prekinilo Firebase TLS in povzročilo izgubo pinga.
+
+## [0.1.0-beta.65] - 2026-08-07
+
+### Fixed
+
+- AsyncTCP lokalnega strežnika znova teče na aplikacijskem jedru 1, zato prenos večjih LittleFS datotek ne zadržuje Wi-Fi sklada na omrežnem jedru 0 in ne povzroča izgube pinga.
+- Firmware hkrati pošlje največ eno Firebase zahtevo. Zagozdeno TLS opravilo po 12 sekundah prekine, sprosti povezavo in uporabi nadzorovani odmor pred ponovnim poskusom.
+- Firebase `app.loop()` še naprej zaključuje obstoječa opravila tudi med odmorom za nove zahteve; ob lokalnem prenosu se aktivna cloud povezava varno prekliče iz glavne zanke.
+- Provisioning AP se ponovno zažene samo, če 30-sekundno preverjanje potrdi, da AP vmesnika ali naslova `192.168.4.1` dejansko ni, ne pa ob prehodnih dogodkih radia ali odklopu odjemalca.
+
+## [0.1.0-beta.64] - 2026-08-07
+
+### Fixed
+
+- AP watchdog normalnega notranjega prehoda `AP_STOP`/`AP_START` med konfiguracijo ne obravnava več kot okvaro. Po dogodku počaka 750 ms in preveri dejanski Wi-Fi način ter AP naslov, preden dovoli ponovni zagon radia.
+- Zagon provisioning AP-ja uporablja neposredni `WiFi.softAP()` brez predhodnega prisilnega preklopa načina, s čimer se odstranijo odvečni radijski cikli in neskončno ponovno zaganjanje AP-ja.
+
+## [0.1.0-beta.63] - 2026-08-07
+
+### Fixed
+
+- Provisioning AP uporablja uradni poenostavljeni Arduino-ESP32 zagon v stalnem `AP+STA` načinu, 20 MHz pasovno širino in DHCP captive-portal podatek za boljšo združljivost s telefoni.
+- Firmware spremlja dogodke zagona, ustavitve, povezave in dodelitve DHCP naslova. Če se AP nepričakovano ustavi ali se telefon odklopi pred prejemom naslova, ga watchdog samodejno ponovno zažene.
+- Serijski monitor ob odklopu izpiše Wi-Fi razlog in ločeno potrdi dodelitev IP-ja, zato je mogoče razlikovati napako asociacije od napake DHCP.
+
+## [0.1.0-beta.62] - 2026-08-07
+
+### Fixed
+
+- Lokalni endpoint za tariranje ne kliče več FirebaseClient iz AsyncTCP spletnega opravila. Zahtevek samo varno postavi tariranje v čakalno vrsto, izvedba HX711 in objava stanja pa ostaneta v glavni zanki enako kot pri cloud ukazu.
+- Serijski monitor ob lokalnem zahtevku izpiše njegovo sprejetje, zato je mogoče ločiti napako gumba od napake HX711.
+
+## [0.1.0-beta.61] - 2026-08-07
+
+### Fixed
+
+- Brisanje Wi-Fi nastavitev ne zažene več provisioning AP-ja v istem trenutku kot asinhroni odklop STA. Radio se najprej popolnoma ustavi, AP pa se po eni sekundi zažene z lastnim DHCP omrežjem na `192.168.4.1`.
+- Provisioning AP uporablja določen kanal, največ štiri odjemalce in ob neuspešnem zagonu samodejno ponovi poskus na dve sekundi.
+
+## [0.1.0-beta.60] - 2026-08-07
+
+### Fixed
+
+- AsyncTCP lokalnega strežnika teče na omrežnem jedru, ločeno od Firebase `loopTask`, zato DNS/TLS čakanje ne ustavi pošiljanja lokalne strani.
+- Med začetnim prenosom statičnih lokalnih datotek se Firebase opravila za največ deset sekund začasno umaknejo, kar prepreči prazne ali prekinjene HTTP odzive ob hkratnem cloud prometu.
+- Firebase TLS povezava ima omejen čas povezovanja in rokovanja, zato nedosegljiv DNS ali strežnik ne zadrži naprave za daljše obdobje.
+
+### Changed
+
+- LittleFS vsebuje vnaprej stisnjene `gzip` različice HTML, CSS in JavaScript datotek; brskalnik zato prenese občutno manj podatkov, izvorne datoteke pa ostanejo rezervna možnost za odjemalce brez podpore `gzip`.
+
+## [0.1.0-beta.59] - 2026-08-07
+
+### Fixed
+
+- Firebase `app.loop()` se izvaja največ 20-krat na sekundo, zato med TLS/DNS težavami ne sme izriniti lokalnega HTTP strežnika in povzročiti praznega HTTP odziva.
+
+### Changed
+
+- Serijski zagon izpiše nameščeno različico firmware-a za nedvoumno preverjanje testnega binarija.
+
+## [0.1.0-beta.58] - 2026-08-07
+
+### Fixed
+
+- FirebaseClient asinhrona čakalna vrsta je omejena na štiri zahteve, kar prepreči izčrpanje RAM-a in `abort()` v `SlotManager::addSlot` med nedosegljivim Wi-Fi-jem ali Firebase strežnikom.
+- Preverjanje OTA ukaza ne ustvari dodatne Firebase zahteve, kadar je čakalna vrsta že polna.
+
+## [0.1.0-beta.57] - 2026-08-07
+
+### Changed
+
+- Sinhronizacija SD zgodovine s Firebase poteka na 10 sekund namesto na 1,5 sekunde, kar zmanjša število sočasnih TLS povezav.
+
+### Fixed
+
+- Po Firebase omrežni napaki firmware nove cloud zahteve začasno zaustavi z naraščajočim odmorom, zato DNS ali TLS težava ne sme zasedati lokalne nadzorne plošče in Wi-Fi sklada.
+
+## [0.1.0-beta.56] - 2026-08-07
+
+### Added
+
+- Lokalna datoteka `platformio.local.ini` omogoča vnos IP-ja in ArduinoOTA gesla neposredno za PlatformIO GUI, brez zapisa skrivnosti v Git.
+
+### Changed
+
+- Okolje `esp32s3_ota` bere `custom_ota_password` iz lokalne konfiguracije; `ESP32_OTA_PASSWORD` ostane rezervna možnost.
+
+## [0.1.0-beta.55] - 2026-08-07
+
+### Added
+
+- ArduinoOTA na vratih `3232` omogoča nalaganje firmware-a in LittleFS neposredno iz PlatformIO prek domačega Wi-Fi omrežja.
+- Okolje `esp32s3_ota` uporabi IP iz `--upload-port` in OTA geslo iz okoljske spremenljivke `ESP32_OTA_PASSWORD`, zato poverilnica ni zapisana v Git-u.
+
+### Changed
+
+- Med beta testiranjem ArduinoOTA kot lokalno geslo uporablja obstoječo aktivacijsko kodo naprave; serijski monitor izpiše stanje in napredek prenosa.
+
 ## [0.1.0-beta.54] - 2026-08-07
 
 ### Fixed

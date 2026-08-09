@@ -12,6 +12,8 @@ web/firebase-config.js
 firebase-debug.log
 web/firebase-debug.log
 .firebase/
+platformio.local.ini
+web/**/*.gz
 
 # Operating system files
 .DS_Store

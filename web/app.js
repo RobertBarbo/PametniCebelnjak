@@ -138,6 +138,9 @@ let cloudDevices = {};
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
 let latestLoadCellTareStatus;
+let dashboardDataSourceReady = false;
+let historyViewLoading;
+let localHistoryRequestGeneration = 0;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -252,11 +255,38 @@ function showView(viewName, updateLocation = true) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 
   if (selectedView === "history") {
-    requestAnimationFrame(() => {
-      climateChart?.reflow();
-      weightChart?.reflow();
-    });
+    ensureHistoryViewReady().catch(showDataError);
   }
+}
+
+function isHistoryViewActive() {
+  return elements.viewPanels.some((panel) => panel.dataset.viewPanel === "history" && !panel.hidden);
+}
+
+async function ensureHistoryViewReady() {
+  if (!dashboardDataSourceReady || !refreshHistory) return;
+
+  if (!historyViewLoading) {
+    elements.historySummary.textContent = "Nalagam grafe in zgodovino meritev …";
+    historyViewLoading = loadHighcharts()
+      .then(async () => {
+        createCharts();
+        await refreshHistory();
+      })
+      .finally(() => {
+        historyViewLoading = undefined;
+      });
+  }
+
+  await historyViewLoading;
+  requestAnimationFrame(() => {
+    climateChart?.reflow();
+    weightChart?.reflow();
+  });
+}
+
+function refreshVisibleHistory() {
+  if (isHistoryViewActive()) ensureHistoryViewReady().catch(showDataError);
 }
 
 function initializeNavigation() {
@@ -368,7 +398,8 @@ function selectCloudDevice(deviceId) {
   subscribe("status/ota", renderOtaDeviceStatus);
   subscribe("status/history", renderHistoryManagementStatus);
   subscribe("status/load_cell", renderLoadCellTareStatus);
-  refreshHistory?.().catch(showDataError);
+  historyViewLoading = undefined;
+  refreshVisibleHistory();
 }
 
 function setConnectionState(text, state = "connected") {
@@ -1281,7 +1312,8 @@ function applyRange() {
   weightChartHasUserZoom = false;
   elements.rangeValue.textContent = formatRange(appliedRange);
   elements.rangeDialog.close();
-  refreshHistory?.().catch(showDataError);
+  historyViewLoading = undefined;
+  refreshVisibleHistory();
 }
 
 function initializeDateRangePicker() {
@@ -1556,17 +1588,29 @@ async function useLocalDataSource() {
   refreshHistory = async () => {
     const from = Math.floor(appliedRange.from.getTime() / 1000);
     const to = Math.floor(appliedRange.to.getTime() / 1000);
+    const requestGeneration = ++localHistoryRequestGeneration;
     try {
-      const historyResponse = await fetch(`/api/history?from=${from}&to=${to}`, { cache: "no-store" });
-      if (!historyResponse.ok) {
-        renderHistory([], true);
-        elements.historySummary.textContent = historyResponse.status === 503
-          ? "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo."
-          : "Lokalna zgodovina trenutno ni dosegljiva.";
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const historyResponse = await fetch(`/api/history?from=${from}&to=${to}`, { cache: "no-store" });
+        if (requestGeneration !== localHistoryRequestGeneration) return;
+        if (historyResponse.status === 202) {
+          elements.historySummary.textContent = "Pripravljam lokalno zgodovino s SD kartice …";
+          await delay(250);
+          continue;
+        }
+        if (!historyResponse.ok) {
+          renderHistory([], true);
+          elements.historySummary.textContent = historyResponse.status === 503
+            ? "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo."
+            : "Lokalna zgodovina trenutno ni dosegljiva.";
+          return;
+        }
+        const history = await historyResponse.json();
+        renderHistory(history.readings ?? [], true);
         return;
       }
-      const history = await historyResponse.json();
-      renderHistory(history.readings ?? [], true);
+      renderHistory([], true);
+      elements.historySummary.textContent = "Priprava lokalne zgodovine je trajala predolgo.";
     } catch (error) {
       console.error(error);
       renderHistory([], true);
@@ -1575,7 +1619,6 @@ async function useLocalDataSource() {
   };
 
   renderLocalStatus(initialStatus);
-  await refreshHistory();
   setInterval(() => refreshStatus().catch(showDataError), 5_000);
 }
 
@@ -1640,16 +1683,8 @@ async function startDashboard() {
   } catch {
     await useFirebaseDataSource();
   }
-
-  loadHighcharts()
-    .then(() => {
-      createCharts();
-      refreshHistory?.().catch(showDataError);
-    })
-    .catch((error) => {
-      console.error(error);
-      elements.historySummary.textContent = "Graf trenutno ni dosegljiv.";
-    });
+  dashboardDataSourceReady = true;
+  refreshVisibleHistory();
 }
 
 window.addEventListener("DOMContentLoaded", startDashboard);

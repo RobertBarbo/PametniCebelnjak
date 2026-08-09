@@ -9,7 +9,7 @@
 
 ## Razvoj firmware-a
 
-- Ciljna ploščica je `esp32-s3-devkitc-1` s PIOArduino ESP32 platformo in Arduino frameworkom.
+- Ciljna ploščica uporablja profil `esp32-s3-devkitc1-n16r8` s 16 MB QIO flash, 8 MB OPI PSRAM (`qio_opi`) in `default_16MB.csv` particijami.
 - Pred predajo sprememb vedno prevedi z `pio run` oziroma z lokalnim PlatformIO izvršljivim programom, če `pio` ni v `PATH`.
 - Ne uporabljaj blokirajočih zakasnitev v glavni zanki, razen pri začetnem povezovanju v `setup()`.
 - Meritve se najprej beležijo na SD, nato pa se surova zgodovina ter urni/dnevni agregati sinhronizirajo v Firebase Realtime Database; spremembe podatkovnega modela morajo posodobiti obe poti in dokumentacijo.
@@ -28,6 +28,7 @@
 - Ob zagonu firmware pošlje svojo verzijo na `/devices/{device_id}/status/firmware`.
 - OTA firmware se izdaja iz GitHub Release workflowa ob tagu `vMAJOR.MINOR.PATCH-beta.N`; Git tag se mora ujemati z `FIRMWARE_VERSION`.
 - ESP32 sprejme OTA samo po Firebase ukazu in po preverjanju SHA-256 iz GitHub `manifest.json`; firmware datoteke ne dodajaj v Git repozitorij.
+- Za razvojni PlatformIO Wi-Fi prenos uporabi okolje `esp32s3_ota`; lokalna datoteka `platformio.local.ini` vsebuje IP in `custom_ota_password`, je v `.gitignore` in ne sme biti dodana v Git. Okoljska spremenljivka `ESP32_OTA_PASSWORD` je le rezervna možnost.
 - Trenutni neposredni Firebase dostop brez avtentikacije je namenjen le razvoju. Pred produkcijo je obvezen zaupanja vreden strežniški vnos meritev in avtentikacija naprave; Firebase Authentication in omejena pravila za uporabnike sta že del beta toka.
 
 ## Verzije in dokumentacija
@@ -44,7 +45,7 @@
 - Lokalni pogled mora delovati brez interneta, vključno z grafi iz SD CSV dnevnika.
 - Highcharts mora biti lokalno priložen v `web/vendor/`, saj lokalni pogled ne sme uporabljati CDN povezave.
 - Izbirnik zgodovine uporablja začetni in končni datum z urama, hitrimi izbirami in X-zoomiranjem grafa v obeh načinih.
-- Lokalna ročna posodobitev uporablja ElegantOTA 3.1.7 na ločenem sinhronem strežniku; ne dodajaj lastnih upload endpointov ali handlerjev. `firmware.bin` se izbere kot **Firmware**, `littlefs.bin` kot **Filesystem**, vsaka datoteka pa se namesti ločeno. Ker je AP med beta testiranjem odprt, je treba pred produkcijo zaščititi lokalni dostop in ElegantOTA portal.
+- Lokalna ročna posodobitev uporablja ElegantOTA 3.1.7 na istem asinhronem strežniku kot nadzorna plošča; ne dodajaj lastnih upload endpointov ali handlerjev. `firmware.bin` se izbere kot **Firmware**, `littlefs.bin` kot **Filesystem**, vsaka datoteka pa se namesti ločeno. Ker je AP med beta testiranjem odprt, je treba pred produkcijo zaščititi lokalni dostop in ElegantOTA portal.
 - Firebase spletna konfiguracija je samo v `web/firebase-config.js`; v Git se doda le `web/firebase-config.example.js`.
 - Nadzorna plošča ne sme vsebovati Firebase Admin poverilnic.
 - Ob spremembi Firebase podatkovnega modela posodobi nadzorno ploščo in `docs/PROJECT.md`.

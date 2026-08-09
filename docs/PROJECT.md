@@ -6,10 +6,12 @@ Firmware na ESP32-S3 spremlja en čebelji panj. Temperaturo in relativno vlago b
 
 ## Strojna oprema
 
-- ESP32-S3 DevKitC-1
+- ESP32-S3 DevKitC-1 z 16 MB QIO flash in 8 MB vgrajenega OPI PSRAM
 - microSD kartica prek SPI: `CS=10`, `MOSI=11`, `SCK=12`, `MISO=13`
 - BME680 prek I²C: `SDA=8`, `SCL=9`, naslov `0x76` ali `0x77`
 - HX711 z merilnimi celicami: `DOUT=4`, `SCK=5`
+
+PlatformIO uporablja uradni profil `esp32-s3-devkitc1-n16r8` z `qio_opi`, `BOARD_HAS_PSRAM`, 16 MB flash in `default_16MB.csv`. Shema vsebuje dve OTA aplikacijski particiji po 6,4 MB, LittleFS particijo velikosti 3,375 MB ter coredump particijo. Ob zagonu firmware preveri `psramFound()` in izpiše skupni/prosti PSRAM ter stanje notranjega heap-a. Medpomnilnik lokalne zgodovine je alociran neposredno v PSRAM; če alokacija ne uspe, meritve in cloud delovanje ostanejo aktivni, lokalna zgodovina pa jasno vrne napako.
 
 ## Meritve, čas in SD kartica
 
@@ -17,14 +19,14 @@ Firmware na ESP32-S3 spremlja en čebelji panj. Temperaturo in relativno vlago b
 - SD CSV dnevnik prejme skupen zapis vseh treh vrednosti enkrat na minuto. Samo ti enominutni zapisi se sinhronizirajo v Firebase zgodovino in agregate, zato grafi ne ustvarjajo nepotrebne količine podatkov.
 - Če prvi zapis nastane pred NTP sinhronizacijo, se takoj po pridobitvi časa ustvari dodatna meritev z veljavnim časom za Firebase in SD dnevnik.
 - Ob prvem zagonu brez shranjenega HX711 odmika mora biti merilna ploščad prazna. Firmware izvede tariranje in odmik shrani v NVS. Faktor `HX711_CALIBRATION_FACTOR=22500,0` je trenutno umerjen z referenčnima utežema `1,464 kg` in `2,470 kg` na testni merilni konstrukciji; ob spremembi mehanske izvedbe ga je treba ponovno umeriti.
-- Tariranje je mogoče zahtevati v lokalnem omrežnem panelu ali cloud kartici izbranega online panja, ob upravljanju zgodovine. Pred potrditvijo mora biti ploščad prazna; ESP32 tariranje izvede v glavni zanki, nov HX711 odmik shrani v NVS in takoj ustvari novo trenutno meritev.
+- Tariranje je mogoče zahtevati v lokalnem omrežnem panelu ali cloud kartici izbranega online panja, ob upravljanju zgodovine. Pred potrditvijo mora biti ploščad prazna; lokalni AsyncTCP endpoint samo postavi ukaz v čakalno vrsto in ne kliče FirebaseClient. ESP32 tariranje v obeh primerih izvede v glavni zanki, nov HX711 odmik shrani v NVS in takoj ustvari novo trenutno meritev.
 - Teža vsake meritve je povprečje `20` zaporednih vzorcev HX711. To zmanjša električni šum, ne more pa odpraviti mehanskega posedanja ali dotika panja s podlago.
 - Če BME680 ali HX711 ni dosegljiv oziroma vrne neveljavno vrednost, se meritev ne zapiše na SD ali v Firebase; firmware ne ustvarja simuliranih nadomestnih podatkov.
 - Ob uspešni NTP sinhronizaciji zapis vsebuje slovenski datum, uro in Unix čas.
 - Brez interneta se meritev še vedno prikaže lokalno in zapiše na SD. Po ponovnem zagonu brez predhodne NTP sinhronizacije absolutni datum ni znan, zato takih zapisov ni mogoče pravilno umestiti v koledarski graf.
 - Datoteka `/measurements.csv` na SD ima glavo `date,time,unix_timestamp,temperature_c,humidity_percent,weight_kg`.
 - Izpeljana datoteka `/measurements.idx` hrani začetni položaj vsakega UTC dneva. Obstoječemu CSV dnevniku se indeks ob prvem zagonu izdela samodejno, zato lokalni graf pri običajni poizvedbi bere samo zahtevani del datoteke. CSV ostaja edini izvorni zapis in indeks se lahko varno ponovno izdela.
-- Ko je Firebase dosegljiv, ESP32 iz CSV dnevnika prenese eno še nepotrjeno meritev na 1,5 sekunde. Ob napaki razmik eksponentno poveča do največ 60 sekund. V NVS vsakih 12 uspešnih zapisov shrani položaj v datoteki in zadnji sinhroniziran čas; po izpadu elektrike se lahko ponovno pošlje največ 11 meritev, kar je varno, ker Firebase uporablja Unix čas kot enolični ključ.
+- Ko je Firebase dosegljiv, ESP32 iz CSV dnevnika prenese eno še nepotrjeno meritev na 10 sekund. Ob napaki razmik eksponentno poveča do največ 60 sekund. V NVS vsakih 12 uspešnih zapisov shrani položaj v datoteki in zadnji sinhroniziran čas; po izpadu elektrike se lahko ponovno pošlje največ 11 meritev, kar je varno, ker Firebase uporablja Unix čas kot enolični ključ.
 - Surova zgodovina se običajno pošilja samo prek SD sinhronizacije, zato isti zapis ni poslan dvakrat. Neposredni Firebase zapis se uporabi le kot rezerva, kadar meritve ni mogoče shraniti na SD.
 - Med zaporednim prenosom ESP32 izdela urne in dnevne povprečne agregate. Zaključeni interval se zapiše enkrat, trenutni interval pa se osveži največ vsakih 30 minut.
 - Ob prvem zagonu firmware-a z agregati se NVS kazalec enkrat samodejno vrne na začetek SD dnevnika. Obstoječi surovi ključi se varno prepišejo, hkrati pa se dopolnijo urni in dnevni podatki; naslednji zagoni nadaljujejo z običajnega shranjenega položaja.
@@ -33,6 +35,8 @@ Firmware na ESP32-S3 spremlja en čebelji panj. Temperaturo in relativno vlago b
 
 ## Wi-Fi provisioning in lokalni dostop
 
+Po pridobitvi naslova domačega omrežja firmware počaka dve sekundi, nato inicializira NTP in šele po dodatnih treh sekundah dovoli Firebase promet. Zaporedni zagon prepreči prekrivanje NTP in Firebase DNS zahtev v lwIP, posebej kadar se STA povezava vzpostavi med delovanjem prek provisioning obrazca. Brez STA povezave se NTP in Firebase omrežne zahteve ne zaženejo.
+
 Firmware je univerzalen in ne vsebuje Wi-Fi poverilnic.
 
 1. Ob prvem zagonu oziroma ob nedosegljivem shranjenem omrežju ESP32 odpre AP `Cebelnjak-XXXXXX`.
@@ -40,20 +44,23 @@ Firmware je univerzalen in ne vsebuje Wi-Fi poverilnic.
 3. Uporabnik se z mobilnim telefonom poveže na AP, odpre `http://192.168.4.1/` in na obrazcu vnese domači SSID ter geslo.
 4. ESP32 povezavo asinkrono preizkusi, medtem pa AP ostane aktiven in stran pokaže stanje. Podatka se v NVS shranita samo ob uspešni povezavi; ponovni zagon ni potreben.
 
-Če povezava z domačim Wi-Fi-jem med delovanjem odpove, se AP znova vključi. Lokalna nadzorna plošča, trenutne meritve in SD zgodovina so zato dostopni tudi brez interneta. Wi-Fi varčevanje z energijo je izklopljeno, ker lokalni strežnik in grafi potrebujeta nizko zakasnitev; to nekoliko poveča porabo energije naprave. Watchdog vsakih 30 sekund sproži `WiFi.reconnect()`; po treh neuspelih poskusih znova zažene STA povezavo z NVS poverilnicami, AP pa med tem ostane aktiven. Ko se Wi-Fi po uspešnem preizkusu obnovi, se AP zapre. Lokalni obrazec asinkrono najde dosegljiva omrežja in lahko izbriše shranjene Wi-Fi podatke. Odprt AP je dovoljen samo za trenutno beta testiranje; produkcijska izvedba ga mora zaščititi.
+Če povezava z domačim Wi-Fi-jem med delovanjem odpove, se AP znova vključi. Lokalna nadzorna plošča, trenutne meritve in SD zgodovina so zato dostopni tudi brez interneta. Zaradi zanesljivega oddajanja beaconov na različnih revizijah ESP32-S3 provisioning vedno uporablja kombinirani `AP+STA` način; brez poverilnic ostane STA nepovezan. AP uporablja kanal 6, pasovno širino 20 MHz, združljive protokole 802.11b/g/n, oddajno moč 19,5 dBm, statični naslov `192.168.4.1` in lasten DHCP. Wi-Fi varčevanje z energijo je izklopljeno, ker lokalni strežnik in grafi potrebujeta nizko zakasnitev; to nekoliko poveča porabo energije naprave. Watchdog AP vsakih 30 sekund preveri dejanski Wi-Fi način in lokalni naslov ter vmesnik ponovno zažene samo, če ga res ni. Ločeni STA watchdog vsakih 30 sekund sproži `WiFi.reconnect()` in po treh neuspelih poskusih znova zažene povezavo z NVS poverilnicami, AP pa med tem ostane aktiven. Ko se Wi-Fi po uspešnem preizkusu obnovi, se AP zapre. Lokalni obrazec asinkrono najde dosegljiva omrežja in lahko izbriše shranjene Wi-Fi podatke. Odprt AP je dovoljen samo za trenutno beta testiranje; produkcijska izvedba ga mora zaščititi.
 
 `device_id` ima obliko `CB-XXXXXXXXXXXX` in je ponovljiv za isto ESP32 napravo. Aktivacijska koda je lokalna skrivnost v NVS; prikaže se na lokalni strani in v serijskem monitorju. Za Firebase-only beta registracijo jo ESP32 zapiše pod zasebno, neberljivo pot `/device_secrets/{device_id}` in zapis z isto kodo obnovi vsakih pet minut; nikoli se ne prikaže v cloud nadzorni plošči ali Git-u.
 
 ## Lokalna in cloud nadzorna plošča
 
-Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
+Začetni lokalni pogled naloži samo HTML, CSS, aplikacijski JavaScript in kratko stanje naprave. Highcharts ter zgodovina z SD kartice se zaradi omejenih omrežnih virov ESP32 naložita zaporedno šele ob odprtju zavihka `Grafi`; lokalni HTTP odzivi po prenosu zaprejo povezavo.
+
+Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32. PlatformIO pred prevajanjem samodejno izdela `gzip` kopije HTML, CSS in JavaScript datotek. Lokalni strežnik jih pošlje pod izvirnim URL-jem z glavo `Content-Encoding: gzip`; če jih odjemalec ne podpira ali stisnjena datoteka še ni naložena, uporabi nespremenjen izvorni zapis.
 
 - Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare`, `/measurements.csv` in portal `http://<device-ip>/update`.
 - Lokalni pogled najprej poskusi lokalni API; kadar ta ni dosegljiv, uporabi Firebase cloud pogled s prijavo uporabnika. Lokalni pogled ne prikaže cloud prijave ali registracije naprav, prikaže pa `device_id`, aktivacijsko kodo za kasnejšo registracijo in povezavo do ElegantOTA.
 - Ob uspešni povezavi z domačim Wi-Fi lokalni provisioning pogled uporablja nevtralen izraz »naprava«, ne strojno specifičnega imena ESP32.
 - Lokalni provisioning pogled ob aktivni povezavi prikaže tudi ime trenutno povezanega domačega Wi-Fi omrežja (SSID).
+- Po brisanju shranjenih Wi-Fi nastavitev firmware najprej ustavi STA in AP vmesnik, nato po eni sekundi brez blokiranja glavne zanke zažene odprti provisioning AP na `192.168.4.1`. Če zagon AP-ja ne uspe, ga ponovi na pet sekund, zato asinhroni dogodek odklopa ne more prekiniti novega DHCP strežnika.
 - Highcharts je v `web/vendor/highcharts.js`, zato grafi na lokalnem ESP32 ne potrebujejo interneta.
-- Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. Pri velikih odgovorih, kot je cel dan minutnih točk, ESP32 JSON najprej pripravi v začasni datoteki na SD in ga nato pretočno pošlje brskalniku; s tem ne izčrpa delovnega pomnilnika. Če SD trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
+- Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. `/api/history` zahtevek samo uvrsti pripravo; glavni `loop()` SD dnevnik bere v kratkih časovno omejenih korakih, history koše hrani v PSRAM in JSON postopno pripravi v začasni datoteki na SD. Frontend med odgovorom `202` počaka ter zahtevek ponovi, zato AsyncTCP callback nikoli ne izvaja dolgega skeniranja CSV. Če SD ali PSRAM trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
 - Cloud grafa za obdobja do 7 dni bereta surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
 - Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje obeh grafov v lokalnem in cloud pogledu. Klik na pretekli dan samodejno izbere obdobje od `00:00` do `23:59`, klik na današnji dan pa od `00:00` do trenutne ure; drugi klik lahko obdobje razširi na drug dan.
@@ -81,7 +88,21 @@ Lokalni pogled v zavihku **Posodobitve** odpre ElegantOTA 3.1.7 na naslovu `http
 
 Prvi firmware z LittleFS OTA podporo se za že nameščene starejše beta naprave priporočeno naloži prek USB skupaj z LittleFS (`pio run -t upload` in `pio run -t uploadfs`). Starejši OTA odjemalec lahko namesti samo firmware; šele naslednja OTA izdaja nato samodejno posodobi tudi lokalno spletno stran.
 
+Beta.68 prvič preklopi iz 8 MB na `default_16MB.csv` particijsko shemo. Ker navaden OTA ne posodobi particijske tabele, je za ta prehod obvezen enkraten USB prenos z `pio run -e esp32s3 -t upload` in nato `pio run -e esp32s3 -t uploadfs`. Nadaljnje izdaje lahko znova uporabljajo OTA, dokler shema ostane enaka.
+
+Za razvojni prenos neposredno iz PlatformIO je na voljo tudi ArduinoOTA na vratih `3232`. Okolje `esp32s3_ota` uporabi `upload_protocol = espota`; lokalna, Git-ignorirana datoteka `platformio.local.ini` vsebuje `upload_port` in prazno polje `custom_ota_password` za aktivacijsko kodo naprave. V beta fazi je geslo trenutna lokalna aktivacijska koda naprave. Okoljska spremenljivka `ESP32_OTA_PASSWORD` ostane rezervna možnost. ArduinoOTA se zažene samo ob povezavi v domače Wi-Fi omrežje, sprejme firmware ali LittleFS in med prejemom ustavi redna opravila, ker `Update` teče. Ob LittleFS napaki firmware datotečni sistem ponovno priklopi. Pred produkcijo naj ima vsaka naprava ločeno, močnejše OTA geslo ali drug avtentikacijski mehanizem.
+
+Če Firebase DNS ali TLS povezava odpove, firmware zaporedne omrežne napake zazna in nove Firebase zahteve začasno zaustavi: najprej za 30 sekund, nato z naraščajočim odmorom do štiri minute. Posamezno opravilo ima 12-sekundno omejitev; po njej se TLS povezava zapre in čakalna vrsta varno ponastavi. SD beleženje, lokalna stran, meritve in Wi-Fi ostanejo pri tem aktivni. Sinhronizacija SD zgodovine uporablja desetsekundni tempo, da ob večji zgodovini ne zasiči omrežja.
+
+FirebaseClient ima varnostno omejitev asinhrone vrste štirih zahtev (`FIREBASE_ASYNC_QUEUE_LIMIT=4`), aplikacija pa zaradi stabilnosti hkrati dovoli samo eno dejansko zahtevo. Naslednji status, meritev ali SD sinhronizacija počaka na zaključek trenutnega opravila, zato počasna povezava ne more napolniti vrste in sprožiti preklica starejšega opravila.
+
+`app.loop()` za Firebase se izvaja največ vsakih 50 ms in teče tudi med odmorom za dodajanje novih zahtev, da lahko zaključi obstoječe opravilo. AsyncTCP lokalnega strežnika teče na aplikacijskem jedru 1 z izvirnimi priporočenimi nastavitvami prioritete, vrste in ACK časa. Ob zahtevi za statično lokalno datoteko imajo nove cloud zahteve deset sekund premora, aktivna Firebase/TLS povezava pa se ne prekine. Hard cancel ostane samo za dejansko izgubo Wi-Fi/IP povezave ali 12-sekundni timeout Firebase opravila.
+
+Vsakih 15 sekund Serial izpiše vrstico `[SYS]` z notranjim heap-om, zgodovinskim minimumom, največjim prostim notranjim blokom, prostim PSRAM, ločenim STA/AP stanjem in IP naslovoma, RSSI, številom AP odjemalcev, številom Firebase opravil in lokalno HTTP prioriteto. Diagnostika je namenjena predvsem preverjanju fragmentacije med hitrim osveževanjem strani, odpiranjem grafov in TLS ponovnimi povezavami.
+
 ## Trenutni Firebase podatkovni model
+
+Upravljavski ukaz za izbris zgodovine se izvaja strogo zaporedno. Firmware najprej objavi stanje, varno ponastavi SD dnevnik, nato po eno izbriše `latest`, surove meritve ter urne in dnevne agregate, objavi zaključek in nazadnje odstrani ukaz. Med tem tokom ne dodaja drugih Firebase opravil.
 
 Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastništvo uporabnika:
 

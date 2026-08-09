@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-beta.71`
+**Različica:** `0.1.0-beta.74`
 
 ## Trenutne funkcije
 
@@ -10,6 +10,7 @@ Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na
 - Varno tariranje HX711 prek lokalne strani ali cloud nadzorne plošče; odmik prazne ploščadi se shrani v NVS.
 - Enominutni zapis skupne meritve v CSV dnevnik na SD kartici ter postopna sinhronizacija surove zgodovine in agregatov v Firebase.
 - Dnevni SD indeks za hitro lokalno zgodovino ter urni/dnevni Firebase agregati za daljša cloud obdobja.
+- DS3231 ohranja datum in uro brez interneta; ob dosegljivem omrežju se samodejno uskladi z NTP.
 - Samodejni Wi-Fi provisioning brez trdo vpisanega SSID-ja ali gesla.
 - Dostopni AP kot rezerva, kadar domači Wi-Fi ni nastavljen ali ni dosegljiv.
 - Trajni ID, aktivacijska koda in Firebase prijava za registracijo več naprav na uporabnika.
@@ -32,6 +33,7 @@ Wi-Fi podatki se hranijo v NVS na ESP32 in niso del firmwarea, Git-a ali GitHub 
 
 - ESP32-S3 DevKitC-1
 - microSD kartica, formatirana kot FAT32
+- DS3231 RTC modul z rezervno baterijo
 - Firebase Realtime Database za trenutni razvojni cloud pogled
 - PlatformIO z Arduino frameworkom
 - ElegantOTA 3.1.7; odprtokodna izdaja uporablja licenco AGPL-3.0, zato je treba pred zaprto komercialno distribucijo preveriti licenčne obveznosti ali uporabiti ustrezno Pro licenco.
@@ -65,8 +67,8 @@ V repozitoriju je samo vzorčna datoteka `platformio.local.ini.example`; dejansk
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-beta.71
-git push origin v0.1.0-beta.71
+git tag v0.1.0-beta.74
+git push origin v0.1.0-beta.74
 ```
 
 GitHub Actions prevede univerzalni firmware in LittleFS sliko ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`. ESP32 najprej na SD prenese in s SHA-256 preveri `littlefs.bin`, nato posodobi lokalno spletno stran in šele zatem preverjeno posodobi firmware. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

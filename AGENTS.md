@@ -13,6 +13,7 @@
 - Pred predajo sprememb vedno prevedi z `pio run` oziroma z lokalnim PlatformIO izvršljivim programom, če `pio` ni v `PATH`.
 - Ne uporabljaj blokirajočih zakasnitev v glavni zanki, razen pri začetnem povezovanju v `setup()`.
 - Meritve se najprej beležijo na SD, nato pa se surova zgodovina ter urni/dnevni agregati sinhronizirajo v Firebase Realtime Database; spremembe podatkovnega modela morajo posodobiti obe poti in dokumentacijo.
+- BME680 in DS3231 si delita I²C vodilo `SDA=8`, `SCL=9`; RTC hrani UTC čas. Veljaven RTC čas se uporabi ob zagonu, NTP ali ročna nastavitev pa morata posodobiti sistemsko uro in RTC.
 
 ## Omrežje in identiteta naprave
 
@@ -41,7 +42,7 @@
 ## Spletna nadzorna plošča
 
 - Statična lokalna nadzorna plošča je v mapi `web/` in mora ostati odzivna za telefon, tablico in namizni računalnik.
-- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja z `ESPAsyncWebServer` na portu `80`; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset` in `/api/sensors/load-cell/tare`.
+- ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja z `ESPAsyncWebServer` na portu `80`; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare` in `/api/time`.
 - Lokalni pogled mora delovati brez interneta, vključno z grafi iz SD CSV dnevnika.
 - Highcharts mora biti lokalno priložen v `web/vendor/`, saj lokalni pogled ne sme uporabljati CDN povezave.
 - Izbirnik zgodovine uporablja začetni in končni datum z urama, hitrimi izbirami in X-zoomiranjem grafa v obeh načinih.

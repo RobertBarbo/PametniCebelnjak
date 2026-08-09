@@ -20,7 +20,7 @@
     <header class="app-header">
       <div class="header-inner">
         <button class="brand" type="button" data-view-target="overview" aria-label="Odpri pregled">
-          <span class="brand-mark" aria-hidden="true">PP</span>
+          <span class="brand-mark" aria-hidden="true">PČ</span>
           <span><strong>Pametni čebelnjak</strong><small>Nadzorna plošča</small></span>
         </button>
 
@@ -134,26 +134,51 @@
           </div>
         </div>
 
+        <section class="account-section surface" id="account-section" aria-labelledby="account-heading" hidden>
+          <div class="account-card">
+            <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji panji</h2><p class="subtitle" id="account-email">—</p></div>
+            <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
+          </div>
+          <div class="account-management">
+            <section class="device-selection-card" aria-labelledby="selected-device-heading">
+              <div><p class="eyebrow" id="device-list-eyebrow">Moji panji</p><h3 id="selected-device-heading">Izbrani panj</h3></div>
+              <label class="account-field">Panj<select id="cloud-device-select" disabled><option value="">Noben panj ni registriran</option></select></label>
+              <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
+              <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
+              <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
+            </section>
+            <section class="admin-device-overview" id="admin-device-overview" aria-labelledby="admin-device-overview-heading" hidden>
+              <div>
+                <p class="eyebrow">Skrbniški pregled</p>
+                <h2 id="admin-device-overview-heading">Vsi registrirani panji</h2>
+                <p class="muted">Izberi panj za ogled meritev in upravljanje. Zelena pika pomeni, da se je naprava odzvala v zadnjih 90 sekundah.</p>
+              </div>
+              <div class="admin-device-list" id="admin-device-list" aria-live="polite"></div>
+            </section>
+            <form class="claim-device-form" id="claim-device-form">
+              <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
+              <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
+              <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
+              <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
+              <button class="primary-button" type="submit">Registriraj panj</button>
+              <p class="form-status" id="claim-device-status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+
         <section class="provisioning-section surface" id="provisioning-section" aria-labelledby="provisioning-heading" hidden>
           <div class="provisioning-card">
             <div>
               <p class="eyebrow">Nastavitev omrežja</p>
               <h2 id="provisioning-heading">Poveži panj z Wi‑Fi</h2>
               <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko ESP32.</p>
-              <p class="activation-details">ID naprave: <strong id="local-device-id">—</strong><span>Aktivacijska koda: <strong id="activation-code">—</strong></span><span>Povezano omrežje: <strong id="connected-wifi-ssid">—</strong></span></p>
-              <div class="cloud-sync-controls">
-                <p>Sinhronizacija zgodovine</p>
-                <strong id="cloud-sync-status">Čakam na stanje …</strong>
-                <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
-                <!-- <small>Uporabi po brisanju Firebase baze ali za ponovni prenos SD dnevnika.</small> -->
+              <div class="provisioning-details">
+                <section class="connected-network-details" aria-labelledby="connected-network-heading">
+                  <p id="connected-network-heading">Povezano Wi‑Fi omrežje</p>
+                  <strong id="connected-wifi-ssid">—</strong>
+                </section>
+                <p class="activation-details"><span>ID naprave: <strong id="local-device-id">—</strong></span><span>Aktivacijska koda: <strong id="activation-code">—</strong></span></p>
               </div>
-              <section class="load-cell-tare-control" aria-labelledby="local-load-cell-tare-heading">
-                <p class="eyebrow">Tehtnica</p>
-                <h3 id="local-load-cell-tare-heading">Tariranje tehtnice</h3>
-                <p class="muted">S ploščadi odstrani vse. Trenutno prazno stanje bo nastavljeno na 0,00 kg.</p>
-                <button class="secondary-button" id="local-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
-                <p class="form-status" id="local-load-cell-tare-status" aria-live="polite">Čakam na stanje tehtnice …</p>
-              </section>
             </div>
             <form class="wifi-form" id="wifi-form">
               <label>Ime Wi‑Fi omrežja<input id="wifi-ssid" name="ssid" type="text" maxlength="32" autocomplete="wifi ssid" required /></label>
@@ -173,57 +198,61 @@
         <section class="surface device-status-panel" aria-labelledby="device-status-heading">
           <div class="section-heading"><div><p class="eyebrow">Stanje sistema</p><h2 id="device-status-heading">Podrobnosti naprave</h2></div></div>
           <div class="status-grid">
+            <article class="status-card" id="cloud-wifi-ssid-card" hidden><p>Wi‑Fi omrežje</p><strong id="cloud-wifi-ssid">—</strong></article>
             <article class="status-card"><p>IP naslov</p><strong id="ip-address">—</strong></article>
             <article class="status-card"><p>Wi‑Fi signal</p><strong id="wifi-signal">—</strong></article>
             <article class="status-card"><p>Uptime</p><strong id="uptime">—</strong></article>
-            <article class="status-card device-state-card" id="device-state-card"><p>ESP32 stanje</p><strong id="device-online-status">Čakam na stanje …</strong><small id="device-last-seen">—</small></article>
+            <article class="status-card device-state-card" id="device-state-card"><p>Stanje naprave</p><strong class="device-status-label"><span class="device-status-dot" id="device-status-dot" aria-hidden="true"></span><span id="device-online-status" aria-live="polite">Čakam na stanje …</span></strong><small id="device-last-seen">—</small></article>
             <article class="status-card"><p>Firmware</p><strong id="firmware-version">—</strong></article>
             <article class="status-card"><p>ID naprave</p><strong id="device-id">—</strong></article>
             <article class="status-card" id="local-activation-card" hidden><p>Aktivacijska koda</p><strong id="local-activation-code">—</strong><small>Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.</small></article>
             <article class="status-card sd-card"><p>SD kartica</p><strong id="sd-status">—</strong><small id="sd-status-detail">Čakam na stanje …</small></article>
           </div>
+          <section class="load-cell-tare-control" data-local-only aria-labelledby="local-load-cell-tare-heading" hidden>
+            <p class="eyebrow">Tehtnica</p>
+            <h3 id="local-load-cell-tare-heading">Tariranje tehtnice</h3>
+            <p class="muted">S ploščadi odstrani vse. Trenutno prazno stanje bo nastavljeno na 0,00 kg.</p>
+            <button class="secondary-button" id="local-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
+            <p class="form-status" id="local-load-cell-tare-status" aria-live="polite">Čakam na stanje tehtnice …</p>
+          </section>
+          <section class="load-cell-tare-control" data-cloud-device-management aria-labelledby="cloud-load-cell-tare-heading" hidden>
+            <p class="eyebrow">Tehtnica</p>
+            <h3 id="cloud-load-cell-tare-heading">Tariranje tehtnice</h3>
+            <p class="muted">Odstrani panj in vse uteži s ploščadi. ESP32 bo prazno stanje shranil kot 0,00 kg.</p>
+            <button class="secondary-button" id="cloud-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
+            <p class="form-status" id="cloud-load-cell-tare-status" aria-live="polite">Izberi online panj za tariranje.</p>
+          </section>
+          <section class="device-time-control" aria-labelledby="device-time-heading">
+            <div class="device-time-summary">
+              <div><p class="eyebrow">Čas sistema</p><h3 id="device-time-heading">Datum in ura</h3></div>
+              <strong id="device-current-time">—</strong>
+              <p class="muted" id="device-time-source">Čakam na stanje ure …</p>
+              <p class="form-status" id="rtc-status" aria-live="polite">DS3231 še ni preverjen.</p>
+            </div>
+            <form class="device-time-form" id="device-time-form">
+              <label>Ročna nastavitev<input id="device-date-time" type="datetime-local" step="1" required /></label>
+              <div class="device-time-actions">
+                <button class="secondary-button" id="set-device-time" type="submit" disabled>Nastavi datum in uro</button>
+                <button class="secondary-button" id="sync-device-time" type="button" disabled>Sinhroniziraj z internetom</button>
+              </div>
+              <p class="form-status" id="device-time-status" aria-live="polite"></p>
+            </form>
+          </section>
+          <section class="cloud-sync-controls" data-local-only aria-labelledby="cloud-sync-heading" hidden>
+            <p class="eyebrow">Sinhronizacija</p>
+            <h3 id="cloud-sync-heading">Sinhronizacija zgodovine</h3>
+            <strong id="cloud-sync-status">Čakam na stanje …</strong>
+            <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
+          </section>
+          <section class="history-management" data-cloud-device-management aria-labelledby="history-management-heading" hidden>
+            <p class="eyebrow">Brisanje merilne zgodovine</p>
+            <h3 id="history-management-heading">Trajno izbriši meritve</h3>
+            <p class="muted">Ukaz trajno izbriše dnevnik meritev s SD kartice in celotno zgodovino v Firebase. Dejanja ni mogoče razveljaviti.</p>
+            <button class="secondary-button danger-button" id="delete-device-history" type="button" disabled>Izbriši merilno zgodovino</button>
+            <p class="form-status" id="history-management-status" aria-live="polite">Izberi panj za upravljanje zgodovine.</p>
+          </section>
         </section>
 
-        <section class="account-section surface" id="account-section" aria-labelledby="account-heading" hidden>
-          <div class="account-card">
-            <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji panji</h2><p class="subtitle" id="account-email">—</p></div>
-            <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
-          </div>
-          <div class="account-management">
-            <section class="device-selection-card" aria-labelledby="selected-device-heading">
-              <div><p class="eyebrow" id="device-list-eyebrow">Moji panji</p><h3 id="selected-device-heading">Izbrani panj</h3></div>
-              <label class="account-field">Panj<select id="cloud-device-select" disabled><option value="">Noben panj ni registriran</option></select></label>
-              <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
-              <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
-              <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
-              <section class="load-cell-tare-control" aria-labelledby="cloud-load-cell-tare-heading">
-                <p class="eyebrow">Tehtnica</p>
-                <h4 id="cloud-load-cell-tare-heading">Tariranje tehtnice</h4>
-                <p class="muted">Odstrani panj in vse uteži s ploščadi. ESP32 bo prazno stanje shranil kot 0,00 kg.</p>
-                <button class="secondary-button" id="cloud-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
-                <p class="form-status" id="cloud-load-cell-tare-status" aria-live="polite">Izberi online panj za tariranje.</p>
-              </section>
-              <section class="history-management" aria-labelledby="history-management-heading">
-                <p class="eyebrow">Nevarno območje</p>
-                <h4 id="history-management-heading">Merilna zgodovina</h4>
-                <p class="muted">Počisti samo cloud podatke ali trajno izbriši dnevnik iz SD kartice in Firebase.</p>
-                <div class="history-management-actions">
-                  <button class="secondary-button danger-button" id="clear-cloud-history" type="button" disabled>Počisti cloud zgodovino</button>
-                  <button class="secondary-button danger-button" id="delete-device-history" type="button" disabled>Izbriši SD in cloud</button>
-                </div>
-                <p class="form-status" id="history-management-status" aria-live="polite">Izberi panj za upravljanje zgodovine.</p>
-              </section>
-            </section>
-            <form class="claim-device-form" id="claim-device-form">
-              <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
-              <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
-              <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
-              <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
-              <button class="primary-button" type="submit">Registriraj panj</button>
-              <p class="form-status" id="claim-device-status" aria-live="polite"></p>
-            </form>
-          </div>
-        </section>
       </section>
 
       <section class="app-view" data-view-panel="updates" aria-labelledby="updates-heading" hidden>
@@ -262,7 +291,6 @@
             </div>
           </article>
         </section>
-        <p class="surface empty-state ota-empty-state" id="ota-empty-state">Za pregled posodobitev se prijavi in izberi registrirano napravo.</p>
       </section>
     </main>
 

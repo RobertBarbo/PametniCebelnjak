@@ -9,6 +9,7 @@ Firmware na ESP32-S3 spremlja en čebelji panj. Temperaturo in relativno vlago b
 - ESP32-S3 DevKitC-1 z 16 MB QIO flash in 8 MB vgrajenega OPI PSRAM
 - microSD kartica prek SPI: `CS=10`, `MOSI=11`, `SCK=12`, `MISO=13`
 - BME680 prek I²C: `SDA=8`, `SCL=9`, naslov `0x76` ali `0x77`
+- DS3231 RTC z rezervno baterijo na istem I²C vodilu: `SDA=8`, `SCL=9`, naslov `0x68`
 - HX711 z merilnimi celicami: `DOUT=4`, `SCK=5`
 
 PlatformIO uporablja uradni profil `esp32-s3-devkitc1-n16r8` z `qio_opi`, `BOARD_HAS_PSRAM`, 16 MB flash in `default_16MB.csv`. Shema vsebuje dve OTA aplikacijski particiji po 6,4 MB, LittleFS particijo velikosti 3,375 MB ter coredump particijo. Ob zagonu firmware preveri `psramFound()` in izpiše skupni/prosti PSRAM ter stanje notranjega heap-a. Medpomnilnik lokalne zgodovine je alociran neposredno v PSRAM; če alokacija ne uspe, meritve in cloud delovanje ostanejo aktivni, lokalna zgodovina pa jasno vrne napako.
@@ -22,15 +23,16 @@ PlatformIO uporablja uradni profil `esp32-s3-devkitc1-n16r8` z `qio_opi`, `BOARD
 - Tariranje je mogoče zahtevati v lokalnem omrežnem panelu ali cloud kartici izbranega online panja, ob upravljanju zgodovine. Pred potrditvijo mora biti ploščad prazna; lokalni AsyncTCP endpoint samo postavi ukaz v čakalno vrsto in ne kliče FirebaseClient. ESP32 tariranje v obeh primerih izvede v glavni zanki, nov HX711 odmik shrani v NVS in takoj ustvari novo trenutno meritev.
 - Teža vsake meritve je povprečje `20` zaporednih vzorcev HX711. To zmanjša električni šum, ne more pa odpraviti mehanskega posedanja ali dotika panja s podlago.
 - Če BME680 ali HX711 ni dosegljiv oziroma vrne neveljavno vrednost, se meritev ne zapiše na SD ali v Firebase; firmware ne ustvarja simuliranih nadomestnih podatkov.
-- Ob uspešni NTP sinhronizaciji zapis vsebuje slovenski datum, uro in Unix čas.
-- Brez interneta se meritev še vedno prikaže lokalno in zapiše na SD. Po ponovnem zagonu brez predhodne NTP sinhronizacije absolutni datum ni znan, zato takih zapisov ni mogoče pravilno umestiti v koledarski graf.
+- Ob zagonu veljaven DS3231 UTC čas takoj nastavi sistemsko uro ESP32. Meritve imajo zato pravilen datum in Unix čas tudi brez interneta; baterija RTC mora biti vstavljena in delujoča.
+- Ob dosegljivem internetu NTP samodejno popravi sistemski čas in DS3231. Datum in uro je mogoče nastaviti tudi ročno prek lokalne ali cloud strani; brskalnik lokalni datum pretvori v Unix UTC čas, RTC pa vedno hrani UTC.
+- Če DS3231 ni zaznan ali ima zastavico ustavljenega oscilatorja, naprava še naprej deluje. Do prve NTP ali ročne nastavitve pa absolutni datum ni znan in takih zapisov ni mogoče pravilno umestiti v koledarski graf.
 - Datoteka `/measurements.csv` na SD ima glavo `date,time,unix_timestamp,temperature_c,humidity_percent,weight_kg`.
 - Izpeljana datoteka `/measurements.idx` hrani začetni položaj vsakega UTC dneva. Obstoječemu CSV dnevniku se indeks ob prvem zagonu izdela samodejno, zato lokalni graf pri običajni poizvedbi bere samo zahtevani del datoteke. CSV ostaja edini izvorni zapis in indeks se lahko varno ponovno izdela.
 - Ko je Firebase dosegljiv, ESP32 iz CSV dnevnika prenese eno še nepotrjeno meritev na 10 sekund. Ob napaki razmik eksponentno poveča do največ 60 sekund. V NVS vsakih 12 uspešnih zapisov shrani položaj v datoteki in zadnji sinhroniziran čas; po izpadu elektrike se lahko ponovno pošlje največ 11 meritev, kar je varno, ker Firebase uporablja Unix čas kot enolični ključ.
 - Surova zgodovina se običajno pošilja samo prek SD sinhronizacije, zato isti zapis ni poslan dvakrat. Neposredni Firebase zapis se uporabi le kot rezerva, kadar meritve ni mogoče shraniti na SD.
 - Med zaporednim prenosom ESP32 izdela urne in dnevne povprečne agregate. Zaključeni interval se zapiše enkrat, trenutni interval pa se osveži največ vsakih 30 minut.
 - Ob prvem zagonu firmware-a z agregati se NVS kazalec enkrat samodejno vrne na začetek SD dnevnika. Obstoječi surovi ključi se varno prepišejo, hkrati pa se dopolnijo urni in dnevni podatki; naslednji zagoni nadaljujejo z običajnega shranjenega položaja.
-- Zapisi z `unix_timestamp=0`, ki nastanejo pred prvo NTP sinhronizacijo, ostanejo samo na SD kartici in niso vključeni v cloud graf.
+- Zapisi z `unix_timestamp=0`, ki nastanejo pred prvim veljavnim časom iz RTC-ja, NTP-ja ali ročne nastavitve, ostanejo samo na SD kartici in niso vključeni v cloud graf.
 - Stanje SD kartice se preveri vsako minuto. Ob nedosegljivi kartici se inicializacija ponovi; po petih neuspelih poskusih se stanje označi kot napaka.
 
 ## Wi-Fi provisioning in lokalni dostop
@@ -54,15 +56,17 @@ Začetni lokalni pogled naloži samo HTML, CSS, aplikacijski JavaScript in kratk
 
 Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32. PlatformIO pred prevajanjem samodejno izdela `gzip` kopije HTML, CSS in JavaScript datotek. Lokalni strežnik jih pošlje pod izvirnim URL-jem z glavo `Content-Encoding: gzip`; če jih odjemalec ne podpira ali stisnjena datoteka še ni naložena, uporabi nespremenjen izvorni zapis.
 
-- Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare`, `/measurements.csv` in portal `http://<device-ip>/update`.
+- Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare`, `/api/time`, `/measurements.csv` in portal `http://<device-ip>/update`.
 - Lokalni pogled najprej poskusi lokalni API; kadar ta ni dosegljiv, uporabi Firebase cloud pogled s prijavo uporabnika. Lokalni pogled ne prikaže cloud prijave ali registracije naprav, prikaže pa `device_id`, aktivacijsko kodo za kasnejšo registracijo in povezavo do ElegantOTA.
 - Ob uspešni povezavi z domačim Wi-Fi lokalni provisioning pogled uporablja nevtralen izraz »naprava«, ne strojno specifičnega imena ESP32.
 - Lokalni provisioning pogled ob aktivni povezavi prikaže tudi ime trenutno povezanega domačega Wi-Fi omrežja (SSID).
+- Lokalni pogled **Naprava** loči Wi-Fi nastavitve od stanja sistema: zgornji Wi-Fi del ima ločeno kartico trenutno povezanega SSID-ja ter kartico z ID-jem naprave in aktivacijsko kodo. Spodnja kartica po statusnih karticah združi tariranje tehtnice, čas sistema in sinhronizacijo zgodovine; statusna mreža lokalno prikazuje IP naslov brez podvajanja SSID-ja.
+- Cloud pogled **Naprava** po prijavi najprej prikaže kartico računa z izbiro oziroma registracijo panja. Upravljanje izbranega panja je ločeno v kartici podrobnosti naprave: za statusnimi karticami so tariranje tehtnice, čas sistema in **Brisanje merilne zgodovine**. Ta ima en sam ukaz, ki trajno izbriše dnevnik s SD kartice in zgodovino v Firebase; ločeno brisanje samo cloud zgodovine ni na voljo. Vsi cloud ukazi, ki jih mora izvesti ESP32 (tariranje, brisanje ter nastavljanje časa), so vidni samo po izbiri panja in onemogočeni, kadar naprava ni online.
 - Po brisanju shranjenih Wi-Fi nastavitev firmware najprej ustavi STA in AP vmesnik, nato po eni sekundi brez blokiranja glavne zanke zažene odprti provisioning AP na `192.168.4.1`. Če zagon AP-ja ne uspe, ga ponovi na pet sekund, zato asinhroni dogodek odklopa ne more prekiniti novega DHCP strežnika.
 - Highcharts je v `web/vendor/highcharts.js`, zato grafi na lokalnem ESP32 ne potrebujejo interneta.
 - Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. `/api/history` zahtevek samo uvrsti pripravo; glavni `loop()` SD dnevnik bere v kratkih časovno omejenih korakih, history koše hrani v PSRAM in JSON postopno pripravi v začasni datoteki na SD. Frontend med odgovorom `202` počaka ter zahtevek ponovi, zato AsyncTCP callback nikoli ne izvaja dolgega skeniranja CSV. Če SD ali PSRAM trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
 - Cloud grafa za obdobja do 7 dni bereta surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
-- Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze.
+- Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze. Med prenosom lokalni pogled prikaže zadnji potrjeni zapis; firmware zazna izgubljeno ali predolgo čakajočo Firebase asinhrono zahtevo, jo prekine in nadaljuje z varnim ponovnim poskusom.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje obeh grafov v lokalnem in cloud pogledu. Klik na pretekli dan samodejno izbere obdobje od `00:00` do `23:59`, klik na današnji dan pa od `00:00` do trenutne ure; drugi klik lahko obdobje razširi na drug dan.
 - Glavna navigacija loči poglede **Pregled**, **Grafi**, **Naprava** in **Posodobitve**; lokalni način skrije cloud prijavo in OTA upravljanje.
 - Pogled **Grafi** loči temperaturo z relativno vlago od teže panja, vendar oba grafa uporabljata isto izbrano obdobje in sta zložena navpično.
@@ -71,8 +75,11 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Vsi prikazi meritev, vključno s tooltipi grafov, temperaturo, relativno vlago in težo prikažejo na eno decimalko v lokalnem in cloud načinu. SD in Firebase še vedno hranita težo na dve decimalki za poznejše analize.
 - Graf za obdobja do 24 ur uporablja minutne točke; daljša obdobja ostanejo agregirana na urne, šesturne oziroma dnevne točke.
 - Zgornji cloud indikator prikazuje stanje izbranega panja glede na `status/device/last_seen_timestamp`: `Naprava online` do 90 sekund po odzivu, sicer `Naprava offline`. To ni več indikator povezave brskalnika s Firebase.
+- Na telefonu je v glavi namesto besedila indikatorja prikazana le zelena oziroma rdeča pika; lokalni pogled uporablja zeleno piko za uspešno lokalno povezavo z napravo.
 - Odzivna postavitev prilagodi navigacijo, kartice, tabelo, graf in obrazce telefonu, tablici ter namiznemu računalniku. Upravljalni elementi na dotik so visoki najmanj 44 px.
+- Pogled **Naprava** prikazuje trenutni datum in uro, vir časa ter stanje DS3231. Lokalno ali za izbrani online cloud panj lahko uporabnik nastavi datum in uro; NTP gumb je omogočen samo ob internetni povezavi.
 - Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani samo `owner_uid` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
+- Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Glavni skrbnik namesto njega vidi klikabilen pregled vseh naprava z zeleno/rdečo oznako online stanja in z njim izbere panj za upravljanje.
 - V cloud pogledu lahko lastnik ali glavni skrbnik po potrditvi z besedo `IZBRIŠI` počisti samo Firebase zgodovino (`latest`, `measurements`, `aggregates`) ali pošlje ukaz za trajni izbris SD dnevnika skupaj s cloud zgodovino. Popoln izbris je omogočen le za online napravo; ESP32 ukaz postavi v čakalno vrsto, dokler ne zaključi trenutnega SD prenosa, nato znova ustvari prazen CSV dnevnik in ponastavi kazalce sinhronizacije. Lokalni pogled te nevarne funkcije namenoma ne ponuja brez cloud prijave.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
@@ -81,6 +88,8 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 GitHub Actions ob tagu `vMAJOR.MINOR.PATCH-beta.N` preveri skladnost z `FIRMWARE_VERSION`, prevede firmware in LittleFS sliko, ustvari SHA-256 manifest ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`.
 
 Cloud nadzorna plošča preveri najnovejšo izdajo. Uporabnik lahko pošlje OTA ukaz ali različico prezre v svojem brskalniku. ESP32 ukaz preveri v največ 30 sekundah, ga najprej postavi v čakalno vrsto in šele nato obdela iz glavne zanke. Prazno preverjanje ukaza ostane tiho v serijskem monitorju. Najprej `littlefs.bin` prenese na SD kartico in preveri SHA-256; šele nato LittleFS odklopi, datoteko po 2 KB korakih zapiše v njegovo particijo in ponovno preveri SHA-256. Nato enako preverjeno posodobi `firmware.bin` v neaktivno OTA particijo in se ob uspehu ponovno zažene. Če SD kartice ni, se celotna OTA posodobitev varno prekine pred pisanjem katerekoli particije. Manifest ima 15-sekundno omejitev. Datoteke se prenašajo prek neposredne HTTPS povezave z ročno obdelavo največ štirih GitHub preusmeritev; povezava ima 20-sekundno, HTTP glave pa 15-sekundno omejitev. Predolge nepomembne GitHub HTTP glave se med branjem varno preskočijo, preusmeritvena `Location` pa se obdela. Prehodno prazno stanje `WiFiClientSecure` ne prekine prenosa; šele 15 sekund brez podatkov pomeni napako in se zapiše v Firebase. Cloud kartica prikaže fazo, skupni napredek od 0 do 100 % in razlog napake; serijski monitor izpiše iste korake ter ciljnega OTA gostitelja. Podvojeni Firebase povratni klici za isti OTA ukaz se ignorirajo. OTA izdaja ne vsebuje Wi-Fi poverilnic, zato je ista binarna datoteka primerna za vse naprave.
+
+Če uporabnik ni prijavljen ali ne izbere panja, cloud OTA kartica ostane skrita brez dodatnega praznega obvestila.
 
 Po kliku gumba **Posodobi napravo** cloud vmesnik oba OTA gumba zaklene do uspeha ali napake. Zaklep ostane aktiven tudi po osvežitvi strani, ker se določi iz stanja OTA v Firebase. Besedilo kartice prikazuje trenutno fazo in njen delež, oznaka ob vrstici napredka pa vedno pomeni skupni napredek celotne OTA posodobitve.
 
@@ -117,12 +126,13 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
   status/
     firmware/version
     sd_card/{present,initialization_failures,error}
-    device/{device_id,ip_address,wifi_rssi_dbm,uptime_days,uptime_hours,uptime_minutes,uptime_total_minutes,last_seen_timestamp}
+    device/{device_id,station_ssid,ip_address,wifi_rssi_dbm,uptime_days,uptime_hours,uptime_minutes,uptime_total_minutes,last_seen_timestamp,current_time_timestamp,time_source,rtc_present,rtc_valid,ntp_sync_pending,last_time_sync_timestamp}
     ota/{state,current_version,target_version,message,progress_percent,updated_at}
     history/{state,message,updated_at}
     load_cell/{state,message,updated_at}
   commands/
     firmware_update/{action,target_version?,requested_at}
+    time/{action,timestamp?,requested_at}
 
 /users/{firebase_uid}/devices/{device_id}/
   display_name
@@ -132,4 +142,6 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
 /device_claims/{device_id}/{firebase_uid}/activation_code
 ```
 
-Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku pokaže samo naprave pod `/users/{firebase_uid}/devices`. Trenutni beta skrbniški UID lahko bere celotno pot `/devices` in zato samodejno vidi vse panje brez aktivacije; lahko tudi počisti merilno zgodovino izbranega panja, ne more pa spreminjati lastništva ali zasebnih aktivacijskih podatkov. Popoln izbris uporabi akcijo `delete_history` v obstoječem ukazu `commands/firmware_update`, zato jo firmware preveri z istim zanesljivim 30-sekundnim ciklom kot OTA. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.
+Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku pokaže samo naprave pod `/users/{firebase_uid}/devices`. Trenutni beta skrbniški UID lahko bere celotno pot `/devices` in zato samodejno vidi vse panje brez aktivacije; lahko tudi počisti merilno zgodovino izbranega panja, ne more pa spreminjati lastništva ali zasebnih aktivacijskih podatkov. Popoln izbris uporabi akcijo `delete_history`, cloud tariranje pa akcijo `tare_load_cell` v obstoječem ukazu `commands/firmware_update`, zato ju firmware preveri z istim zanesljivim 30-sekundnim ciklom kot OTA. Pred tariranjem firmware ukaz najprej odstrani, nato iz glavne zanke objavi končni uspeh ali napako; tako se Firebase zahteve ne prekrivajo. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.
+
+Če cloud status tariranja ostane `queued` ali `taring` več kot 90 sekund, nadzorna plošča ga označi kot nedokončanega in ponovno omogoči gumb. Ob vsakem zagonu ESP32 objavi začetno stanje HX711, zato se zastarelo stanje prejšnjega zagona ponastavi.

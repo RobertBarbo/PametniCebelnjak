@@ -89,6 +89,11 @@
           "firmware_update": {
             ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             ".write": "(auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)) || (auth == null && !newData.exists())"
+          },
+          "time": {
+            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
+            ".write": "(auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)) || (auth == null && !newData.exists())",
+            ".validate": "!newData.exists() || (newData.hasChildren(['action', 'requested_at']) && newData.child('action').isString() && (newData.child('action').val() === 'sync_ntp' || (newData.child('action').val() === 'set' && newData.child('timestamp').isNumber() && newData.child('timestamp').val() >= 1700000000 && newData.child('timestamp').val() <= 4102444799)) && newData.child('requested_at').isNumber())"
           }
         }
       }

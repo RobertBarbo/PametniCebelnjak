@@ -18,6 +18,7 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <esp_heap_caps.h>
+#include <esp_sntp.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
 #include <mbedtls/sha256.h>
@@ -35,10 +36,14 @@ constexpr uint32_t SD_MEASUREMENT_INTERVAL_MS = 60 * 1000;
 constexpr uint32_t SD_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
+constexpr uint32_t TIME_COMMAND_INTERVAL_MS = 15000;
 constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Zgodovina se iz SD sinhronizira postopno; prehiter tempo lahko ob DNS/TLS napaki zasiči Wi-Fi sklad.
 constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10000;
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60000;
+// Varovalka za primer, ko FirebaseClient izgubi asinhroni rezultat, zastavica prenosa pa ostane aktivna.
+constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3000;
+constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;
 constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30000;
 // FirebaseClient je asinhron, zato 20 klicev na sekundo zadostuje in pusti čas lokalnemu HTTP strežniku.
 constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;
@@ -55,6 +60,7 @@ constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000;
 constexpr uint32_t NETWORK_SERVICE_STABILIZATION_MS = 2000;
 constexpr uint32_t NTP_FIREBASE_GUARD_MS = 3000;
+constexpr uint32_t NTP_SYNC_TIMEOUT_MS = 30000;
 constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 10000;
 constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;
 constexpr uint32_t WIFI_RADIO_RESTART_DELAY_MS = 1000;
@@ -111,6 +117,10 @@ constexpr int BME680_SDA_PIN = 8;
 constexpr int BME680_SCL_PIN = 9;
 constexpr uint8_t BME680_PRIMARY_ADDRESS = 0x76;
 constexpr uint8_t BME680_SECONDARY_ADDRESS = 0x77;
+constexpr uint8_t DS3231_ADDRESS = 0x68;
+constexpr uint8_t DS3231_TIME_REGISTER = 0x00;
+constexpr uint8_t DS3231_STATUS_REGISTER = 0x0F;
+constexpr uint8_t DS3231_OSCILLATOR_STOP_FLAG = 0x80;
 constexpr int HX711_DOUT_PIN = 4;
 constexpr int HX711_SCK_PIN = 5;
 constexpr uint8_t HX711_TARE_SAMPLES = 20;
@@ -127,6 +137,7 @@ constexpr char NTP_SERVER_2[] = "time.google.com";
 constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 1441;
 constexpr time_t MAX_LOCAL_HISTORY_DURATION_SECONDS = 366 * 24 * 60 * 60;
 constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;
+constexpr time_t MAX_SETTABLE_UNIX_TIMESTAMP = 4102444799LL;  // 31. 12. 2099 23:59:59 UTC.
 constexpr char DEVICE_SETTINGS_NAMESPACE[] = "device";
 constexpr char WIFI_SETTINGS_NAMESPACE[] = "wifi";
 constexpr char SENSOR_SETTINGS_NAMESPACE[] = "sensors";
@@ -226,6 +237,20 @@ enum class LoadCellTareState : uint8_t {
   Error,
 };
 
+enum class TimeSource : uint8_t {
+  Unavailable,
+  Rtc,
+  Ntp,
+  ManualLocal,
+  ManualCloud,
+};
+
+enum class TimeCommandType : uint8_t {
+  None,
+  SetManual,
+  SynchronizeNtp,
+};
+
 enum class HistoryDeletionStep : uint8_t {
   Idle,
   ReportQueued,
@@ -271,11 +296,13 @@ uint32_t lastSDMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
 uint32_t lastFirmwareCommandCheckMillis = 0;
+uint32_t lastTimeCommandCheckMillis = 0;
 uint32_t lastActivationSecretAttemptMillis = 0;
 uint32_t lastFirebaseAppLoopMillis = 0;
 uint32_t firebaseTaskStartedMillis = 0;
 uint32_t lastSystemDiagnosticMillis = 0;
 uint32_t lastCloudSyncAttemptMillis = 0;
+uint32_t cloudSyncRequestStartedMillis = 0;
 uint32_t cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
 uint32_t lastCloudAggregateRefreshMillis = 0;
 uint32_t firebaseRequestsPausedUntilMillis = 0;
@@ -297,12 +324,18 @@ bool sdErrorReported = false;
 bool firmwareVersionReported = false;
 bool firmwareCommandPending = false;
 bool firmwareCommandQueued = false;
+bool timeCommandPending = false;
+bool timeCommandQueued = false;
+bool timeCommandFromCloud = false;
+volatile bool ntpSynchronizationCompleted = false;
+bool ntpSynchronizationPending = false;
 bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
 bool historyDeletionQueued = false;
 bool historyDeletionRequestPending = false;
 // Nastavlja ga lokalni HTTP zahtevek ali Firebase ukaz; obdelava ostane v glavni zanki.
 volatile bool loadCellTareQueued = false;
+bool loadCellTareStatusReported = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool littlefsUnmountedForOta = false;
@@ -333,6 +366,8 @@ bool scheduledAccessPointKeepsStationEnabled = false;
 volatile bool accessPointExpected = false;
 bool bme680Ready = false;
 bool loadCellReady = false;
+bool rtcReady = false;
+bool rtcTimeValid = false;
 uint8_t wifiReconnectAttempts = 0;
 WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
 String pendingWiFiSsid;
@@ -372,9 +407,11 @@ char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char loadCellStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
+char timeCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
 char queuedFirmwareCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
+char queuedTimeCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
 uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
 FirmwareManifest otaManifest{};
@@ -398,10 +435,17 @@ CloudSyncRequestType cloudSyncRequestType = CloudSyncRequestType::None;
 OtaUpdateState otaUpdateState = OtaUpdateState::Idle;
 LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
 HistoryDeletionStep historyDeletionStep = HistoryDeletionStep::Idle;
+TimeSource currentTimeSource = TimeSource::Unavailable;
+TimeCommandType pendingTimeCommandType = TimeCommandType::None;
+time_t pendingTimeCommandTimestamp = 0;
+time_t lastTimeSynchronizationTimestamp = 0;
+portMUX_TYPE timeCommandMux = portMUX_INITIALIZER_UNLOCKED;
 
 void processFirmwareUpdateCommand(const String &payload);
 void queueFirmwareUpdateCommand(const String &payload);
 void processQueuedFirmwareUpdateCommand();
+void processQueuedTimeCommand();
+void processPendingTimeCommand();
 void queueHistoryDeleteAction();
 void processPendingHistoryDeletion();
 bool isHistoryDeletionRequest(const String &requestId);
@@ -486,10 +530,12 @@ void cancelPendingFirebaseTasks(const char *reason)
 
   firebaseTaskStartedMillis = 0;
   firmwareCommandPending = false;
+  timeCommandPending = false;
   activationSecretPublishPending = false;
   historyDeletionRequestPending = false;
   firmwareVersionReported = false;
   cloudSyncPending = false;
+  cloudSyncRequestStartedMillis = 0;
   cloudSyncRequestType = CloudSyncRequestType::None;
 }
 
@@ -531,6 +577,7 @@ void maintainFirebaseClient()
 void markCloudSyncFailure()
 {
   cloudSyncPending = false;
+  cloudSyncRequestStartedMillis = 0;
   cloudSyncRequestType = CloudSyncRequestType::None;
   cloudSyncRetryIntervalMs = min(cloudSyncRetryIntervalMs * 2, CLOUD_SYNC_MAX_RETRY_INTERVAL_MS);
   Serial.print("Cloud sync retry delayed to ");
@@ -618,8 +665,14 @@ void processData(AsyncResult &result)
     if (result.uid() == "updateFirmwareVersion") {
       firmwareVersionReported = false;
     }
+    if (result.uid() == "updateLoadCellTareStatus") {
+      loadCellTareStatusReported = false;
+    }
     if (result.uid() == "readFirmwareUpdateCommand") {
       firmwareCommandPending = false;
+    }
+    if (result.uid() == "readTimeCommand") {
+      timeCommandPending = false;
     }
     if (result.uid() == "publishActivationSecret") {
       activationSecretPublishPending = false;
@@ -640,6 +693,20 @@ void processData(AsyncResult &result)
       const String payload = result.payload();
       if (payload != "null" && payload.length() > 0) {
         queueFirmwareUpdateCommand(payload);
+      }
+      return;
+    }
+    if (result.uid() == "readTimeCommand") {
+      timeCommandPending = false;
+      const String payload = result.payload();
+      if (payload != "null" && payload.length() > 0) {
+        if (payload.length() >= sizeof(queuedTimeCommandPayload)) {
+          queuedTimeCommandPayload[0] = '\0';
+          timeCommandQueued = true;
+        } else {
+          payload.toCharArray(queuedTimeCommandPayload, sizeof(queuedTimeCommandPayload));
+          timeCommandQueued = true;
+        }
       }
       return;
     }
@@ -664,6 +731,7 @@ void processData(AsyncResult &result)
 
       const CloudSyncRequestType completedRequestType = cloudSyncRequestType;
       cloudSyncPending = false;
+      cloudSyncRequestStartedMillis = 0;
       cloudSyncRequestType = CloudSyncRequestType::None;
       cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
       if (completedRequestType == CloudSyncRequestType::Measurement) {
@@ -688,6 +756,200 @@ void processData(AsyncResult &result)
 
 // --- Senzorji ---------------------------------------------------------------
 
+uint8_t decimalToBcd(uint8_t value)
+{
+  return static_cast<uint8_t>(((value / 10U) << 4U) | (value % 10U));
+}
+
+bool decodeBcd(uint8_t encoded, uint8_t mask, uint8_t minimum, uint8_t maximum, uint8_t &value)
+{
+  const uint8_t bcd = encoded & mask;
+  const uint8_t high = bcd >> 4U;
+  const uint8_t low = bcd & 0x0FU;
+  if (high > 9 || low > 9) return false;
+
+  value = static_cast<uint8_t>(high * 10U + low);
+  return value >= minimum && value <= maximum;
+}
+
+bool isLeapYear(int year)
+{
+  return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+}
+
+uint8_t daysInMonth(int year, uint8_t month)
+{
+  static constexpr uint8_t DAYS_PER_MONTH[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (month < 1 || month > 12) return 0;
+  if (month == 2 && isLeapYear(year)) return 29;
+  return DAYS_PER_MONTH[month - 1];
+}
+
+int64_t daysFromCivil(int year, unsigned month, unsigned day)
+{
+  year -= month <= 2;
+  const int era = (year >= 0 ? year : year - 399) / 400;
+  const unsigned yearOfEra = static_cast<unsigned>(year - era * 400);
+  const unsigned adjustedMonth = month > 2 ? month - 3U : month + 9U;
+  const unsigned dayOfYear = (153U * adjustedMonth + 2U) / 5U + day - 1U;
+  const unsigned dayOfEra = yearOfEra * 365U + yearOfEra / 4U - yearOfEra / 100U + dayOfYear;
+  return static_cast<int64_t>(era) * 146097LL + static_cast<int64_t>(dayOfEra) - 719468LL;
+}
+
+bool utcDateTimeToTimestamp(int year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                            uint8_t second, time_t &timestamp)
+{
+  if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 ||
+      day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+
+  const int64_t seconds = daysFromCivil(year, month, day) * 86400LL +
+                          static_cast<int64_t>(hour) * 3600LL +
+                          static_cast<int64_t>(minute) * 60LL + second;
+  if (seconds < MIN_VALID_UNIX_TIMESTAMP || seconds > MAX_SETTABLE_UNIX_TIMESTAMP) return false;
+  timestamp = static_cast<time_t>(seconds);
+  return true;
+}
+
+bool readDs3231Registers(uint8_t startRegister, uint8_t *buffer, size_t length)
+{
+  Wire.beginTransmission(DS3231_ADDRESS);
+  Wire.write(startRegister);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(DS3231_ADDRESS, static_cast<uint8_t>(length)) != length) return false;
+
+  for (size_t index = 0; index < length; ++index) {
+    buffer[index] = Wire.read();
+  }
+  return true;
+}
+
+bool writeDs3231Registers(uint8_t startRegister, const uint8_t *buffer, size_t length)
+{
+  Wire.beginTransmission(DS3231_ADDRESS);
+  Wire.write(startRegister);
+  Wire.write(buffer, length);
+  return Wire.endTransmission() == 0;
+}
+
+bool readDs3231Timestamp(time_t &timestamp)
+{
+  uint8_t status = 0;
+  if (!readDs3231Registers(DS3231_STATUS_REGISTER, &status, 1) ||
+      (status & DS3231_OSCILLATOR_STOP_FLAG) != 0) {
+    return false;
+  }
+
+  uint8_t registers[7]{};
+  if (!readDs3231Registers(DS3231_TIME_REGISTER, registers, sizeof(registers))) return false;
+
+  uint8_t second;
+  uint8_t minute;
+  uint8_t hour;
+  uint8_t day;
+  uint8_t month;
+  uint8_t year;
+  if (!decodeBcd(registers[0], 0x7F, 0, 59, second) ||
+      !decodeBcd(registers[1], 0x7F, 0, 59, minute)) {
+    return false;
+  }
+
+  if ((registers[2] & 0x40U) != 0) {
+    uint8_t hour12;
+    if (!decodeBcd(registers[2], 0x1F, 1, 12, hour12)) return false;
+    hour = static_cast<uint8_t>(hour12 % 12U + ((registers[2] & 0x20U) != 0 ? 12U : 0U));
+  } else if (!decodeBcd(registers[2], 0x3F, 0, 23, hour)) {
+    return false;
+  }
+
+  if (!decodeBcd(registers[4], 0x3F, 1, 31, day) ||
+      !decodeBcd(registers[5], 0x1F, 1, 12, month) ||
+      !decodeBcd(registers[6], 0xFF, 0, 99, year)) {
+    return false;
+  }
+  return utcDateTimeToTimestamp(2000 + year, month, day, hour, minute, second, timestamp);
+}
+
+bool writeDs3231Timestamp(time_t timestamp)
+{
+  if (!rtcReady || timestamp < MIN_VALID_UNIX_TIMESTAMP || timestamp > MAX_SETTABLE_UNIX_TIMESTAMP) {
+    return false;
+  }
+
+  struct tm utcTime{};
+  if (gmtime_r(&timestamp, &utcTime) == nullptr || utcTime.tm_year + 1900 > 2099) return false;
+
+  const uint8_t registers[] = {
+      decimalToBcd(static_cast<uint8_t>(utcTime.tm_sec)),
+      decimalToBcd(static_cast<uint8_t>(utcTime.tm_min)),
+      decimalToBcd(static_cast<uint8_t>(utcTime.tm_hour)),
+      decimalToBcd(static_cast<uint8_t>(utcTime.tm_wday + 1)),
+      decimalToBcd(static_cast<uint8_t>(utcTime.tm_mday)),
+      decimalToBcd(static_cast<uint8_t>(utcTime.tm_mon + 1)),
+      decimalToBcd(static_cast<uint8_t>((utcTime.tm_year + 1900) - 2000)),
+  };
+  if (!writeDs3231Registers(DS3231_TIME_REGISTER, registers, sizeof(registers))) return false;
+
+  uint8_t status = 0;
+  if (!readDs3231Registers(DS3231_STATUS_REGISTER, &status, 1)) return false;
+  status &= static_cast<uint8_t>(~DS3231_OSCILLATOR_STOP_FLAG);
+  if (!writeDs3231Registers(DS3231_STATUS_REGISTER, &status, 1)) return false;
+  rtcTimeValid = true;
+  return true;
+}
+
+bool setSystemTimestamp(time_t timestamp)
+{
+  if (timestamp < MIN_VALID_UNIX_TIMESTAMP || timestamp > MAX_SETTABLE_UNIX_TIMESTAMP) return false;
+  const timeval systemTime{timestamp, 0};
+  return settimeofday(&systemTime, nullptr) == 0;
+}
+
+const char *timeSourceName()
+{
+  switch (currentTimeSource) {
+    case TimeSource::Rtc: return "rtc";
+    case TimeSource::Ntp: return "ntp";
+    case TimeSource::ManualLocal: return "manual_local";
+    case TimeSource::ManualCloud: return "manual_cloud";
+    case TimeSource::Unavailable:
+    default: return "unavailable";
+  }
+}
+
+void initializeI2c()
+{
+  Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
+}
+
+bool initializeRtc()
+{
+  Wire.beginTransmission(DS3231_ADDRESS);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("DS3231 was not detected on I2C address 0x68.");
+    return false;
+  }
+
+  rtcReady = true;
+  time_t rtcTimestamp = 0;
+  rtcTimeValid = readDs3231Timestamp(rtcTimestamp);
+  if (!rtcTimeValid) {
+    Serial.println("DS3231 detected, but its time is invalid or the backup oscillator stopped.");
+    return true;
+  }
+  if (!setSystemTimestamp(rtcTimestamp)) {
+    rtcTimeValid = false;
+    Serial.println("DS3231 time could not be applied to the ESP32 system clock.");
+    return true;
+  }
+
+  currentTimeSource = TimeSource::Rtc;
+  lastTimeSynchronizationTimestamp = rtcTimestamp;
+  Serial.printf("System time restored from DS3231: %lu UTC.\n", static_cast<unsigned long>(rtcTimestamp));
+  return true;
+}
+
 bool loadStoredLoadCellOffset(long &offset)
 {
   if (!preferences.begin(SENSOR_SETTINGS_NAMESPACE, true)) return false;
@@ -711,7 +973,6 @@ bool storeLoadCellOffset(long offset)
 
 bool initializeBme680()
 {
-  Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
   if (!bme680.begin(BME680_PRIMARY_ADDRESS) && !bme680.begin(BME680_SECONDARY_ADDRESS)) {
     Serial.println("BME680 was not detected on I2C addresses 0x76 or 0x77.");
     return false;
@@ -891,6 +1152,7 @@ void initializeDeviceDatabasePaths()
   snprintf(otaStatusDatabasePath, sizeof(otaStatusDatabasePath), "%s/status/ota", deviceDatabasePath);
   snprintf(loadCellStatusDatabasePath, sizeof(loadCellStatusDatabasePath), "%s/status/load_cell", deviceDatabasePath);
   snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
+  snprintf(timeCommandDatabasePath, sizeof(timeCommandDatabasePath), "%s/commands/time", deviceDatabasePath);
   snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
   snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
 }
@@ -1266,14 +1528,53 @@ void maintainNetworkConnection()
   }
 }
 
-void initializeTime()
+bool startNtpSynchronization()
 {
-  if (timeSynchronizationInitialized || !stationNetworkIsStable()) return;
+  if (!stationNetworkIsStable()) return false;
 
   configTzTime(TIMEZONE, NTP_SERVER_1, NTP_SERVER_2);
   timeSynchronizationInitialized = true;
   timeSynchronizationStartedMillis = millis();
+  ntpSynchronizationPending = true;
   Serial.println("Synchronizing time with NTP...");
+  return true;
+}
+
+void initializeTime()
+{
+  if (!timeSynchronizationInitialized) startNtpSynchronization();
+}
+
+void processTimeSynchronization()
+{
+  if (ntpSynchronizationCompleted) {
+    ntpSynchronizationCompleted = false;
+    ntpSynchronizationPending = false;
+    const time_t synchronizedTimestamp = time(nullptr);
+    if (synchronizedTimestamp < MIN_VALID_UNIX_TIMESTAMP) {
+      Serial.println("NTP synchronization callback returned an invalid time.");
+      return;
+    }
+
+    currentTimeSource = TimeSource::Ntp;
+    lastTimeSynchronizationTimestamp = synchronizedTimestamp;
+    if (rtcReady && !writeDs3231Timestamp(synchronizedTimestamp)) {
+      rtcTimeValid = false;
+      Serial.println("NTP time is valid, but DS3231 could not be updated.");
+    } else if (rtcReady) {
+      Serial.println("DS3231 was synchronized with NTP.");
+    }
+    lastDeviceStatusMillis = 0;
+    Serial.printf("NTP synchronization completed: %lu UTC.\n",
+                  static_cast<unsigned long>(synchronizedTimestamp));
+    return;
+  }
+
+  if (ntpSynchronizationPending &&
+      millis() - timeSynchronizationStartedMillis >= NTP_SYNC_TIMEOUT_MS) {
+    ntpSynchronizationPending = false;
+    Serial.println("NTP synchronization timed out; the current RTC/system time remains active.");
+  }
 }
 
 bool isFirebaseTransportReady()
@@ -1390,6 +1691,24 @@ bool extractJsonSize(const String &json, const char *key, size_t &value)
   const unsigned long parsed = strtoul(number.c_str(), nullptr, 10);
   if (parsed == 0) return false;
   value = parsed;
+  return true;
+}
+
+bool extractJsonTimestamp(const String &json, const char *key, time_t &value)
+{
+  const String keyPrefix = String('"') + key + "\":";
+  const int keyPosition = json.indexOf(keyPrefix);
+  if (keyPosition < 0) return false;
+
+  const char *numberStart = json.c_str() + keyPosition + keyPrefix.length();
+  while (*numberStart == ' ' || *numberStart == '\t') ++numberStart;
+  char *numberEnd = nullptr;
+  const unsigned long long parsed = strtoull(numberStart, &numberEnd, 10);
+  if (numberEnd == numberStart || parsed < static_cast<unsigned long long>(MIN_VALID_UNIX_TIMESTAMP) ||
+      parsed > static_cast<unsigned long long>(MAX_SETTABLE_UNIX_TIMESTAMP)) {
+    return false;
+  }
+  value = static_cast<time_t>(parsed);
   return true;
 }
 
@@ -2070,7 +2389,9 @@ void processFirmwareUpdateCommand(const String &payload)
   }
 
   if (action == "tare_load_cell") {
-    if (!queueLoadCellTare()) {
+    // Najprej odstranimo cloud ukaz. Končni status se objavi šele po tariranju,
+    // zato na enem AsyncClientu ne moreta tekmovati zapis statusa in remove ukaza.
+    if (!queueLoadCellTare(false)) {
       Serial.println("Load cell tare command ignored: taring is already in progress.");
     }
     clearFirmwareUpdateCommand();
@@ -2256,6 +2577,117 @@ void requestFirmwareUpdateCommand()
   database.get(asyncClient, otaCommandDatabasePath, processData, false, "readFirmwareUpdateCommand");
 }
 
+bool queueTimeCommand(TimeCommandType type, time_t timestamp, bool fromCloud)
+{
+  bool queued = false;
+  portENTER_CRITICAL(&timeCommandMux);
+  if (pendingTimeCommandType == TimeCommandType::None) {
+    pendingTimeCommandType = type;
+    pendingTimeCommandTimestamp = timestamp;
+    timeCommandFromCloud = fromCloud;
+    queued = true;
+  }
+  portEXIT_CRITICAL(&timeCommandMux);
+  return queued;
+}
+
+void clearTimeCommand()
+{
+  database.remove(asyncClient, timeCommandDatabasePath, processData, "clearTimeCommand");
+}
+
+void processQueuedTimeCommand()
+{
+  if (!timeCommandQueued || firmwareUpdateInProgress || Update.isRunning()) return;
+
+  timeCommandQueued = false;
+  const String payload(queuedTimeCommandPayload);
+  queuedTimeCommandPayload[0] = '\0';
+  String action;
+  if (!extractJsonString(payload, "action", action)) {
+    Serial.println("Time command ignored: invalid payload.");
+    clearTimeCommand();
+    return;
+  }
+
+  TimeCommandType commandType = TimeCommandType::None;
+  time_t timestamp = 0;
+  if (action == "set") {
+    if (!extractJsonTimestamp(payload, "timestamp", timestamp)) {
+      Serial.println("Time command ignored: invalid timestamp.");
+      clearTimeCommand();
+      return;
+    }
+    commandType = TimeCommandType::SetManual;
+  } else if (action == "sync_ntp") {
+    commandType = TimeCommandType::SynchronizeNtp;
+  } else {
+    Serial.println("Time command ignored: unsupported action.");
+    clearTimeCommand();
+    return;
+  }
+
+  if (!queueTimeCommand(commandType, timestamp, true)) {
+    Serial.println("Time command postponed: another time operation is active.");
+    return;
+  }
+  clearTimeCommand();
+  Serial.println("Cloud time command queued.");
+}
+
+void processPendingTimeCommand()
+{
+  TimeCommandType commandType;
+  time_t timestamp;
+  bool fromCloud;
+  portENTER_CRITICAL(&timeCommandMux);
+  commandType = pendingTimeCommandType;
+  timestamp = pendingTimeCommandTimestamp;
+  fromCloud = timeCommandFromCloud;
+  portEXIT_CRITICAL(&timeCommandMux);
+
+  if (commandType == TimeCommandType::None || firmwareUpdateInProgress || Update.isRunning()) return;
+  // Cloud ukaz najprej odstranimo iz Firebase. NTP DNS se zato ne more prekrivati z aktivnim remove opravilom.
+  if (fromCloud && asyncClient.taskCount() > 0) return;
+
+  portENTER_CRITICAL(&timeCommandMux);
+  pendingTimeCommandType = TimeCommandType::None;
+  pendingTimeCommandTimestamp = 0;
+  timeCommandFromCloud = false;
+  portEXIT_CRITICAL(&timeCommandMux);
+
+  if (commandType == TimeCommandType::SynchronizeNtp) {
+    if (!startNtpSynchronization()) {
+      Serial.println("Manual NTP synchronization failed: internet connection is unavailable.");
+      return;
+    }
+    Serial.println(fromCloud ? "Cloud requested NTP synchronization." :
+                               "Local dashboard requested NTP synchronization.");
+    return;
+  }
+
+  if (!setSystemTimestamp(timestamp)) {
+    Serial.println("Manual time setting failed: invalid system timestamp.");
+    return;
+  }
+  currentTimeSource = fromCloud ? TimeSource::ManualCloud : TimeSource::ManualLocal;
+  lastTimeSynchronizationTimestamp = timestamp;
+  if (rtcReady && !writeDs3231Timestamp(timestamp)) {
+    rtcTimeValid = false;
+    Serial.println("System time was set, but DS3231 could not be updated.");
+  }
+  lastDeviceStatusMillis = 0;
+  Serial.printf("Time set manually from %s: %lu UTC.\n", fromCloud ? "cloud" : "local dashboard",
+                static_cast<unsigned long>(timestamp));
+}
+
+void requestTimeCommand()
+{
+  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) return;
+  timeCommandPending = true;
+  database.get(asyncClient, timeCommandDatabasePath, processData, false, "readTimeCommand");
+}
+
 void reportHistoryDeletionStatus(const char *state, const char *message, const char *requestId)
 {
   char jsonPayload[256];
@@ -2301,10 +2733,9 @@ bool queueLoadCellTare(bool publishCloudStatus)
   loadCellTareState = LoadCellTareState::Queued;
   Serial.println("Load cell tare command queued.");
   // Lokalni HTTP callback teče v AsyncTCP opravilu. FirebaseClient sme biti uporabljen samo
-  // iz glavne zanke, zato lokalni zahtevek objavo stanja prepusti processPendingLoadCellTare().
-  if (publishCloudStatus) {
-    reportLoadCellTareStatus("Ukaz za tariranje čaka na izvedbo.");
-  }
+  // iz glavne zanke. Tudi cloud ukaz najprej počaka na odstranitev ukaza, zato stanje
+  // objavimo šele po tariranju in ne ustvarimo dveh sočasnih Firebase opravil.
+  (void)publishCloudStatus;
   return true;
 }
 
@@ -2314,9 +2745,15 @@ void processPendingLoadCellTare()
     return;
   }
 
+  // Cloud ukaz je treba najprej odstraniti iz Firebase. Sicer lahko zaključni
+  // status tariranja prekliče remove ukaza ali obratno.
+  if (asyncClient.taskCount() > 0) {
+    return;
+  }
+
   loadCellTareQueued = false;
   loadCellTareState = LoadCellTareState::Taring;
-  reportLoadCellTareStatus("Tariram prazno ploščad tehtnice …");
+  Serial.println("Load cell tare started.");
 
   if (!loadCellReady || !loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
     loadCellTareState = LoadCellTareState::Error;
@@ -3107,6 +3544,51 @@ void requestLoadCellTare(AsyncWebServerRequest *request)
   sendLocalJsonResponse(request, 202, "{\"state\":\"queued\"}");
 }
 
+void requestTimeConfiguration(AsyncWebServerRequest *request)
+{
+  if (!request->hasParam("action", true)) {
+    sendLocalJsonResponse(request, 400, "{\"error\":\"Time action is required\"}");
+    return;
+  }
+
+  const String action = request->getParam("action", true)->value();
+  TimeCommandType commandType = TimeCommandType::None;
+  time_t timestamp = 0;
+  if (action == "set") {
+    if (!request->hasParam("timestamp", true)) {
+      sendLocalJsonResponse(request, 400, "{\"error\":\"Timestamp is required\"}");
+      return;
+    }
+    const String timestampText = request->getParam("timestamp", true)->value();
+    char *timestampEnd = nullptr;
+    const unsigned long long parsedTimestamp = strtoull(timestampText.c_str(), &timestampEnd, 10);
+    if (timestampEnd == timestampText.c_str() || *timestampEnd != '\0' ||
+        parsedTimestamp < static_cast<unsigned long long>(MIN_VALID_UNIX_TIMESTAMP) ||
+        parsedTimestamp > static_cast<unsigned long long>(MAX_SETTABLE_UNIX_TIMESTAMP)) {
+      sendLocalJsonResponse(request, 400, "{\"error\":\"Timestamp is outside the DS3231 range\"}");
+      return;
+    }
+    timestamp = static_cast<time_t>(parsedTimestamp);
+    commandType = TimeCommandType::SetManual;
+  } else if (action == "sync_ntp") {
+    if (!stationNetworkIsStable()) {
+      sendLocalJsonResponse(request, 409, "{\"error\":\"Internet connection is unavailable\"}");
+      return;
+    }
+    commandType = TimeCommandType::SynchronizeNtp;
+  } else {
+    sendLocalJsonResponse(request, 400, "{\"error\":\"Unsupported time action\"}");
+    return;
+  }
+
+  if (!queueTimeCommand(commandType, timestamp, false)) {
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Another time operation is active\"}");
+    return;
+  }
+  Serial.println("Local time command accepted.");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"queued\"}");
+}
+
 void sendLocalStatus(AsyncWebServerRequest *request)
 {
   const Uptime uptime = getUptime();
@@ -3128,12 +3610,17 @@ void sendLocalStatus(AsyncWebServerRequest *request)
     snprintf(measurementJson, sizeof(measurementJson), "null");
   }
 
-  static char jsonPayload[1792];
+  const time_t currentTimestamp = time(nullptr);
+  static char jsonPayload[2200];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
+           static_cast<unsigned long>(currentTimestamp), timeSourceName(),
+           currentTimestamp >= MIN_VALID_UNIX_TIMESTAMP ? "true" : "false", rtcReady ? "true" : "false",
+           rtcTimeValid ? "true" : "false", ntpSynchronizationPending ? "true" : "false",
+           static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
            stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
            escapedStationSsid.c_str(), accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
            wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
@@ -3370,6 +3857,7 @@ void resetCloudSynchronization(AsyncWebServerRequest *request)
   cloudSyncWritesSincePersist = 0;
   cloudSyncStateSavePending = false;
   cloudSyncCaughtUp = false;
+  cloudSyncRequestStartedMillis = 0;
   cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
   lastCloudSyncAttemptMillis = 0;
   resetCloudAggregateState();
@@ -3406,6 +3894,7 @@ void initializeLocalWebServer()
   localServer.on("/api/history", HTTP_GET, sendLocalHistory);
   localServer.on("/api/sync/reset", HTTP_POST, resetCloudSynchronization);
   localServer.on("/api/sensors/load-cell/tare", HTTP_POST, requestLoadCellTare);
+  localServer.on("/api/time", HTTP_POST, requestTimeConfiguration);
   localServer.on("/api/wifi", HTTP_POST, saveWiFiConfiguration);
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
@@ -3527,6 +4016,35 @@ void resetCloudAggregateState()
   lastCloudAggregateRefreshMillis = 0;
 }
 
+bool recoverStalledCloudSynchronization()
+{
+  if (!cloudSyncPending) {
+    return false;
+  }
+
+  const size_t taskCount = asyncClient.taskCount();
+  const uint32_t requestAgeMillis = cloudSyncRequestStartedMillis == 0
+                                        ? 0
+                                        : millis() - cloudSyncRequestStartedMillis;
+  const bool requestMissing = taskCount == 0 &&
+                              requestAgeMillis >= CLOUD_SYNC_REQUEST_MISSING_GRACE_MS;
+  const bool requestTimedOut = requestAgeMillis >= CLOUD_SYNC_REQUEST_TIMEOUT_MS;
+  if (!requestMissing && !requestTimedOut) {
+    return false;
+  }
+
+  if (requestMissing) {
+    Serial.println("Cloud sync request disappeared from the Firebase queue; retrying.");
+  } else {
+    Serial.println("Cloud sync request timed out; closing the Firebase connection before retrying.");
+    pauseFirebaseRequestsAfterNetworkError(-1);
+    cancelPendingFirebaseTasks("cloud synchronization timeout");
+  }
+
+  markCloudSyncFailure();
+  return true;
+}
+
 void rebuildCloudAggregateState()
 {
   resetCloudAggregateState();
@@ -3643,6 +4161,7 @@ void queueSDMeasurementForCloudSync(const Measurement &measurement, uint32_t nex
   cloudSyncPendingMeasurement = measurement;
   cloudSyncPendingFileOffset = nextFileOffset;
   cloudSyncPending = true;
+  cloudSyncRequestStartedMillis = millis();
   cloudSyncRequestType = CloudSyncRequestType::Measurement;
   database.set(asyncClient, historyPath, measurements, processData, "syncMeasurementHistory");
 }
@@ -3668,6 +4187,7 @@ void queueCloudAggregate(const MeasurementAggregate &aggregate, const char *data
            static_cast<unsigned long>(aggregate.timestamp));
   cloudSyncPendingAggregate = aggregate;
   cloudSyncPending = true;
+  cloudSyncRequestStartedMillis = millis();
   cloudSyncRequestType = requestType;
   database.set(asyncClient, aggregatePath, aggregateData, processData, requestId);
 }
@@ -3714,6 +4234,10 @@ void prepareCurrentCloudAggregates(uint32_t currentMillis)
 
 void synchronizeSDMeasurements(uint32_t currentMillis)
 {
+  if (recoverStalledCloudSynchronization()) {
+    return;
+  }
+
   if (!isFirebaseReady() || !sdCardReady || cloudSyncPending) {
     return;
   }
@@ -3829,15 +4353,21 @@ void updateDeviceStatus()
   // esp_timer uporablja 64-bitni števec mikrosekund in se ne prelije kot millis().
   const Uptime uptime = getUptime();
   const String ipAddress = WiFi.localIP().toString();
+  String escapedStationSsid;
+  appendJsonEscaped(escapedStationSsid, WiFi.SSID());
 
   const time_t lastSeenTimestamp = time(nullptr);
-  char jsonPayload[280];
+  char jsonPayload[600];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu}",
-           deviceId, ipAddress.c_str(), WiFi.RSSI(), static_cast<unsigned long long>(uptime.days),
+           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu}",
+           deviceId, escapedStationSsid.c_str(), ipAddress.c_str(), WiFi.RSSI(),
+           static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long long>(uptime.totalMinutes),
-           static_cast<unsigned long>(lastSeenTimestamp));
+           static_cast<unsigned long>(lastSeenTimestamp), static_cast<unsigned long>(lastSeenTimestamp),
+           timeSourceName(), rtcReady ? "true" : "false", rtcTimeValid ? "true" : "false",
+           ntpSynchronizationPending ? "true" : "false",
+           static_cast<unsigned long>(lastTimeSynchronizationTimestamp));
   object_t deviceStatus(jsonPayload);
 
   database.set(asyncClient, deviceStatusDatabasePath, deviceStatus, processData,
@@ -3900,11 +4430,16 @@ void setup()
   delay(500);
   Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
   initializeMemoryAndHistoryBuffer();
+  setenv("TZ", TIMEZONE, 1);
+  tzset();
+  sntp_set_time_sync_notification_cb([](timeval *) { ntpSynchronizationCompleted = true; });
 
   initializeWiFiEventHandlers();
+  initializeI2c();
   initializeSDCard();
   initializeMeasurementHistoryIndex();
   bme680Ready = initializeBme680();
+  initializeRtc();
   loadCellReady = initializeLoadCell();
   connectToWiFi();
   rebuildCloudAggregateState();
@@ -3930,6 +4465,7 @@ void loop()
   maintainProvisioningAccessPoint();
   maintainNetworkConnection();
   initializeTime();
+  processTimeSynchronization();
   maintainFirebaseClient();
   maintainArduinoOta();
   ElegantOTA.loop();
@@ -3937,6 +4473,8 @@ void loop()
 
   processOtaUpdate();
   processQueuedFirmwareUpdateCommand();
+  processQueuedTimeCommand();
+  processPendingTimeCommand();
   processPendingHistoryDeletion();
   processPendingLoadCellTare();
   processLocalHistory();
@@ -3972,6 +4510,19 @@ void loop()
       sendFirmwareVersion();
     }
 
+    // Po ponovnem zagonu cloud ne sme obdržati starega stanja "taring".
+    // Zapis izvedemo le, ko je Firebase odjemalec prost.
+    if (isFirebaseReady() && !loadCellTareStatusReported) {
+      if (loadCellReady) {
+        loadCellTareState = LoadCellTareState::Idle;
+        reportLoadCellTareStatus("S ploščadi odstrani vse in nato tariraj tehtnico.");
+      } else {
+        loadCellTareState = LoadCellTareState::Error;
+        reportLoadCellTareStatus("HX711 ni dosegljiv; tariranje ni mogoče.");
+      }
+      loadCellTareStatusReported = true;
+    }
+
     if (currentMillis - lastSDStatusMillis >= SD_STATUS_INTERVAL_MS) {
       lastSDStatusMillis = currentMillis;
       updateSDCardStatus();
@@ -3989,6 +4540,13 @@ void loop()
          currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
       lastFirmwareCommandCheckMillis = currentMillis;
       requestFirmwareUpdateCommand();
+    }
+
+    if (isFirebaseReady() && !timeCommandPending && !timeCommandQueued &&
+        (lastTimeCommandCheckMillis == 0 ||
+         currentMillis - lastTimeCommandCheckMillis >= TIME_COMMAND_INTERVAL_MS)) {
+      lastTimeCommandCheckMillis = currentMillis;
+      requestTimeCommand();
     }
 
     synchronizeSDMeasurements(currentMillis);

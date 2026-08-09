@@ -1,4 +1,5 @@
 const DEVICE_ONLINE_TIMEOUT_SECONDS = 90;
+const LOAD_CELL_TARE_TIMEOUT_SECONDS = 90;
 const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
@@ -31,11 +32,12 @@ const elements = {
   accountEmail: document.querySelector("#account-email"),
   authSignout: document.querySelector("#auth-signout"),
   cloudDeviceSelect: document.querySelector("#cloud-device-select"),
+  adminDeviceOverview: document.querySelector("#admin-device-overview"),
+  adminDeviceList: document.querySelector("#admin-device-list"),
   deviceListEyebrow: document.querySelector("#device-list-eyebrow"),
   selectedDeviceDescription: document.querySelector("#selected-device-description"),
   unclaimDevice: document.querySelector("#unclaim-device"),
   unclaimDeviceStatus: document.querySelector("#unclaim-device-status"),
-  clearCloudHistory: document.querySelector("#clear-cloud-history"),
   deleteDeviceHistory: document.querySelector("#delete-device-history"),
   historyManagementStatus: document.querySelector("#history-management-status"),
   claimDeviceForm: document.querySelector("#claim-device-form"),
@@ -49,10 +51,13 @@ const elements = {
   latestTime: document.querySelector("#last-measurement-time"),
   historySummary: document.querySelector("#history-summary"),
   ipAddress: document.querySelector("#ip-address"),
+  cloudWifiSsidCard: document.querySelector("#cloud-wifi-ssid-card"),
+  cloudWifiSsid: document.querySelector("#cloud-wifi-ssid"),
   wifiSignal: document.querySelector("#wifi-signal"),
   uptime: document.querySelector("#uptime"),
   deviceId: document.querySelector("#device-id"),
   deviceStateCard: document.querySelector("#device-state-card"),
+  deviceStatusDot: document.querySelector("#device-status-dot"),
   deviceOnlineStatus: document.querySelector("#device-online-status"),
   deviceLastSeen: document.querySelector("#device-last-seen"),
   firmwareVersion: document.querySelector("#firmware-version"),
@@ -74,7 +79,6 @@ const elements = {
   updatesHeading: document.querySelector("#updates-heading"),
   updatesSubtitle: document.querySelector("#updates-subtitle"),
   otaSection: document.querySelector("#ota-section"),
-  otaEmptyState: document.querySelector("#ota-empty-state"),
   otaCard: document.querySelector("#ota-card"),
   otaLabel: document.querySelector("#ota-label"),
   otaVersion: document.querySelector("#ota-version"),
@@ -106,6 +110,14 @@ const elements = {
   localActivationCode: document.querySelector("#local-activation-code"),
   cloudSyncStatus: document.querySelector("#cloud-sync-status"),
   cloudResync: document.querySelector("#cloud-resync"),
+  deviceCurrentTime: document.querySelector("#device-current-time"),
+  deviceTimeSource: document.querySelector("#device-time-source"),
+  rtcStatus: document.querySelector("#rtc-status"),
+  deviceTimeForm: document.querySelector("#device-time-form"),
+  deviceDateTime: document.querySelector("#device-date-time"),
+  setDeviceTime: document.querySelector("#set-device-time"),
+  syncDeviceTime: document.querySelector("#sync-device-time"),
+  deviceTimeStatus: document.querySelector("#device-time-status"),
 };
 
 let climateChart;
@@ -138,6 +150,8 @@ let cloudDevices = {};
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
 let latestLoadCellTareStatus;
+let latestTimeStatus;
+let latestNetworkStatus;
 let dashboardDataSourceReady = false;
 let historyViewLoading;
 let localHistoryRequestGeneration = 0;
@@ -321,7 +335,14 @@ function configureCloudAccountView() {
     ? "Skrbniški račun ima ogled vseh registriranih panjev."
     : "Izberi panj, katerega podatke želiš pregledovati.";
   elements.claimDeviceForm.hidden = isAdministrator;
+  elements.adminDeviceOverview.hidden = !isAdministrator;
   elements.unclaimDevice.hidden = isAdministrator;
+}
+
+function setCloudDeviceManagementVisibility(isVisible) {
+  document.querySelectorAll("[data-cloud-device-management]").forEach((element) => {
+    element.hidden = !isVisible;
+  });
 }
 
 function clearCloudDeviceListeners() {
@@ -332,6 +353,7 @@ function clearCloudDeviceListeners() {
 }
 
 function resetCloudDashboard() {
+  setCloudDeviceManagementVisibility(false);
   latestDeviceStatus = undefined;
   latestHistoryManagementStatus = undefined;
   renderLatestMeasurement(null);
@@ -339,6 +361,7 @@ function resetCloudDashboard() {
   renderSDStatus(null);
   renderFirmwareVersion(null);
   renderLoadCellTareStatus(null);
+  renderTimeStatus(null);
   elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
   resetOtaProgress();
   elements.otaActions.hidden = true;
@@ -358,6 +381,7 @@ function renderCloudDeviceSelector() {
     elements.cloudDeviceSelect.append(new Option("Noben panj ni registriran", ""));
     elements.cloudDeviceSelect.disabled = true;
     selectCloudDevice("");
+    renderAdminDeviceOverview([]);
     return;
   }
 
@@ -367,13 +391,62 @@ function renderCloudDeviceSelector() {
     elements.cloudDeviceSelect.append(new Option(displayName, deviceId));
   });
   elements.cloudDeviceSelect.disabled = false;
-  selectCloudDevice(preferredDeviceId || deviceIds[0]);
+  const nextDeviceId = preferredDeviceId || deviceIds[0];
+  elements.cloudDeviceSelect.value = nextDeviceId;
+  renderAdminDeviceOverview(deviceIds);
+  if (cloudDevicePath === `devices/${nextDeviceId}`) return;
+  selectCloudDevice(nextDeviceId);
+}
+
+function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
+  if (!isCloudAdministrator()) return;
+
+  elements.adminDeviceList.replaceChildren();
+  if (!deviceIds.length) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "muted";
+    emptyState.textContent = "V Firebase še ni zaznan noben panj.";
+    elements.adminDeviceList.append(emptyState);
+    return;
+  }
+
+  deviceIds.sort().forEach((deviceId) => {
+    const device = cloudDevices[deviceId] ?? {};
+    const status = device.status?.device;
+    const isOnline = isDeviceOnline(status);
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `admin-device-option${cloudDevicePath === `devices/${deviceId}` ? " selected" : ""}`;
+    card.setAttribute("aria-pressed", String(cloudDevicePath === `devices/${deviceId}`));
+    card.addEventListener("click", () => selectCloudDevice(deviceId));
+
+    const name = document.createElement("strong");
+    name.textContent = deviceId;
+    const state = document.createElement("span");
+    state.className = `admin-device-option-state ${isOnline ? "online" : "offline"}`;
+    const dot = document.createElement("span");
+    dot.className = "device-status-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const stateText = document.createElement("span");
+    stateText.textContent = isOnline ? "Online" : "Offline";
+    state.append(dot, stateText);
+
+    const detail = document.createElement("small");
+    const lastSeenTimestamp = Number(status?.last_seen_timestamp);
+    detail.textContent = Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
+      ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
+      : "Naprava še ni poslala stanja.";
+    card.append(name, state, detail);
+    elements.adminDeviceList.append(card);
+  });
 }
 
 function selectCloudDevice(deviceId) {
   clearCloudDeviceListeners();
   cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
+  setCloudDeviceManagementVisibility(Boolean(cloudDevicePath && currentCloudUser));
   elements.cloudDeviceSelect.value = deviceId;
+  renderAdminDeviceOverview();
   elements.unclaimDevice.disabled = !cloudDevicePath || isCloudAdministrator();
   elements.unclaimDeviceStatus.textContent = "";
   elements.otaSection.hidden = !cloudDevicePath;
@@ -386,6 +459,7 @@ function selectCloudDevice(deviceId) {
   renderDeviceStatus(null);
   renderHistoryManagementStatus(null);
   renderLoadCellTareStatus(null);
+  renderTimeStatus(null);
   localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
   const { database, onValue, ref } = firebaseDatabase;
   const subscribe = (path, renderer) => {
@@ -404,6 +478,7 @@ function selectCloudDevice(deviceId) {
 
 function setConnectionState(text, state = "connected") {
   elements.connectionStatus.className = `connection-status ${state}`;
+  elements.connectionStatus.setAttribute("aria-label", text);
   elements.connectionText.textContent = text;
 }
 
@@ -459,6 +534,16 @@ function formatDashboardDateTime(date, includeSeconds = false) {
   return `${formatDashboardDate(date)} ob ${formatDashboardTime(date, includeSeconds)}`;
 }
 
+function formatDateTimeInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+}
+
 function formatStoredDate(dateValue) {
   const match = String(dateValue).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   return match ? `${Number(match[3])}/${Number(match[2])}/${Number(match[1])}` : String(dateValue);
@@ -506,6 +591,8 @@ function renderLatestMeasurement(measurement) {
 function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   latestDeviceStatus = status;
   elements.deviceId.textContent = status?.device_id ?? "—";
+  elements.cloudWifiSsidCard.hidden = localDashboard;
+  elements.cloudWifiSsid.textContent = status?.station_ssid || "—";
   elements.ipAddress.textContent = status?.ip_address ?? "—";
   elements.wifiSignal.textContent = Number.isFinite(Number(status?.wifi_rssi_dbm)) ? `${status.wifi_rssi_dbm} dBm` : "—";
   const values = [status?.uptime_days, status?.uptime_hours, status?.uptime_minutes];
@@ -517,7 +604,9 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   const isOnline = localDashboard || isDeviceOnline(status);
   elements.deviceStateCard.classList.toggle("online", isOnline);
   elements.deviceStateCard.classList.toggle("offline", !isOnline);
-  elements.deviceOnlineStatus.textContent = isOnline ? "Online" : "Brez povezave";
+  elements.deviceStatusDot.classList.toggle("online", isOnline);
+  elements.deviceStatusDot.classList.toggle("offline", !isOnline);
+  elements.deviceOnlineStatus.textContent = isOnline ? "Online" : "Offline";
   elements.deviceLastSeen.textContent = localDashboard
     ? "Dosegljiv prek lokalnega IP-ja."
     : Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
@@ -526,11 +615,63 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
 
   renderHeaderDeviceState();
   renderLoadCellTareStatus(latestLoadCellTareStatus);
+  if (!localDashboard) renderTimeStatus(status);
+}
+
+function renderTimeStatus(status, network = latestNetworkStatus) {
+  latestTimeStatus = status;
+  const timestamp = Number(status?.timestamp ?? status?.current_time_timestamp);
+  const source = status?.source ?? status?.time_source ?? "unavailable";
+  const rtcPresent = status?.rtc_present === true;
+  const rtcValid = status?.rtc_valid === true;
+  const ntpPending = status?.ntp_sync_pending === true;
+  const lastSyncTimestamp = Number(status?.last_sync_timestamp ?? status?.last_time_sync_timestamp);
+  const sourceLabels = {
+    rtc: "Vir časa: DS3231 RTC",
+    ntp: "Vir časa: internetna NTP ura",
+    manual_local: "Vir časa: ročna lokalna nastavitev",
+    manual_cloud: "Vir časa: ročna cloud nastavitev",
+    unavailable: "Veljaven čas še ni na voljo",
+  };
+
+  elements.deviceCurrentTime.textContent = Number.isFinite(timestamp) && timestamp > 0
+    ? formatDashboardDateTime(new Date(timestamp * 1000), true)
+    : "—";
+  elements.deviceTimeSource.textContent = sourceLabels[source] ?? sourceLabels.unavailable;
+  if (!rtcPresent) {
+    elements.rtcStatus.textContent = "DS3231 ni zaznan. Ročna ali NTP ura se ob izpadu napajanja ne bo ohranila.";
+  } else if (!rtcValid) {
+    elements.rtcStatus.textContent = "DS3231 je zaznan, vendar nima veljavnega časa. Preveri baterijo in nastavi uro.";
+  } else if (Number.isFinite(lastSyncTimestamp) && lastSyncTimestamp > 0) {
+    elements.rtcStatus.textContent = `DS3231 je pripravljen. Zadnja nastavitev: ${formatDashboardDateTime(new Date(lastSyncTimestamp * 1000), true)}.`;
+  } else {
+    elements.rtcStatus.textContent = "DS3231 je zaznan in vsebuje veljaven čas.";
+  }
+
+  if (document.activeElement !== elements.deviceDateTime && Number.isFinite(timestamp) && timestamp > 0) {
+    elements.deviceDateTime.value = formatDateTimeInput(new Date(timestamp * 1000));
+  }
+
+  const cloudDeviceReady = Boolean(cloudDevicePath && currentCloudUser && isDeviceOnline(latestDeviceStatus));
+  const canSetTime = isLocalDashboard || cloudDeviceReady;
+  const internetAvailable = isLocalDashboard ? network?.station_connected === true : cloudDeviceReady;
+  elements.setDeviceTime.disabled = !canSetTime || ntpPending;
+  elements.syncDeviceTime.disabled = !internetAvailable || ntpPending;
+  if (ntpPending) {
+    elements.deviceTimeStatus.textContent = "Čakam na internetno časovno sinhronizacijo …";
+  } else if (!isLocalDashboard && cloudDevicePath && currentCloudUser && !cloudDeviceReady) {
+    elements.deviceTimeStatus.textContent = "Panj je offline; nastavljanje datuma in ure trenutno ni možno.";
+  }
 }
 
 function renderLoadCellTareStatus(status) {
   latestLoadCellTareStatus = status;
-  const state = status?.state ?? status?.tare_state ?? "idle";
+  const reportedState = status?.state ?? status?.tare_state ?? "idle";
+  const updatedAt = Number(status?.updated_at);
+  const isStaleCloudTare = !isLocalDashboard &&
+    (reportedState === "queued" || reportedState === "taring") &&
+    (!Number.isFinite(updatedAt) || (Date.now() / 1000) - updatedAt > LOAD_CELL_TARE_TIMEOUT_SECONDS);
+  const state = isStaleCloudTare ? "error" : reportedState;
   const messages = {
     idle: "S ploščadi odstrani vse in nato tariraj tehtnico.",
     queued: "Ukaz za tariranje čaka na izvedbo.",
@@ -546,10 +687,17 @@ function renderLoadCellTareStatus(status) {
   const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
 
   button.disabled = !canTare || isBusy;
-  statusElement.textContent = status?.message ?? messages[state] ?? messages.idle;
+  statusElement.textContent = isStaleCloudTare
+    ? "Prejšnje tariranje se ni zaključilo. Odstrani uteži in poskusi znova."
+    : !isLocalDashboard && !cloudDeviceReady
+      ? cloudDevicePath
+        ? "Panj je offline; tariranje trenutno ni možno."
+        : "Izberi online panj za tariranje."
+    : status?.message ?? messages[state] ?? messages.idle;
 }
 
 function renderProvisioning(network) {
+  latestNetworkStatus = network;
   elements.provisioningSection.hidden = false;
   elements.localDeviceId.textContent = latestDeviceStatus?.device_id ?? "—";
   elements.activationCode.textContent = network?.activation_code ?? "—";
@@ -564,14 +712,16 @@ function renderProvisioning(network) {
 
   if (isConnecting) {
     elements.provisioningDescription.textContent = `ESP32 preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
+  } else if (isConnected) {
+    elements.provisioningDescription.textContent = network?.station_ssid
+      ? `Naprava je povezana v Wi‑Fi omrežje ${network.station_ssid}. Nastavitve lahko po potrebi spremeniš ali izbrišeš.`
+      : "Naprava je povezana v domače Wi‑Fi omrežje.";
   } else if (connectionState === "connected") {
-    elements.provisioningDescription.textContent = `Povezava z Wi‑Fi je uspela. AP se bo zaprl po prikazu potrditve.`;
+    elements.provisioningDescription.textContent = "Povezava z Wi‑Fi je uspela. Čakam na potrditev omrežnega naslova.";
   } else if (connectionState === "failed") {
     elements.provisioningDescription.textContent = `Povezava z Wi‑Fi ni uspela. AP${accessPointName} ostaja na voljo za ponoven poskus.`;
   } else if (isUsingAccessPoint) {
     elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko ESP32${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
-  } else if (isConnected) {
-    elements.provisioningDescription.textContent = "Naprava je povezana v domače Wi‑Fi omrežje.";
   }
 
   elements.wifiScan.disabled = isConnecting;
@@ -593,7 +743,10 @@ function renderCloudSynchronization(sync, network, sdCard) {
   } else if (!hasCloudConnection) {
     elements.cloudSyncStatus.textContent = "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.";
   } else if (isPending) {
-    elements.cloudSyncStatus.textContent = "Pošiljam zgodovino v Firebase …";
+    const lastRecordText = Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0
+      ? ` Zadnji potrjen zapis: ${formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000))}.`
+      : " Čakam na potrditev prvega zapisa.";
+    elements.cloudSyncStatus.textContent = `Pošiljam zgodovino v Firebase …${lastRecordText}`;
   } else if (isCaughtUp) {
     elements.cloudSyncStatus.textContent = "SD kartica in Firebase sta sinhronizirana.";
   } else if (Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0) {
@@ -611,15 +764,19 @@ function renderHistoryManagementStatus(status) {
   const hasSelectedDevice = Boolean(cloudDevicePath && currentCloudUser && firebaseDatabase);
   const state = status?.state;
   const isDeleting = state === "queued" || state === "deleting";
-  elements.clearCloudHistory.disabled = !hasSelectedDevice || isDeleting;
-  elements.deleteDeviceHistory.disabled = !hasSelectedDevice || isDeleting;
+  const isSelectedDeviceOnline = hasSelectedDevice && isDeviceOnline(latestDeviceStatus);
+  elements.deleteDeviceHistory.disabled = !isSelectedDeviceOnline || isDeleting;
 
   if (!hasSelectedDevice) {
     elements.historyManagementStatus.textContent = "Izberi panj za upravljanje zgodovine.";
     return;
   }
+  if (!isSelectedDeviceOnline) {
+    elements.historyManagementStatus.textContent = "Panj je offline; brisanje merilne zgodovine trenutno ni možno.";
+    return;
+  }
   if (!state) {
-    elements.historyManagementStatus.textContent = "Brisanje SD dnevnika zahteva povezano napravo.";
+    elements.historyManagementStatus.textContent = "Naprava je online in pripravljena na brisanje merilne zgodovine.";
     return;
   }
 
@@ -636,31 +793,6 @@ function confirmPermanentHistoryDeletion(message) {
   return window.prompt(`${message}\n\nZa potrditev vpiši IZBRIŠI.`) === "IZBRIŠI";
 }
 
-async function clearCloudHistory() {
-  if (!cloudDevicePath || !firebaseDatabase) return;
-  if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve in agregate iz Firebase? SD kartica ostane nedotaknjena.")) return;
-
-  elements.clearCloudHistory.disabled = true;
-  elements.deleteDeviceHistory.disabled = true;
-  elements.historyManagementStatus.textContent = "Brišem cloud zgodovino …";
-  try {
-    const { database, ref, remove } = firebaseDatabase;
-    await Promise.all([
-      remove(ref(database, `${cloudDevicePath}/latest`)),
-      remove(ref(database, `${cloudDevicePath}/measurements`)),
-      remove(ref(database, `${cloudDevicePath}/aggregates`)),
-    ]);
-    elements.historyManagementStatus.textContent = "Cloud zgodovina je izbrisana. SD dnevnik ostaja shranjen.";
-    renderLatestMeasurement(null);
-    renderHistory([]);
-  } catch (error) {
-    console.error(error);
-    elements.historyManagementStatus.textContent = "Brisanje cloud zgodovine ni uspelo.";
-  } finally {
-    renderHistoryManagementStatus(latestHistoryManagementStatus);
-  }
-}
-
 async function deleteDeviceHistory() {
   if (!cloudDevicePath || !firebaseDatabase) return;
   if (!isDeviceOnline(latestDeviceStatus)) {
@@ -669,7 +801,6 @@ async function deleteDeviceHistory() {
   }
   if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
 
-  elements.clearCloudHistory.disabled = true;
   elements.deleteDeviceHistory.disabled = true;
   elements.historyManagementStatus.textContent = "Ukaz za popoln izbris pošiljam ESP32 napravi …";
   try {
@@ -835,6 +966,69 @@ async function requestLoadCellTare() {
   }
 }
 
+async function sendDeviceTimeCommand(action, timestamp) {
+  if (isLocalDashboard) {
+    const body = new URLSearchParams({ action });
+    if (timestamp !== undefined) body.set("timestamp", String(timestamp));
+    const response = await fetch("/api/time", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Nastavitev časa ni uspela");
+    return;
+  }
+
+  if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
+    throw new Error("Za nastavitev časa mora biti izbrana naprava online");
+  }
+  const { database, ref, set } = firebaseDatabase;
+  const command = { action, requested_at: Math.floor(Date.now() / 1000) };
+  if (timestamp !== undefined) command.timestamp = timestamp;
+  await set(ref(database, `${cloudDevicePath}/commands/time`), command);
+}
+
+async function setDeviceTime(event) {
+  event.preventDefault();
+  const selectedDate = new Date(elements.deviceDateTime.value);
+  const timestamp = Math.floor(selectedDate.getTime() / 1000);
+  if (!Number.isFinite(timestamp) || selectedDate.getFullYear() < 2023 || selectedDate.getFullYear() > 2099) {
+    elements.deviceTimeStatus.textContent = "Izberi veljaven datum med letoma 2023 in 2099.";
+    return;
+  }
+
+  elements.setDeviceTime.disabled = true;
+  elements.syncDeviceTime.disabled = true;
+  elements.deviceTimeStatus.textContent = isLocalDashboard
+    ? "Ročno nastavitev pošiljam napravi …"
+    : "Ročno nastavitev pošiljam izbranemu panju …";
+  try {
+    await sendDeviceTimeCommand("set", timestamp);
+    elements.deviceTimeStatus.textContent = isLocalDashboard
+      ? "Nastavitev je sprejeta. ESP32 bo posodobil sistemsko uro in DS3231."
+      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.";
+  } catch (error) {
+    elements.deviceTimeStatus.textContent = error.message;
+    renderTimeStatus(latestTimeStatus);
+  }
+}
+
+async function synchronizeDeviceTime() {
+  elements.setDeviceTime.disabled = true;
+  elements.syncDeviceTime.disabled = true;
+  elements.deviceTimeStatus.textContent = "Zahtevam sinhronizacijo z internetno uro …";
+  try {
+    await sendDeviceTimeCommand("sync_ntp");
+    elements.deviceTimeStatus.textContent = isLocalDashboard
+      ? "NTP sinhronizacija je uvrščena."
+      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.";
+  } catch (error) {
+    elements.deviceTimeStatus.textContent = error.message;
+    renderTimeStatus(latestTimeStatus);
+  }
+}
+
 function initializeProvisioningForm() {
   elements.wifiForm.addEventListener("submit", saveWiFiConfiguration);
   elements.wifiScan.addEventListener("click", scanWiFiNetworks);
@@ -842,6 +1036,8 @@ function initializeProvisioningForm() {
   elements.cloudResync.addEventListener("click", resetCloudHistorySynchronization);
   elements.localLoadCellTare.addEventListener("click", requestLoadCellTare);
   elements.cloudLoadCellTare.addEventListener("click", requestLoadCellTare);
+  elements.deviceTimeForm.addEventListener("submit", setDeviceTime);
+  elements.syncDeviceTime.addEventListener("click", synchronizeDeviceTime);
 }
 
 function renderSDStatus(status) {
@@ -1546,7 +1742,6 @@ function initializeAuthControls() {
   elements.cloudDeviceSelect.addEventListener("change", () => selectCloudDevice(elements.cloudDeviceSelect.value));
   elements.claimDeviceForm.addEventListener("submit", claimDevice);
   elements.unclaimDevice.addEventListener("click", unclaimDevice);
-  elements.clearCloudHistory.addEventListener("click", clearCloudHistory);
   elements.deleteDeviceHistory.addEventListener("click", deleteDeviceHistory);
 }
 
@@ -1559,12 +1754,13 @@ async function useLocalDataSource() {
   elements.updatesHeading.textContent = "Lokalna posodobitev";
   elements.updatesSubtitle.textContent = "Odpri ElegantOTA za lokalno posodobitev firmware-a ali LittleFS.";
   elements.otaSection.hidden = true;
-  elements.otaEmptyState.hidden = true;
   elements.localManualUpdateSection.hidden = false;
   elements.localElegantOtaLink.href = "/update";
   elements.updatesNavigationItem.hidden = false;
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = true; });
   document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = false; });
+  document.querySelectorAll("[data-local-only]").forEach((element) => { element.hidden = false; });
+  setCloudDeviceManagementVisibility(false);
   elements.authTrigger.hidden = true;
   elements.accountSection.hidden = true;
 
@@ -1572,6 +1768,7 @@ async function useLocalDataSource() {
     renderLatestMeasurement(status.latest);
     renderDeviceStatus(status.device, true);
     renderProvisioning(status.network);
+    renderTimeStatus(status.time, status.network);
     renderCloudSynchronization(status.sync, status.network, status.sd_card);
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
@@ -1628,10 +1825,11 @@ async function useFirebaseDataSource() {
   elements.updatesHeading.textContent = "Firmware OTA";
   elements.updatesSubtitle.textContent = "Varna namestitev nove različice na izbrano napravo.";
   elements.updatesNavigationItem.hidden = false;
-  elements.otaEmptyState.hidden = false;
   elements.localManualUpdateSection.hidden = true;
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = false; });
   document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = true; });
+  document.querySelectorAll("[data-local-only]").forEach((element) => { element.hidden = true; });
+  setCloudDeviceManagementVisibility(false);
   const [{ initializeApp }, authModule, databaseModule, configModule] = await Promise.all([
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js"),
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js"),

@@ -4,6 +4,96 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.82] - 2026-08-09
+
+### Fixed
+
+- Sinhronizacija SD zgodovine v Firebase samodejno obnovi zataknjeno asinhrono zahtevo, zato zastavica prenosa ne more ostati trajno aktivna.
+
+### Changed
+
+- Lokalni pogled med prenosom zgodovine prikaže čas zadnjega potrjenega zapisa v Firebase.
+
+## [0.1.0-beta.81] - 2026-08-09
+
+### Changed
+
+- Cloud upravljanje zgodovine ima en sam ukaz za trajni izbris meritev s SD kartice in iz Firebase; ločeno brisanje samo cloud zgodovine je odstranjeno.
+- Naslov upravljanja je preimenovan v **Brisanje merilne zgodovine** in jasno opozori, da dejanja ni mogoče razveljaviti.
+
+### Fixed
+
+- Cloud gumbi za tariranje tehtnice, brisanje merilne zgodovine ter ročno in NTP nastavitev časa so onemogočeni, kadar izbrani panj ni online.
+
+## [0.1.0-beta.80] - 2026-08-09
+
+### Changed
+
+- Cloud pogled **Naprava** ima kartico računa na vrhu. Iz nje sta odstranjena tariranje tehtnice in upravljanje merilne zgodovine.
+- Po izbiri panja cloud kartica **Podrobnosti naprave** po statusnih karticah prikaže tariranje tehtnice, čas sistema in nevarno območje za merilno zgodovino.
+
+## [0.1.0-beta.79] - 2026-08-09
+
+### Changed
+
+- Lokalni pogled **Naprava** ima ločeno Wi‑Fi kartico. V kartici podrobnosti so po vrstnem redu stanje naprave, lokalno tariranje tehtnice, nastavitev časa in sinhronizacija zgodovine.
+- Lokalni Wi‑Fi del ima ločeno kartico trenutno povezanega SSID-ja; kartica podrobnosti naprave zato prikazuje samo IP naslov. ID naprave in aktivacijska koda sta v svoji ločeni kartici.
+
+## [0.1.0-beta.78] - 2026-08-09
+
+### Removed
+
+- Odstranjeno je odvečno cloud OTA obvestilo o prijavi in izbiri naprave; prikaz OTA kartice že jasno sledi izbranemu panju.
+
+## [0.1.0-beta.77] - 2026-08-09
+
+### Fixed
+
+- Cloud vmesnik po 90 sekundah nedokončano stanje tariranja označi kot poteklo in znova omogoči gumb.
+- ESP32 po ponovnem zagonu objavi začetno stanje tehtnice, zato v Firebase ne ostane zastarel zapis `taring`.
+
+## [0.1.0-beta.76] - 2026-08-09
+
+### Added
+
+- Mobilna glava lokalne in cloud nadzorne plošče prikaže samo zeleno oziroma rdečo piko stanja naprave; besedilo indikatorja ostane skrito.
+
+## [0.1.0-beta.75] - 2026-08-09
+
+### Fixed
+
+- Cloud ukaz za tariranje tehtnice se najprej odstrani iz Firebase, končni status pa ESP32 objavi šele po izvedbi. Firebase zahtevi se zato ne moreta več medsebojno preklicati.
+
+## [0.1.0-beta.74] - 2026-08-09
+
+### Added
+
+- Kartica stanja ESP32 pred besedilom prikaže zeleno piko za online oziroma rdečo za offline stanje.
+- Super admin namesto obrazca za registracijo vidi klikabilen pregled vseh panjev z zelenim/rdečim statusom; navaden uporabnik obdrži obrazec za registracijo panja.
+
+## [0.1.0-beta.73] - 2026-08-09
+
+### Added
+
+- Cloud kartice naprave najprej prikažejo SSID domačega Wi-Fi omrežja, nato IP naslov, signal, uptime, online stanje, firmware, ID naprave in SD kartico.
+
+### Changed
+
+- ESP32 objavi trenutno povezani `station_ssid` skupaj z ostalim stanjem naprave v Firebase `status/device`.
+
+## [0.1.0-beta.72] - 2026-08-09
+
+### Added
+
+- Podpora za DS3231 na skupnem I²C vodilu `SDA=8`, `SCL=9` obnovi veljaven UTC čas ob zagonu tudi brez interneta.
+- Lokalna in cloud nadzorna plošča prikazujeta trenutni vir časa, stanje RTC-ja ter omogočata ročno nastavitev datuma in ure ali zahtevano NTP sinhronizacijo.
+- Lokalni endpoint `/api/time` in Firebase ukaz `commands/time` izvajata časovne operacije varno v glavni zanki.
+
+### Changed
+
+- Uspešna NTP ali ročna časovna nastavitev poleg sistemske ure posodobi tudi DS3231 in počisti njegovo zastavico ustavljenega oscilatorja.
+- Status naprave v Firebase vsebuje vir časa, stanje RTC-ja, trenutni čas in čas zadnje sinhronizacije.
+
 ## [0.1.0-beta.71] - 2026-08-09
 
 ### Changed

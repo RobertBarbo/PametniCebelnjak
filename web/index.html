@@ -238,11 +238,24 @@
               <p class="form-status" id="device-time-status" aria-live="polite"></p>
             </form>
           </section>
-          <section class="cloud-sync-controls" data-local-only aria-labelledby="cloud-sync-heading" hidden>
+          <section class="cloud-sync-controls" id="cloud-sync-controls" aria-labelledby="cloud-sync-heading" hidden>
             <p class="eyebrow">Sinhronizacija</p>
             <h3 id="cloud-sync-heading">Sinhronizacija zgodovine</h3>
             <strong id="cloud-sync-status">Čakam na stanje …</strong>
-            <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
+            <div class="cloud-sync-actions">
+              <button class="secondary-button" id="cloud-resync" type="button">Ponovno sinhroniziraj zgodovino</button>
+            </div>
+          </section>
+          <section class="measurement-log-controls" data-local-only aria-labelledby="measurement-log-heading" hidden>
+            <p class="eyebrow">Meritve na SD kartici</p>
+            <h3 id="measurement-log-heading">Dnevnik meritev</h3>
+            <p class="muted">Dnevnik lahko odpreš v brskalniku, preneseš kot CSV ali trajno izbrišeš samo s SD kartice. Brisanje ne vpliva na zgodovino v Firebase.</p>
+            <div class="measurement-log-actions">
+              <a class="secondary-button" id="open-measurement-log" data-href="/measurements" target="_blank" rel="noopener" aria-disabled="true">Odpri dnevnik meritev</a>
+              <a class="secondary-button" id="download-measurement-log" data-href="/measurements.csv" download="meritve.csv" aria-disabled="true">Prenesi meritve</a>
+              <button class="secondary-button danger-button" id="delete-local-measurement-log" type="button" disabled>Izbriši meritve s SD kartice</button>
+            </div>
+            <p class="form-status" id="local-measurement-log-status" aria-live="polite">Čakam na stanje SD kartice …</p>
           </section>
           <section class="history-management" data-cloud-device-management aria-labelledby="history-management-heading" hidden>
             <p class="eyebrow">Brisanje merilne zgodovine</p>

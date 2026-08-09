@@ -30,7 +30,7 @@ PlatformIO uporablja uradni profil `esp32-s3-devkitc1-n16r8` z `qio_opi`, `BOARD
 - Izpeljana datoteka `/measurements.idx` hrani začetni položaj vsakega UTC dneva. Obstoječemu CSV dnevniku se indeks ob prvem zagonu izdela samodejno, zato lokalni graf pri običajni poizvedbi bere samo zahtevani del datoteke. CSV ostaja edini izvorni zapis in indeks se lahko varno ponovno izdela.
 - Ko je Firebase dosegljiv, ESP32 iz CSV dnevnika prenese eno še nepotrjeno meritev na 10 sekund. Ob napaki razmik eksponentno poveča do največ 60 sekund. V NVS vsakih 12 uspešnih zapisov shrani položaj v datoteki in zadnji sinhroniziran čas; po izpadu elektrike se lahko ponovno pošlje največ 11 meritev, kar je varno, ker Firebase uporablja Unix čas kot enolični ključ.
 - Surova zgodovina se običajno pošilja samo prek SD sinhronizacije, zato isti zapis ni poslan dvakrat. Neposredni Firebase zapis se uporabi le kot rezerva, kadar meritve ni mogoče shraniti na SD.
-- Med zaporednim prenosom ESP32 izdela urne in dnevne povprečne agregate. Zaključeni interval se zapiše enkrat, trenutni interval pa se osveži največ vsakih 30 minut.
+- Med zaporednim prenosom ESP32 izdela urne in dnevne povprečne agregate. Zaključeni interval se zapiše enkrat, trenutni interval pa se osveži največ vsakih 30 minut. Agregat vsebuje tudi `sync_checksum`, kontrolno vsoto vseh normaliziranih zapisov intervala.
 - Ob prvem zagonu firmware-a z agregati se NVS kazalec enkrat samodejno vrne na začetek SD dnevnika. Obstoječi surovi ključi se varno prepišejo, hkrati pa se dopolnijo urni in dnevni podatki; naslednji zagoni nadaljujejo z običajnega shranjenega položaja.
 - Zapisi z `unix_timestamp=0`, ki nastanejo pred prvim veljavnim časom iz RTC-ja, NTP-ja ali ročne nastavitve, ostanejo samo na SD kartici in niso vključeni v cloud graf.
 - Stanje SD kartice se preveri vsako minuto. Ob nedosegljivi kartici se inicializacija ponovi; po petih neuspelih poskusih se stanje označi kot napaka.
@@ -56,7 +56,8 @@ Začetni lokalni pogled naloži samo HTML, CSS, aplikacijski JavaScript in kratk
 
 Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32. PlatformIO pred prevajanjem samodejno izdela `gzip` kopije HTML, CSS in JavaScript datotek. Lokalni strežnik jih pošlje pod izvirnim URL-jem z glavo `Content-Encoding: gzip`; če jih odjemalec ne podpira ali stisnjena datoteka še ni naložena, uporabi nespremenjen izvorni zapis.
 
-- Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare`, `/api/time`, `/measurements.csv` in portal `http://<device-ip>/update`.
+- Lokalni API in ElegantOTA uporabljata isti asinhroni strežnik na portu `80`: `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare`, `/api/time`, `/measurements`, `/measurements.csv` in portal `http://<device-ip>/update`. Lokalni pogled prikaže dnevnik kot besedilo prek `/measurements`, izvorno datoteko prenese prek `/measurements.csv`, `DELETE /api/history` pa v glavni zanki varno izbriše samo SD dnevnik in ne poseže v Firebase zgodovino.
+- Lokalni in cloud pogled prikazujeta stanje sinhronizacije na istem mestu. Cloud gumb z ukazom `sync_history` prek `/devices/{device_id}/commands/firmware_update` zahteva primerjavo dnevnih indeksov; ESP32 napredek objavlja v `/devices/{device_id}/status/device/history_sync`.
 - Lokalni pogled najprej poskusi lokalni API; kadar ta ni dosegljiv, uporabi Firebase cloud pogled s prijavo uporabnika. Lokalni pogled ne prikaže cloud prijave ali registracije naprav, prikaže pa `device_id`, aktivacijsko kodo za kasnejšo registracijo in povezavo do ElegantOTA.
 - Ob uspešni povezavi z domačim Wi-Fi lokalni provisioning pogled uporablja nevtralen izraz »naprava«, ne strojno specifičnega imena ESP32.
 - Lokalni provisioning pogled ob aktivni povezavi prikaže tudi ime trenutno povezanega domačega Wi-Fi omrežja (SSID).
@@ -66,7 +67,7 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Highcharts je v `web/vendor/highcharts.js`, zato grafi na lokalnem ESP32 ne potrebujejo interneta.
 - Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. `/api/history` zahtevek samo uvrsti pripravo; glavni `loop()` SD dnevnik bere v kratkih časovno omejenih korakih, history koše hrani v PSRAM in JSON postopno pripravi v začasni datoteki na SD. Frontend med odgovorom `202` počaka ter zahtevek ponovi, zato AsyncTCP callback nikoli ne izvaja dolgega skeniranja CSV. Če SD ali PSRAM trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
 - Cloud grafa za obdobja do 7 dni bereta surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
-- Lokalni gumb **Ponovno sinhroniziraj zgodovino** ponastavi NVS položaj prenosa in ponovno pošlje celoten SD dnevnik. Namenjen je predvsem obnovi po ročnem brisanju Firebase baze. Med prenosom lokalni pogled prikaže zadnji potrjeni zapis; firmware zazna izgubljeno ali predolgo čakajočo Firebase asinhrono zahtevo, jo prekine in nadaljuje z varnim ponovnim poskusom.
+- Običajna sinhronizacija ob vrnitvi interneta nadaljuje od v NVS shranjenega položaja in pošlje samo nove SD zapise. Lokalni gumb **Ponovno sinhroniziraj zgodovino** dodatno neblokirajoče izdela dnevni indeks SD dnevnika ter ga primerja z dnevnimi agregati v Firebase. Ločeni polji `raw_sample_count` in `raw_sync_checksum` predstavljata zadnjo potrjeno surovo predpono dneva ter se ne spreminjata ob običajni osvežitvi prikaznega povprečja. Če je cloud dan krajši, firmware preveri njegovo kontrolno vsoto proti enako dolgi predponi SD dneva in prenese samo manjkajoči rep; ob neskladni predponi obnovi celoten dan. Dnevi iz starejših izdaj brez veljavnega markerja `raw_sync_version` se ob prvi primerjavi enkrat obnovijo v celoti. Vsak dan hrani dejanski prvi in zadnji položaj v nespremenljivem posnetku CSV, zato starejši zapisi med novejšimi datumi ne pokvarijo primerjave. Če je bila celotna Firebase zgodovina izbrisana, so vsi dnevi manjkajoči in je popolna obnova pričakovana. Manjkajoče meritve prenaša v paketih po največ 32 zapisov, vključno z zadnjim nepolnim paketom, zato med obnovo ostane odziven za meritve in lokalno nadzorno ploščo; zapisi, ustvarjeni med obnovo, ostanejo za običajno inkrementalno sinhronizacijo. Firmware zazna izgubljeno, predolgo čakajočo ali zavrnjeno Firebase asinhrono zahtevo, obnovo varno ustavi oziroma nadaljuje z varnim ponovnim poskusom.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje obeh grafov v lokalnem in cloud pogledu. Klik na pretekli dan samodejno izbere obdobje od `00:00` do `23:59`, klik na današnji dan pa od `00:00` do trenutne ure; drugi klik lahko obdobje razširi na drug dan.
 - Glavna navigacija loči poglede **Pregled**, **Grafi**, **Naprava** in **Posodobitve**; lokalni način skrije cloud prijavo in OTA upravljanje.
 - Pogled **Grafi** loči temperaturo z relativno vlago od teže panja, vendar oba grafa uporabljata isto izbrano obdobje in sta zložena navpično.
@@ -80,10 +81,13 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Pogled **Naprava** prikazuje trenutni datum in uro, vir časa ter stanje DS3231. Lokalno ali za izbrani online cloud panj lahko uporabnik nastavi datum in uro; NTP gumb je omogočen samo ob internetni povezavi.
 - Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani samo `owner_uid` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
 - Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Glavni skrbnik namesto njega vidi klikabilen pregled vseh naprava z zeleno/rdečo oznako online stanja in z njim izbere panj za upravljanje.
-- V cloud pogledu lahko lastnik ali glavni skrbnik po potrditvi z besedo `IZBRIŠI` počisti samo Firebase zgodovino (`latest`, `measurements`, `aggregates`) ali pošlje ukaz za trajni izbris SD dnevnika skupaj s cloud zgodovino. Popoln izbris je omogočen le za online napravo; ESP32 ukaz postavi v čakalno vrsto, dokler ne zaključi trenutnega SD prenosa, nato znova ustvari prazen CSV dnevnik in ponastavi kazalce sinhronizacije. Lokalni pogled te nevarne funkcije namenoma ne ponuja brez cloud prijave.
+- V cloud pogledu lahko lastnik ali glavni skrbnik po potrditvi z besedo `IZBRIŠI` pošlje ukaz za trajni izbris SD dnevnika skupaj s celotno cloud zgodovino (`latest`, `measurements`, `aggregates`). Popoln izbris je omogočen le za online napravo; ESP32 ukaz postavi v čakalno vrsto, dokler ne zaključi trenutnega SD prenosa, nato znova ustvari prazen CSV dnevnik in ponastavi kazalce sinhronizacije. Lokalni pogled te nevarne funkcije namenoma ne ponuja brez cloud prijave.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
 ## OTA firmware
+
+- Ročna primerjava zgodovine uporabi posnetek konca SD dnevnika. Po uspehu firmware ta preverjeni položaj shrani v NVS, zato se prej potrjeni zapisi ne prenesejo ponovno; nove meritve, nastale med primerjavo, se nato pošljejo po običajni inkrementalni poti.
+- Za trenutno Firebase-only beta primerjavo ima anonimen ESP32 dostop samo za branje dnevnih agregatov; surova zgodovina ostane dostopna le lastniku panja oziroma skrbniku. Pred produkcijo mora ta izjema izginiti z uvedbo avtentikacije naprave.
 
 GitHub Actions ob tagu `vMAJOR.MINOR.PATCH-beta.N` preveri skladnost z `FIRMWARE_VERSION`, prevede firmware in LittleFS sliko, ustvari SHA-256 manifest ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`.
 
@@ -122,7 +126,7 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
   measurements/{unix_timestamp}/
   aggregates/
     hourly/{hour_start_timestamp}/
-    daily/{day_start_timestamp}/
+    daily/{day_start_timestamp}/{temperature_c,humidity_percent,weight_kg,timestamp,sample_count,period_seconds,sync_checksum}
   status/
     firmware/version
     sd_card/{present,initialization_failures,error}

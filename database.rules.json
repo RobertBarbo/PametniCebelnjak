@@ -59,6 +59,7 @@
             }
           },
           "daily": {
+            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             "$timestamp": {
               ".write": "auth == null"

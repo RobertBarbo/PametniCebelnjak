@@ -110,6 +110,11 @@ const elements = {
   localActivationCode: document.querySelector("#local-activation-code"),
   cloudSyncStatus: document.querySelector("#cloud-sync-status"),
   cloudResync: document.querySelector("#cloud-resync"),
+  cloudSyncControls: document.querySelector("#cloud-sync-controls"),
+  openMeasurementLog: document.querySelector("#open-measurement-log"),
+  downloadMeasurementLog: document.querySelector("#download-measurement-log"),
+  deleteLocalMeasurementLog: document.querySelector("#delete-local-measurement-log"),
+  localMeasurementLogStatus: document.querySelector("#local-measurement-log-status"),
   deviceCurrentTime: document.querySelector("#device-current-time"),
   deviceTimeSource: document.querySelector("#device-time-source"),
   rtcStatus: document.querySelector("#rtc-status"),
@@ -152,6 +157,7 @@ let latestHistoryManagementStatus;
 let latestLoadCellTareStatus;
 let latestTimeStatus;
 let latestNetworkStatus;
+let latestSDCardStatus;
 let dashboardDataSourceReady = false;
 let historyViewLoading;
 let localHistoryRequestGeneration = 0;
@@ -354,7 +360,9 @@ function clearCloudDeviceListeners() {
 
 function resetCloudDashboard() {
   setCloudDeviceManagementVisibility(false);
+  elements.cloudSyncControls.hidden = true;
   latestDeviceStatus = undefined;
+  latestSDCardStatus = undefined;
   latestHistoryManagementStatus = undefined;
   renderLatestMeasurement(null);
   renderDeviceStatus(null);
@@ -450,11 +458,13 @@ function selectCloudDevice(deviceId) {
   elements.unclaimDevice.disabled = !cloudDevicePath || isCloudAdministrator();
   elements.unclaimDeviceStatus.textContent = "";
   elements.otaSection.hidden = !cloudDevicePath;
+  elements.cloudSyncControls.hidden = !cloudDevicePath;
   if (!cloudDevicePath || !firebaseDatabase) {
     resetCloudDashboard();
     return;
   }
 
+  latestSDCardStatus = undefined;
   // Ne prikazuj stanja prej izbranega panja, dokler Firebase ne vrne novega odziva.
   renderDeviceStatus(null);
   renderHistoryManagementStatus(null);
@@ -615,7 +625,10 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
 
   renderHeaderDeviceState();
   renderLoadCellTareStatus(latestLoadCellTareStatus);
-  if (!localDashboard) renderTimeStatus(status);
+  if (!localDashboard) {
+    renderTimeStatus(status);
+    renderCloudSynchronization(status?.history_sync, { station_connected: isOnline }, latestSDCardStatus);
+  }
 }
 
 function renderTimeStatus(status, network = latestNetworkStatus) {
@@ -737,11 +750,35 @@ function renderCloudSynchronization(sync, network, sdCard) {
   const hasSDCard = sdCard?.present === true;
   const retrySeconds = Number(sync?.retry_seconds);
   const lastSyncedTimestamp = Number(sync?.last_synced_timestamp);
+  const reconciliation = sync?.reconciliation ?? {};
+  const reconciliationState = reconciliation.state;
+  const localDays = Number(reconciliation.local_days);
+  const daysToTransfer = Number(reconciliation.days_to_transfer);
+  const daysCompleted = Number(reconciliation.days_completed);
+  const measurementsToTransfer = Number(reconciliation.measurements_to_transfer);
+  const measurementsUploaded = Number(reconciliation.measurements_uploaded);
 
   if (!hasSDCard) {
     elements.cloudSyncStatus.textContent = "SD kartica ni dosegljiva.";
   } else if (!hasCloudConnection) {
     elements.cloudSyncStatus.textContent = "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.";
+  } else if (reconciliationState === "preparing") {
+    elements.cloudSyncStatus.textContent = "Pripravljam dnevni indeks SD zgodovine …";
+  } else if (reconciliationState === "checking") {
+    const daysText = Number.isFinite(localDays) && localDays > 0 ? ` (${localDays} dni)` : "";
+    elements.cloudSyncStatus.textContent = `Primerjam dnevni indeks SD kartice s Firebase${daysText} …`;
+  } else if (reconciliationState === "syncing") {
+    const completedText = Number.isFinite(daysCompleted) ? daysCompleted : 0;
+    const localDaysText = Number.isFinite(localDays) && localDays > 0 ? localDays : "?";
+    const transferText = Number.isFinite(daysToTransfer) ? daysToTransfer : 0;
+    const measurementProgress = Number.isFinite(measurementsToTransfer) && measurementsToTransfer > 0
+      ? ` Prenesenih meritev: ${Number.isFinite(measurementsUploaded) ? measurementsUploaded : 0}/${measurementsToTransfer}.`
+      : "";
+    elements.cloudSyncStatus.textContent = transferText > 0
+      ? `Pregledujem in obnavljam dneve: ${completedText}/${localDaysText}. Manjkajočih ali neskladnih dni: ${transferText}.${measurementProgress}`
+      : "Dopolnjujem dnevni indeks Firebase brez ponovnega prenosa meritev …";
+  } else if (reconciliationState === "error") {
+    elements.cloudSyncStatus.textContent = "Primerjava SD zgodovine s Firebase ni uspela. Preveri SD kartico in povezavo ter poskusi znova.";
   } else if (isPending) {
     const lastRecordText = Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0
       ? ` Zadnji potrjen zapis: ${formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000))}.`
@@ -756,7 +793,38 @@ function renderCloudSynchronization(sync, network, sdCard) {
     elements.cloudSyncStatus.textContent = "Zgodovina čaka na prvi prenos v Firebase.";
   }
 
-  elements.cloudResync.disabled = isPending || !hasSDCard;
+  elements.cloudResync.disabled = isPending || !hasSDCard || !hasCloudConnection;
+}
+
+function renderLocalMeasurementLogStatus(status, sdCard, sync) {
+  const state = status?.deletion_state ?? "idle";
+  const hasSDCard = sdCard?.present === true && sdCard?.error !== true;
+  const synchronizationActive = sync?.pending === true || ["preparing", "checking", "syncing"].includes(sync?.reconciliation?.state);
+  const deletionActive = state === "queued" || state === "deleting";
+  const controlsAvailable = isLocalDashboard && hasSDCard && !synchronizationActive && !deletionActive;
+
+  [elements.openMeasurementLog, elements.downloadMeasurementLog].forEach((link) => {
+    link.setAttribute("aria-disabled", String(!controlsAvailable));
+    if (controlsAvailable) link.href = link.dataset.href;
+    else link.removeAttribute("href");
+  });
+  elements.deleteLocalMeasurementLog.disabled = !controlsAvailable;
+
+  if (!hasSDCard) {
+    elements.localMeasurementLogStatus.textContent = "SD kartica ni dosegljiva.";
+  } else if (synchronizationActive) {
+    elements.localMeasurementLogStatus.textContent = "Počakaj, da se sinhronizacija zgodovine zaključi.";
+  } else if (state === "queued") {
+    elements.localMeasurementLogStatus.textContent = "Brisanje dnevnika je uvrščeno v čakalno vrsto …";
+  } else if (state === "deleting") {
+    elements.localMeasurementLogStatus.textContent = "Brišem meritve s SD kartice …";
+  } else if (state === "completed") {
+    elements.localMeasurementLogStatus.textContent = "Meritve so izbrisane s SD kartice. Zgodovina v Firebase je ostala nespremenjena.";
+  } else if (state === "error") {
+    elements.localMeasurementLogStatus.textContent = "Brisanje meritev s SD kartice ni uspelo.";
+  } else {
+    elements.localMeasurementLogStatus.textContent = "Dnevnik meritev je pripravljen.";
+  }
 }
 
 function renderHistoryManagementStatus(status) {
@@ -918,18 +986,46 @@ async function forgetWiFiConfiguration() {
 }
 
 async function resetCloudHistorySynchronization() {
-  if (!window.confirm("Ponovno pošljem celoten SD dnevnik v Firebase? Obstoječi zapisi z istim časom bodo varno prepisani.")) return;
+  if (!window.confirm("Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve. Nadaljujem?")) return;
 
   elements.cloudResync.disabled = true;
-  elements.cloudSyncStatus.textContent = "Ponastavljam položaj sinhronizacije …";
+  elements.cloudSyncStatus.textContent = "Pripravljam primerjavo SD zgodovine in Firebase …";
   try {
-    const response = await fetch("/api/sync/reset", { method: "POST" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error ?? "Ponastavitev sinhronizacije ni uspela");
-    elements.cloudSyncStatus.textContent = "Ponovni prenos celotne zgodovine se je začel.";
+    if (isLocalDashboard) {
+      const response = await fetch("/api/sync/reset", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Ponastavitev sinhronizacije ni uspela");
+      elements.cloudSyncStatus.textContent = "Primerjava dnevne zgodovine se je začela.";
+    } else {
+      if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
+        throw new Error("Za ponovno sinhronizacijo mora biti izbrani panj online.");
+      }
+      const { database, ref, set } = firebaseDatabase;
+      await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
+        action: "sync_history",
+        requested_at: Math.floor(Date.now() / 1000),
+      });
+      elements.cloudSyncStatus.textContent = "Ukaz je poslan. ESP32 ga preveri v največ 30 sekundah.";
+    }
   } catch (error) {
     elements.cloudSyncStatus.textContent = error.message;
     elements.cloudResync.disabled = false;
+  }
+}
+
+async function deleteLocalMeasurementHistory() {
+  if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.")) return;
+
+  elements.deleteLocalMeasurementLog.disabled = true;
+  elements.localMeasurementLogStatus.textContent = "Zahtevo za brisanje pošiljam napravi …";
+  try {
+    const response = await fetch("/api/history", { method: "DELETE" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Brisanje meritev s SD kartice ni uspelo");
+    elements.localMeasurementLogStatus.textContent = "Brisanje dnevnika je uvrščeno v čakalno vrsto …";
+  } catch (error) {
+    elements.localMeasurementLogStatus.textContent = error.message;
+    elements.deleteLocalMeasurementLog.disabled = false;
   }
 }
 
@@ -1034,6 +1130,7 @@ function initializeProvisioningForm() {
   elements.wifiScan.addEventListener("click", scanWiFiNetworks);
   elements.wifiForget.addEventListener("click", forgetWiFiConfiguration);
   elements.cloudResync.addEventListener("click", resetCloudHistorySynchronization);
+  elements.deleteLocalMeasurementLog.addEventListener("click", deleteLocalMeasurementHistory);
   elements.localLoadCellTare.addEventListener("click", requestLoadCellTare);
   elements.cloudLoadCellTare.addEventListener("click", requestLoadCellTare);
   elements.deviceTimeForm.addEventListener("submit", setDeviceTime);
@@ -1041,12 +1138,17 @@ function initializeProvisioningForm() {
 }
 
 function renderSDStatus(status) {
+  latestSDCardStatus = status;
   const isPresent = status?.present === true;
   const hasError = status?.error === true;
   elements.sdCard.classList.toggle("ok", isPresent && !hasError);
   elements.sdCard.classList.toggle("error", hasError);
   elements.sdStatus.textContent = isPresent ? "Zaznana" : "Ni zaznana";
   elements.sdStatusDetail.textContent = hasError ? "Po petih poskusih ni bila zaznana." : `${status?.initialization_failures ?? 0} neuspelih inicializacij`;
+  if (!isLocalDashboard) {
+    renderCloudSynchronization(latestDeviceStatus?.history_sync,
+      { station_connected: isDeviceOnline(latestDeviceStatus) }, status);
+  }
 }
 
 function renderFirmwareVersion(status) {
@@ -1760,6 +1862,7 @@ async function useLocalDataSource() {
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = true; });
   document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = false; });
   document.querySelectorAll("[data-local-only]").forEach((element) => { element.hidden = false; });
+  elements.cloudSyncControls.hidden = false;
   setCloudDeviceManagementVisibility(false);
   elements.authTrigger.hidden = true;
   elements.accountSection.hidden = true;
@@ -1770,6 +1873,7 @@ async function useLocalDataSource() {
     renderProvisioning(status.network);
     renderTimeStatus(status.time, status.network);
     renderCloudSynchronization(status.sync, status.network, status.sd_card);
+    renderLocalMeasurementLogStatus(status.local_history, status.sd_card, status.sync);
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
     renderLoadCellTareStatus(status.sensors?.load_cell);

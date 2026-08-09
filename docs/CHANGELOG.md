@@ -4,6 +4,101 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.90] - 2026-08-10
+
+### Added
+
+- Cloud pogled prikazuje odsek sinhronizacije zgodovine na istem mestu kot lokalni pogled in omogoča ročni zagon primerjave SD zgodovine s Firebase.
+- Firmware v statusu naprave objavlja stanje, napredek in zadnji zaključek sinhronizacije ter sprejme cloud ukaz `sync_history`.
+
+### Changed
+
+- Gumb za ponovno sinhronizacijo je v obeh pogledih onemogočen, kadar naprava nima povezave s cloudom ali SD kartica ni dosegljiva.
+
+## [0.1.0-beta.89] - 2026-08-09
+
+### Added
+
+- Lokalni pogled ima ločen odsek za ogled, prenos in trajni izbris dnevnika meritev samo s SD kartice.
+- Lokalni `DELETE /api/history` brisanje uvrsti v glavno zanko in prek `/api/status` objavi njegovo stanje.
+
+### Changed
+
+- Po lokalnem izbrisu se počisti tudi pripravljen odgovor grafa, zato lokalni pogled ne more prikazati stare predpomnjene zgodovine.
+
+## [0.1.0-beta.88] - 2026-08-09
+
+### Added
+
+- Lokalni pogled omogoča neposreden ogled dnevnika meritev s SD kartice in ločen prenos datoteke CSV.
+
+### Changed
+
+- Pot `/measurements` prikaže dnevnik kot besedilo v brskalniku, `/measurements.csv` pa prenese izvorno datoteko CSV.
+- Gumba za ogled in prenos dnevnika sta onemogočena, kadar SD kartica ni dosegljiva.
+
+### Fixed
+
+- Gumb za ogled dnevnika ne sproži več prenosa CSV, temveč dnevnik odpre v novem zavihku.
+
+## [0.1.0-beta.87] - 2026-08-09
+
+### Changed
+
+- Dnevni marker potrjene surove zgodovine je ločen od prikaznega agregata in uporablja besedilno 32-bitno kontrolno vsoto, zato ga poznejša osvežitev povprečij ne more pokvariti.
+- Obnova bere samo nespremenljiv posnetek SD dnevnika in meritve pošilja v paketih po največ 32 zapisov; zapisi, dodani med obnovo, ostanejo za običajno inkrementalno sinhronizacijo.
+
+### Fixed
+
+- Starejši ali offline zapisi, vstavljeni med novejše datume, ne ponastavijo več dnevnega agregata na zadnji del dneva in zato ne povzročijo ponovnega prenosa celotnega dneva.
+- Časovni proračun skeniranja ne razbije več Firebase paketa na zahteve z eno samo meritvijo.
+- Vsak dnevni prenos uporablja dejanski prvi in zadnji položaj dneva v posnetku CSV, zato pravilno obravnava tudi časovno neurejene starejše zapise.
+
+## [0.1.0-beta.86] - 2026-08-09
+
+### Changed
+
+- Ročna primerjava pri krajšem cloud agregatu preveri kontrolno vsoto že prisotne predpone dneva in prenese samo manjkajoči rep. Če se predpona ne ujema, varno obnovi celoten dan.
+
+### Fixed
+
+- Zadnji nepolni paket dneva se pred zaključkom vedno pošlje; pri 590 meritvah se po 18 paketih po 32 zapisov prenese tudi preostalih 14 meritev.
+- Tekoči dan se po nekaj novih minutnih meritvah ne označi več kot v celoti manjkajoč samo zato, ker se dnevni Firebase agregat osvežuje redkeje.
+- Dnevni agregat dobi oznako potrjene surove zgodovine. Prva primerjava z `beta.86` enkrat v celoti obnovi stare dneve brez te oznake in s tem popravi morebitne luknje, ki jih je pustil manjkajoči zadnji paket.
+
+## [0.1.0-beta.85] - 2026-08-09
+
+### Changed
+
+- Ročna obnova manjkajočih dni pošlje do 32 surovih meritev z eno Firebase `PATCH` zahtevo in med paketi uporabi kratek varni interval. Ne izvaja več prenosa enega zapisa na deset sekund.
+- Lokalni pogled med obnovo prikaže število prenesenih meritev in skupno število meritev, ki jih je treba obnoviti.
+
+### Fixed
+
+- Zavrnjen dostop do Firebase med primerjavo zgodovine prekine obnovo z jasno napako namesto ponavljanja brez vidnega napredka.
+
+## [0.1.0-beta.84] - 2026-08-09
+
+### Fixed
+
+- Po uspešni ročni primerjavi firmware shrani preverjeni konec SD dnevnika v NVS, zato se stara zgodovina ne prenese znova po minuti. Zapisi, dodani med primerjavo, ostanejo za običajno inkrementalno sinhronizacijo.
+
+### Changed
+
+- Firebase pravila anonimnemu ESP32 dovolijo branje samo dnevnih agregatov za primerjavo SD indeksa; surove meritve ostanejo dostopne le lastniku panja oziroma skrbniku.
+
+## [0.1.0-beta.83] - 2026-08-09
+
+### Added
+
+- Ročna sinhronizacija zgodovine najprej neblokirajoče izdela dnevni indeks SD dnevnika in ga primerja z dnevnimi agregati v Firebase.
+- Dnevni agregati vsebujejo kontrolno vsoto zapisov, zato firmware zazna manjkajoč ali neskladen dan tudi, kadar ima enako število meritev.
+
+### Changed
+
+- Lokalni gumb **Ponovno sinhroniziraj zgodovino** prenese le manjkajoče oziroma neskladne dni; pri starejših agregatih brez kontrolne vsote dopolni indeks brez ponovnega prenosa surovih meritev.
+- Lokalna stran med pregledom jasno prikaže pripravo indeksa, primerjavo s Firebase in napredek po dnevih.
+
 ## [0.1.0-beta.82] - 2026-08-09
 
 ### Fixed

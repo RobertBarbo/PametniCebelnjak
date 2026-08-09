@@ -50,7 +50,9 @@ Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne br
 
 ## Pomembna omejitev
 
-ESP32 v tej izvedbi še vedno anonimno piše meritve, stanje in bere OTA ukaz, ki ima lahko tudi akcijo za brisanje zgodovine. Firebase pravila zato lahko zaščitijo **zasebnost in prikaz podatkov**, ne morejo pa dokazati, da je anonimen zapis res poslal fizični ESP32. Kdor pozna ID naprave, lahko teoretično pošilja ponarejene meritve ali izbriše OTA ukaz, ne more pa podatkov brati brez računa lastnika.
+- Zaradi beta primerjave SD zgodovine lahko anonimen ESP32 prebere dnevne agregate `/devices/{deviceId}/aggregates/daily`. To ne odpre surovih meritev, vendar vsakdo, ki pozna ID naprave in URL baze, lahko vidi dnevna povprečja. Pred produkcijo mora ta dostop nadomestiti avtentikacija naprave.
+
+ESP32 v tej izvedbi še vedno anonimno piše meritve, stanje, bere OTA ukaz in za primerjavo zgodovine bere dnevne agregate. Firebase pravila zato lahko zaščitijo surovo zgodovino in prikaz podatkov v nadzorni plošči, ne morejo pa dokazati, da je anonimen zapis res poslal fizični ESP32. Kdor pozna ID naprave, lahko teoretično pošilja ponarejene meritve, izbriše OTA ukaz ali prebere dnevna povprečja, ne more pa brati surovih meritev brez računa lastnika.
 
 To je sprejemljivo samo za trenutno beta testiranje. Za produkcijo je potreben zaupanja vreden strežniški vmesnik ali avtentikacija naprave z lastnim žetonom oziroma certifikatom.
 

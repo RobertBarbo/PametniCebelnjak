@@ -41,6 +41,11 @@ constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Zgodovina se iz SD sinhronizira postopno; prehiter tempo lahko ob DNS/TLS napaki zasiči Wi-Fi sklad.
 constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10000;
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60000;
+// Ročna obnova uporablja manjše pakete. Običajna sinhronizacija ostane počasnejša,
+// da med vsakodnevnim delovanjem ne tekmuje z lokalnim strežnikom in meritvami.
+constexpr uint32_t CLOUD_RECONCILIATION_INTERVAL_MS = 250;
+constexpr uint8_t RECONCILIATION_MEASUREMENTS_PER_REQUEST = 32;
+constexpr uint8_t DAILY_RAW_SYNC_VERSION = 2;
 // Varovalka za primer, ko FirebaseClient izgubi asinhroni rezultat, zastavica prenosa pa ostane aktivna.
 constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3000;
 constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;
@@ -73,6 +78,10 @@ constexpr int8_t PROVISIONING_ACCESS_POINT_TX_POWER = 78;  // 78 × 0,25 dBm = 1
 constexpr uint8_t WIFI_RECONNECTS_BEFORE_RESTART = 3;
 constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;
 constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;
+constexpr uint16_t DAILY_RECONCILIATION_LINES_PER_LOOP = 128;
+constexpr uint32_t DAILY_RECONCILIATION_LOOP_BUDGET_MS = 8;
+// Štirje leti minutnih zapisov so dovolj za običajno ročno obnovitev in porabijo le nekaj deset kB PSRAM-a.
+constexpr size_t MAX_DAILY_RECONCILIATION_DAYS = 1461;
 
 // Firebase poti se ob zagonu sestavijo iz trajnega device_id naprave.
 constexpr char DEVICE_DATABASE_ROOT[] = "/devices";
@@ -186,6 +195,25 @@ struct MeasurementAggregate {
   float humiditySum;
   float weightSum;
   uint16_t count;
+  uint32_t syncChecksum;
+};
+
+struct DailyReconciliationManifest {
+  MeasurementAggregate aggregate;
+  uint32_t firstFileOffset;
+  uint32_t lastFileEndOffset;
+  uint16_t cloudPrefixSampleCount;
+  uint32_t cloudPrefixChecksum;
+  bool measurementsNeedSync;
+  bool aggregateNeedsUpdate;
+};
+
+struct RemoteDailyReconciliationManifest {
+  time_t timestamp;
+  uint16_t sampleCount;
+  uint32_t syncChecksum;
+  uint8_t rawSyncVersion;
+  bool hasSyncChecksum;
 };
 
 struct OtaArtifact {
@@ -212,6 +240,10 @@ enum class CloudSyncRequestType : uint8_t {
   Measurement,
   HourlyAggregate,
   DailyAggregate,
+  DailyReconciliationIndex,
+  ReconciliationMeasurement,
+  ReconciliationHourlyAggregate,
+  ReconciliationDailyAggregate,
 };
 
 enum class OtaUpdateState : uint8_t {
@@ -266,12 +298,29 @@ enum class HistoryDeletionStep : uint8_t {
   ClearCommandAfterError,
 };
 
+enum class LocalHistoryDeletionState : uint8_t {
+  Idle,
+  Queued,
+  Deleting,
+  Completed,
+  Error,
+};
+
 enum class LocalHistoryState : uint8_t {
   Idle,
   Queued,
   Reading,
   Writing,
   Ready,
+  Error,
+};
+
+enum class CloudReconciliationState : uint8_t {
+  Idle,
+  BuildingLocalIndex,
+  ReadingCloudIndex,
+  ReconcilingDays,
+  Completed,
   Error,
 };
 
@@ -333,6 +382,7 @@ bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
 bool historyDeletionQueued = false;
 bool historyDeletionRequestPending = false;
+volatile bool localHistoryDeletionQueued = false;
 // Nastavlja ga lokalni HTTP zahtevek ali Firebase ukaz; obdelava ostane v glavni zanki.
 volatile bool loadCellTareQueued = false;
 bool loadCellTareStatusReported = false;
@@ -380,6 +430,35 @@ MeasurementAggregate dailyCloudAggregate{};
 MeasurementAggregate readyHourlyCloudAggregate{};
 MeasurementAggregate readyDailyCloudAggregate{};
 MeasurementAggregate cloudSyncPendingAggregate{};
+MeasurementAggregate reconciliationHourlyAggregate{};
+MeasurementAggregate readyReconciliationHourlyAggregate{};
+DailyReconciliationManifest *dailyReconciliationManifests = nullptr;
+RemoteDailyReconciliationManifest *remoteDailyReconciliationManifests = nullptr;
+File dailyReconciliationLogFile;
+CloudReconciliationState cloudReconciliationState = CloudReconciliationState::Idle;
+uint16_t dailyReconciliationManifestCount = 0;
+uint16_t remoteDailyReconciliationManifestCount = 0;
+uint16_t dailyReconciliationCurrentIndex = 0;
+uint16_t dailyReconciliationDaysToTransfer = 0;
+uint16_t dailyReconciliationDaysCompleted = 0;
+uint32_t dailyReconciliationMeasurementsToTransfer = 0;
+uint32_t dailyReconciliationMeasurementsUploaded = 0;
+uint32_t dailyReconciliationFileOffset = 0;
+uint32_t dailyReconciliationPendingFileOffset = 0;
+uint32_t dailyReconciliationDayStartOffset = 0;
+// Ročna primerjava obravnava nespremenljiv posnetek dnevnika. Zapisi, dodani
+// med primerjavo, ostanejo za običajno inkrementalno sinhronizacijo.
+uint32_t dailyReconciliationSnapshotFileSize = 0;
+time_t dailyReconciliationSnapshotLastTimestamp = 0;
+bool dailyReconciliationDayStarted = false;
+bool dailyReconciliationDayRawComplete = false;
+bool dailyReconciliationPendingCompletesDay = false;
+bool reconciliationHourlyAggregateReady = false;
+uint16_t dailyReconciliationPrefixMeasurementsRead = 0;
+uint32_t dailyReconciliationPrefixChecksum = 0;
+Measurement reconciliationPendingMeasurements[RECONCILIATION_MEASUREMENTS_PER_REQUEST]{};
+uint8_t reconciliationPendingMeasurementCount = 0;
+time_t lastDailyReconciliationTimestamp = 0;
 bool hasLatestMeasurement = false;
 HistoryBucket *localHistoryBuckets = nullptr;
 File localHistoryLogFile;
@@ -435,6 +514,7 @@ CloudSyncRequestType cloudSyncRequestType = CloudSyncRequestType::None;
 OtaUpdateState otaUpdateState = OtaUpdateState::Idle;
 LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
 HistoryDeletionStep historyDeletionStep = HistoryDeletionStep::Idle;
+volatile LocalHistoryDeletionState localHistoryDeletionState = LocalHistoryDeletionState::Idle;
 TimeSource currentTimeSource = TimeSource::Unavailable;
 TimeCommandType pendingTimeCommandType = TimeCommandType::None;
 time_t pendingTimeCommandTimestamp = 0;
@@ -448,6 +528,7 @@ void processQueuedTimeCommand();
 void processPendingTimeCommand();
 void queueHistoryDeleteAction();
 void processPendingHistoryDeletion();
+void processPendingLocalHistoryDeletion();
 bool isHistoryDeletionRequest(const String &requestId);
 void completeHistoryDeletionRequest();
 bool queueLoadCellTare(bool publishCloudStatus = true);
@@ -460,12 +541,46 @@ bool persistCloudSyncState();
 bool parseMeasurementCsvLine(const char *line, Measurement &measurement);
 void resetCloudAggregateState();
 void rebuildCloudAggregateState();
+void processCloudHistoryReconciliation();
+bool startCloudHistoryReconciliation();
+void resetCloudHistoryReconciliation();
+void completeCloudHistoryReconciliationRequest(CloudSyncRequestType requestType);
+bool processCloudHistoryReconciliationIndex(const String &payload);
 void appendJsonEscaped(String &json, const String &value);
 
 bool isCloudSyncRequest(const String &requestId)
 {
   return requestId == "syncMeasurementHistory" || requestId == "syncHourlyAggregate" ||
-         requestId == "syncDailyAggregate";
+         requestId == "syncDailyAggregate" || requestId == "readDailyCloudIndex" ||
+         requestId == "syncReconciliationMeasurement" ||
+         requestId == "syncReconciliationHourlyAggregate" ||
+         requestId == "syncReconciliationDailyAggregate";
+}
+
+bool cloudHistoryReconciliationIsActive()
+{
+  return cloudReconciliationState == CloudReconciliationState::BuildingLocalIndex ||
+         cloudReconciliationState == CloudReconciliationState::ReadingCloudIndex ||
+         cloudReconciliationState == CloudReconciliationState::ReconcilingDays;
+}
+
+const char *cloudReconciliationStateName()
+{
+  switch (cloudReconciliationState) {
+    case CloudReconciliationState::BuildingLocalIndex:
+      return "preparing";
+    case CloudReconciliationState::ReadingCloudIndex:
+      return "checking";
+    case CloudReconciliationState::ReconcilingDays:
+      return "syncing";
+    case CloudReconciliationState::Completed:
+      return "completed";
+    case CloudReconciliationState::Error:
+      return "error";
+    case CloudReconciliationState::Idle:
+    default:
+      return "idle";
+  }
 }
 
 bool firebaseRequestsArePaused()
@@ -585,6 +700,23 @@ void markCloudSyncFailure()
   Serial.println(" seconds.");
 }
 
+uint32_t updateMeasurementChecksum(uint32_t checksum, const Measurement &measurement)
+{
+  constexpr uint32_t FNV_OFFSET_BASIS = 2166136261UL;
+  constexpr uint32_t FNV_PRIME = 16777619UL;
+  char normalizedMeasurement[72];
+  snprintf(normalizedMeasurement, sizeof(normalizedMeasurement), "%lu,%.1f,%.1f,%.2f",
+           static_cast<unsigned long>(measurement.timestamp), measurement.temperatureC,
+           measurement.humidityPercent, measurement.weightKg);
+
+  uint32_t result = checksum == 0 ? FNV_OFFSET_BASIS : checksum;
+  for (const char *character = normalizedMeasurement; *character != '\0'; ++character) {
+    result ^= static_cast<uint8_t>(*character);
+    result *= FNV_PRIME;
+  }
+  return result;
+}
+
 void addMeasurementToCloudAggregate(MeasurementAggregate &aggregate, MeasurementAggregate &readyAggregate,
                                     bool &ready, const Measurement &measurement, uint32_t periodSeconds,
                                     bool queueCompletedAggregate)
@@ -605,6 +737,7 @@ void addMeasurementToCloudAggregate(MeasurementAggregate &aggregate, Measurement
   aggregate.humiditySum += measurement.humidityPercent;
   aggregate.weightSum += measurement.weightKg;
   ++aggregate.count;
+  aggregate.syncChecksum = updateMeasurementChecksum(aggregate.syncChecksum, measurement);
 }
 
 void recordSynchronizedMeasurement()
@@ -678,7 +811,16 @@ void processData(AsyncResult &result)
       activationSecretPublishPending = false;
     }
     if (isCloudSyncRequest(result.uid())) {
+      const CloudSyncRequestType failedRequestType = cloudSyncRequestType;
       markCloudSyncFailure();
+      if (result.error().code() == 401 &&
+          (failedRequestType == CloudSyncRequestType::DailyReconciliationIndex ||
+           failedRequestType == CloudSyncRequestType::ReconciliationMeasurement ||
+           failedRequestType == CloudSyncRequestType::ReconciliationHourlyAggregate ||
+           failedRequestType == CloudSyncRequestType::ReconciliationDailyAggregate)) {
+        cloudReconciliationState = CloudReconciliationState::Error;
+        Serial.println("Cloud history reconciliation stopped: Firebase access was denied.");
+      }
     }
     if (isHistoryDeletionRequest(result.uid())) {
       historyDeletionRequestPending = false;
@@ -725,7 +867,15 @@ void processData(AsyncResult &result)
     if (isCloudSyncRequest(result.uid())) {
       const String responsePayload = result.payload();
       if (responsePayload.indexOf("error") >= 0 || responsePayload.indexOf("unauthorized") >= 0) {
+        const CloudSyncRequestType failedRequestType = cloudSyncRequestType;
         markCloudSyncFailure();
+        if (failedRequestType == CloudSyncRequestType::DailyReconciliationIndex ||
+            failedRequestType == CloudSyncRequestType::ReconciliationMeasurement ||
+            failedRequestType == CloudSyncRequestType::ReconciliationHourlyAggregate ||
+            failedRequestType == CloudSyncRequestType::ReconciliationDailyAggregate) {
+          cloudReconciliationState = CloudReconciliationState::Error;
+          Serial.println("Cloud history reconciliation stopped: Firebase rejected the request.");
+        }
         return;
       }
 
@@ -734,8 +884,16 @@ void processData(AsyncResult &result)
       cloudSyncRequestStartedMillis = 0;
       cloudSyncRequestType = CloudSyncRequestType::None;
       cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
-      if (completedRequestType == CloudSyncRequestType::Measurement) {
+      if (completedRequestType == CloudSyncRequestType::DailyReconciliationIndex) {
+        if (!processCloudHistoryReconciliationIndex(responsePayload)) {
+          cloudReconciliationState = CloudReconciliationState::Error;
+        }
+      } else if (completedRequestType == CloudSyncRequestType::Measurement) {
         recordSynchronizedMeasurement();
+      } else if (completedRequestType == CloudSyncRequestType::ReconciliationMeasurement ||
+                 completedRequestType == CloudSyncRequestType::ReconciliationHourlyAggregate ||
+                 completedRequestType == CloudSyncRequestType::ReconciliationDailyAggregate) {
+        completeCloudHistoryReconciliationRequest(completedRequestType);
       } else {
         completeCloudAggregateRequest(completedRequestType);
       }
@@ -1627,6 +1785,28 @@ void initializeMemoryAndHistoryBuffer()
 
   Serial.printf("[MEM] Local history buffer=%u bytes in PSRAM.\n",
                 static_cast<unsigned>(historyBufferSize));
+
+  const size_t reconciliationBufferSize =
+      MAX_DAILY_RECONCILIATION_DAYS * (sizeof(DailyReconciliationManifest) +
+                                      sizeof(RemoteDailyReconciliationManifest));
+  dailyReconciliationManifests = static_cast<DailyReconciliationManifest *>(
+      heap_caps_calloc(MAX_DAILY_RECONCILIATION_DAYS, sizeof(DailyReconciliationManifest),
+                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  remoteDailyReconciliationManifests = static_cast<RemoteDailyReconciliationManifest *>(
+      heap_caps_calloc(MAX_DAILY_RECONCILIATION_DAYS, sizeof(RemoteDailyReconciliationManifest),
+                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (dailyReconciliationManifests == nullptr || remoteDailyReconciliationManifests == nullptr) {
+    heap_caps_free(dailyReconciliationManifests);
+    heap_caps_free(remoteDailyReconciliationManifests);
+    dailyReconciliationManifests = nullptr;
+    remoteDailyReconciliationManifests = nullptr;
+    Serial.printf("[MEM] PSRAM allocation failed for %u-byte daily sync index.\n",
+                  static_cast<unsigned>(reconciliationBufferSize));
+    return;
+  }
+
+  Serial.printf("[MEM] Daily sync index=%u bytes in PSRAM.\n",
+                static_cast<unsigned>(reconciliationBufferSize));
 }
 
 void printSystemDiagnostics()
@@ -2388,6 +2568,19 @@ void processFirmwareUpdateCommand(const String &payload)
     return;
   }
 
+  if (action == "sync_history") {
+    if (cloudSyncPending || cloudHistoryReconciliationIsActive()) {
+      Serial.println("Cloud history reconciliation command ignored: synchronization is already active.");
+    } else if (startCloudHistoryReconciliation()) {
+      Serial.println("Cloud requested history reconciliation.");
+      lastDeviceStatusMillis = 0;
+    } else {
+      Serial.println("Cloud history reconciliation command failed: SD history is unavailable.");
+    }
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
   if (action == "tare_load_cell") {
     // Najprej odstranimo cloud ukaz. Končni status se objavi šele po tariranju,
     // zato na enem AsyncClientu ne moreta tekmovati zapis statusa in remove ukaza.
@@ -2711,6 +2904,18 @@ const char *loadCellTareStateName()
   }
 }
 
+const char *localHistoryDeletionStateName()
+{
+  switch (localHistoryDeletionState) {
+    case LocalHistoryDeletionState::Queued: return "queued";
+    case LocalHistoryDeletionState::Deleting: return "deleting";
+    case LocalHistoryDeletionState::Completed: return "completed";
+    case LocalHistoryDeletionState::Error: return "error";
+    case LocalHistoryDeletionState::Idle:
+    default: return "idle";
+  }
+}
+
 void reportLoadCellTareStatus(const char *message)
 {
   if (!isFirebaseReady()) return;
@@ -2790,6 +2995,9 @@ bool deleteMeasurementHistoryFromSD()
   }
   SD.remove(SD_HISTORY_INDEX_PATH);
   SD.remove(SD_HISTORY_INDEX_TEMP_PATH);
+  SD.remove(SD_HISTORY_RESPONSE_PATH);
+  resetCloudHistoryReconciliation();
+  cloudReconciliationState = CloudReconciliationState::Idle;
 
   File logFile = SD.open(SD_LOG_PATH, FILE_WRITE);
   if (!logFile) {
@@ -2801,6 +3009,11 @@ bool deleteMeasurementHistoryFromSD()
 
   hasLatestMeasurement = false;
   latestMeasurement = {};
+  portENTER_CRITICAL(&localHistoryStateMux);
+  localHistoryState = LocalHistoryState::Idle;
+  localHistoryFirstTimestamp = 0;
+  localHistoryLastTimestamp = 0;
+  portEXIT_CRITICAL(&localHistoryStateMux);
   historyIndexReady = false;
   lastIndexedDayTimestamp = 0;
   cloudSyncFileOffset = 0;
@@ -2813,6 +3026,24 @@ bool deleteMeasurementHistoryFromSD()
   lastCloudSyncAttemptMillis = millis();
   resetCloudAggregateState();
   return persistCloudSyncState();
+}
+
+void processPendingLocalHistoryDeletion()
+{
+  if (!localHistoryDeletionQueued || firmwareUpdateInProgress || Update.isRunning() ||
+      cloudSyncPending || cloudHistoryReconciliationIsActive() ||
+      localHistoryState == LocalHistoryState::Reading || localHistoryState == LocalHistoryState::Writing) {
+    return;
+  }
+
+  localHistoryDeletionState = LocalHistoryDeletionState::Deleting;
+  Serial.println("Local history deletion: deleting measurements from the SD card.");
+  const bool deletionSucceeded = deleteMeasurementHistoryFromSD();
+  localHistoryDeletionQueued = false;
+  localHistoryDeletionState = deletionSucceeded ? LocalHistoryDeletionState::Completed
+                                                 : LocalHistoryDeletionState::Error;
+  Serial.println(deletionSucceeded ? "Local history deletion completed."
+                                   : "Local history deletion failed.");
 }
 
 bool isHistoryDeletionRequest(const String &requestId)
@@ -2890,7 +3121,7 @@ void queueHistoryDeleteAction()
 void processPendingHistoryDeletion()
 {
   if (!historyDeletionQueued || historyDeletionRequestPending || firmwareUpdateInProgress ||
-      Update.isRunning() || cloudSyncPending) {
+      Update.isRunning() || cloudSyncPending || cloudHistoryReconciliationIsActive()) {
     return;
   }
 
@@ -3598,8 +3829,10 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   String escapedStationSsid;
   appendJsonEscaped(escapedStationSsid, stationConnected ? WiFi.SSID() : "");
   const time_t lastSeenTimestamp = time(nullptr);
+  const bool reconciliationActive = cloudHistoryReconciliationIsActive();
   const bool cloudSynchronizationComplete = cloudSyncCaughtUp && !cloudSyncPending &&
-                                             !hourlyAggregateReady && !dailyAggregateReady;
+                                             !hourlyAggregateReady && !dailyAggregateReady &&
+                                             !reconciliationActive;
   static char measurementJson[220];
   if (hasLatestMeasurement) {
     snprintf(measurementJson, sizeof(measurementJson),
@@ -3611,9 +3844,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   }
 
   const time_t currentTimestamp = time(nullptr);
-  static char jsonPayload[2200];
+  static char jsonPayload[2600];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
@@ -3624,9 +3857,16 @@ void sendLocalStatus(AsyncWebServerRequest *request)
            stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
            escapedStationSsid.c_str(), accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
            wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
-           cloudSyncPending ? "true" : "false", cloudSynchronizationComplete ? "true" : "false",
+           (cloudSyncPending || reconciliationActive) ? "true" : "false",
+           cloudSynchronizationComplete ? "true" : "false",
            static_cast<unsigned long>(lastCloudSyncedTimestamp),
            static_cast<unsigned long>(cloudSyncRetryIntervalMs / 1000),
+            cloudReconciliationStateName(), dailyReconciliationManifestCount,
+            dailyReconciliationDaysToTransfer, dailyReconciliationDaysCompleted,
+            static_cast<unsigned long>(dailyReconciliationMeasurementsToTransfer),
+            static_cast<unsigned long>(dailyReconciliationMeasurementsUploaded),
+            static_cast<unsigned long>(lastDailyReconciliationTimestamp),
+           localHistoryDeletionStateName(),
            sdCardReady ? "true" : "false", sdInitializationFailures,
            sdErrorReported ? "true" : "false", loadCellReady ? "true" : "false",
            loadCellTareStateName(), FIRMWARE_VERSION);
@@ -3846,29 +4086,35 @@ void sendLocalHistory(AsyncWebServerRequest *request)
 
 void resetCloudSynchronization(AsyncWebServerRequest *request)
 {
-  if (cloudSyncPending) {
+  if (cloudSyncPending || cloudHistoryReconciliationIsActive()) {
     sendLocalJsonResponse(request, 409, "{\"error\":\"Cloud synchronization is in progress\"}");
     return;
   }
 
-  cloudSyncFileOffset = 0;
-  cloudSyncPendingFileOffset = 0;
-  lastCloudSyncedTimestamp = 0;
-  cloudSyncWritesSincePersist = 0;
-  cloudSyncStateSavePending = false;
-  cloudSyncCaughtUp = false;
-  cloudSyncRequestStartedMillis = 0;
-  cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
-  lastCloudSyncAttemptMillis = 0;
-  resetCloudAggregateState();
-
-  if (!persistCloudSyncState()) {
-    sendLocalJsonResponse(request, 500, "{\"error\":\"Cloud synchronization state could not be saved\"}");
+  if (!startCloudHistoryReconciliation()) {
+    sendLocalJsonResponse(request, 503, "{\"error\":\"SD card or daily synchronization index is unavailable\"}");
     return;
   }
 
-  Serial.println("Cloud history synchronization was reset from the local dashboard.");
-  sendLocalJsonResponse(request, 202, "{\"state\":\"resynchronizing\"}");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"checking\"}");
+}
+
+void requestLocalHistoryDeletion(AsyncWebServerRequest *request)
+{
+  if (!sdCardReady) {
+    sendLocalJsonResponse(request, 503, "{\"error\":\"SD card is unavailable\"}");
+    return;
+  }
+  if (localHistoryDeletionQueued || historyDeletionQueued || cloudSyncPending ||
+      cloudHistoryReconciliationIsActive()) {
+    sendLocalJsonResponse(request, 409, "{\"error\":\"History operation is already in progress\"}");
+    return;
+  }
+
+  localHistoryDeletionState = LocalHistoryDeletionState::Queued;
+  localHistoryDeletionQueued = true;
+  Serial.println("Local history deletion command queued.");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"queued\"}");
 }
 
 void serveMeasurementLog(AsyncWebServerRequest *request)
@@ -3881,7 +4127,9 @@ void serveMeasurementLog(AsyncWebServerRequest *request)
     request->send(404, "text/plain", "Measurement log is unavailable.");
     return;
   }
-  request->send(SD, SD_LOG_PATH, "text/csv; charset=utf-8", true);
+  const bool inlineView = request->url() == "/measurements";
+  request->send(SD, SD_LOG_PATH, inlineView ? "text/plain; charset=utf-8" : "text/csv; charset=utf-8",
+                !inlineView);
 }
 
 void initializeLocalWebServer()
@@ -3892,12 +4140,14 @@ void initializeLocalWebServer()
 
   localServer.on("/api/status", HTTP_GET, sendLocalStatus);
   localServer.on("/api/history", HTTP_GET, sendLocalHistory);
+  localServer.on("/api/history", HTTP_DELETE, requestLocalHistoryDeletion);
   localServer.on("/api/sync/reset", HTTP_POST, resetCloudSynchronization);
   localServer.on("/api/sensors/load-cell/tare", HTTP_POST, requestLoadCellTare);
   localServer.on("/api/time", HTTP_POST, requestTimeConfiguration);
   localServer.on("/api/wifi", HTTP_POST, saveWiFiConfiguration);
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
+  localServer.on("/measurements", HTTP_GET, serveMeasurementLog);
   localServer.on("/measurements.csv", HTTP_GET, serveMeasurementLog);
   localServer.onNotFound([](AsyncWebServerRequest *request) {
     if (!serveLocalAsset(request, request->url())) request->send(404, "text/plain", "Not found");
@@ -4069,6 +4319,9 @@ void rebuildCloudAggregateState()
   if (rebuildOffset > 0 && !logFile.seek(rebuildOffset)) {
     logFile.seek(0);
   }
+  const time_t synchronizedHour =
+      lastCloudSyncedTimestamp - (lastCloudSyncedTimestamp % HOURLY_AGGREGATE_SECONDS);
+  const time_t synchronizedDay = historyIndexDay(lastCloudSyncedTimestamp);
 
   char line[128];
   uint16_t processedLines = 0;
@@ -4081,10 +4334,18 @@ void rebuildCloudAggregateState()
 
     Measurement measurement{};
     if (parseMeasurementCsvLine(line, measurement)) {
-      addMeasurementToCloudAggregate(hourlyCloudAggregate, readyHourlyCloudAggregate, hourlyAggregateReady,
-                                     measurement, HOURLY_AGGREGATE_SECONDS, false);
-      addMeasurementToCloudAggregate(dailyCloudAggregate, readyDailyCloudAggregate, dailyAggregateReady,
-                                     measurement, DAILY_AGGREGATE_SECONDS, false);
+      const time_t measurementHour =
+          measurement.timestamp - (measurement.timestamp % HOURLY_AGGREGATE_SECONDS);
+      if (measurementHour == synchronizedHour) {
+        addMeasurementToCloudAggregate(hourlyCloudAggregate, readyHourlyCloudAggregate,
+                                       hourlyAggregateReady, measurement,
+                                       HOURLY_AGGREGATE_SECONDS, false);
+      }
+      if (historyIndexDay(measurement.timestamp) == synchronizedDay) {
+        addMeasurementToCloudAggregate(dailyCloudAggregate, readyDailyCloudAggregate,
+                                       dailyAggregateReady, measurement,
+                                       DAILY_AGGREGATE_SECONDS, false);
+      }
     }
     if (++processedLines % 64 == 0) {
       yield();
@@ -4174,12 +4435,23 @@ void queueCloudAggregate(const MeasurementAggregate &aggregate, const char *data
     return;
   }
 
-  char jsonPayload[224];
-  snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f,\"timestamp\":%lu,\"sample_count\":%u,\"period_seconds\":%lu}",
-           aggregate.temperatureSum / aggregate.count, aggregate.humiditySum / aggregate.count,
-           aggregate.weightSum / aggregate.count, static_cast<unsigned long>(aggregate.timestamp),
-           aggregate.count, static_cast<unsigned long>(periodSeconds));
+  char jsonPayload[320];
+  if (requestType == CloudSyncRequestType::ReconciliationDailyAggregate) {
+    snprintf(jsonPayload, sizeof(jsonPayload),
+             "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f,\"timestamp\":%lu,\"sample_count\":%u,\"period_seconds\":%lu,\"sync_checksum\":%lu,\"raw_sample_count\":%u,\"raw_sync_checksum\":\"%lu\",\"raw_sync_version\":%u}",
+             aggregate.temperatureSum / aggregate.count, aggregate.humiditySum / aggregate.count,
+             aggregate.weightSum / aggregate.count, static_cast<unsigned long>(aggregate.timestamp),
+             aggregate.count, static_cast<unsigned long>(periodSeconds),
+             static_cast<unsigned long>(aggregate.syncChecksum), aggregate.count,
+             static_cast<unsigned long>(aggregate.syncChecksum), DAILY_RAW_SYNC_VERSION);
+  } else {
+    snprintf(jsonPayload, sizeof(jsonPayload),
+             "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f,\"timestamp\":%lu,\"sample_count\":%u,\"period_seconds\":%lu,\"sync_checksum\":%lu}",
+             aggregate.temperatureSum / aggregate.count, aggregate.humiditySum / aggregate.count,
+             aggregate.weightSum / aggregate.count, static_cast<unsigned long>(aggregate.timestamp),
+             aggregate.count, static_cast<unsigned long>(periodSeconds),
+             static_cast<unsigned long>(aggregate.syncChecksum));
+  }
   object_t aggregateData(jsonPayload);
 
   char aggregatePath[DATABASE_PATH_LENGTH];
@@ -4189,7 +4461,609 @@ void queueCloudAggregate(const MeasurementAggregate &aggregate, const char *data
   cloudSyncPending = true;
   cloudSyncRequestStartedMillis = millis();
   cloudSyncRequestType = requestType;
-  database.set(asyncClient, aggregatePath, aggregateData, processData, requestId);
+  // PATCH ohrani oznako uspešno preverjene surove zgodovine tudi ob poznejši
+  // osvežitvi tekočega urnega ali dnevnega agregata.
+  database.update(asyncClient, aggregatePath, aggregateData, processData, requestId);
+}
+
+bool extractJsonUnsignedValue(const String &json, const char *key, uint32_t &value)
+{
+  const String keyPrefix = String('"') + key + "\":";
+  const int keyPosition = json.indexOf(keyPrefix);
+  if (keyPosition < 0) {
+    return false;
+  }
+
+  const char *valueStart = json.c_str() + keyPosition + keyPrefix.length();
+  char *valueEnd = nullptr;
+  const unsigned long parsedValue = strtoul(valueStart, &valueEnd, 10);
+  if (valueEnd == valueStart) {
+    return false;
+  }
+  value = static_cast<uint32_t>(parsedValue);
+  return true;
+}
+
+void resetCloudHistoryReconciliation()
+{
+  if (dailyReconciliationLogFile) {
+    dailyReconciliationLogFile.close();
+  }
+  dailyReconciliationManifestCount = 0;
+  remoteDailyReconciliationManifestCount = 0;
+  dailyReconciliationCurrentIndex = 0;
+  dailyReconciliationDaysToTransfer = 0;
+  dailyReconciliationDaysCompleted = 0;
+  dailyReconciliationMeasurementsToTransfer = 0;
+  dailyReconciliationMeasurementsUploaded = 0;
+  dailyReconciliationFileOffset = 0;
+  dailyReconciliationPendingFileOffset = 0;
+  dailyReconciliationDayStartOffset = 0;
+  dailyReconciliationSnapshotFileSize = 0;
+  dailyReconciliationSnapshotLastTimestamp = 0;
+  dailyReconciliationDayStarted = false;
+  dailyReconciliationDayRawComplete = false;
+  dailyReconciliationPendingCompletesDay = false;
+  reconciliationHourlyAggregateReady = false;
+  dailyReconciliationPrefixMeasurementsRead = 0;
+  dailyReconciliationPrefixChecksum = 0;
+  reconciliationPendingMeasurementCount = 0;
+  reconciliationHourlyAggregate = {};
+  readyReconciliationHourlyAggregate = {};
+}
+
+bool addDailyReconciliationMeasurement(const Measurement &measurement, uint32_t fileOffset,
+                                       uint32_t fileEndOffset)
+{
+  const time_t dayTimestamp = historyIndexDay(measurement.timestamp);
+  DailyReconciliationManifest *manifest = nullptr;
+  for (uint16_t index = dailyReconciliationManifestCount; index > 0; --index) {
+    DailyReconciliationManifest &candidate = dailyReconciliationManifests[index - 1];
+    if (candidate.aggregate.timestamp == dayTimestamp) {
+      manifest = &candidate;
+      break;
+    }
+  }
+
+  if (manifest == nullptr) {
+    if (dailyReconciliationManifestCount >= MAX_DAILY_RECONCILIATION_DAYS) {
+      Serial.println("Daily cloud synchronization index reached its maximum size.");
+      return false;
+    }
+    manifest = &dailyReconciliationManifests[dailyReconciliationManifestCount++];
+    *manifest = {};
+    manifest->aggregate.timestamp = dayTimestamp;
+    manifest->firstFileOffset = fileOffset;
+  }
+
+  manifest->lastFileEndOffset = fileEndOffset;
+  manifest->aggregate.temperatureSum += measurement.temperatureC;
+  manifest->aggregate.humiditySum += measurement.humidityPercent;
+  manifest->aggregate.weightSum += measurement.weightKg;
+  ++manifest->aggregate.count;
+  manifest->aggregate.syncChecksum = updateMeasurementChecksum(manifest->aggregate.syncChecksum, measurement);
+  return true;
+}
+
+bool startCloudHistoryReconciliation()
+{
+  if (!sdCardReady || !dailyReconciliationManifests || !remoteDailyReconciliationManifests) {
+    return false;
+  }
+  if (!historyIndexReady && !initializeMeasurementHistoryIndex()) {
+    return false;
+  }
+
+  resetCloudHistoryReconciliation();
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile) {
+    Serial.println("Cloud history reconciliation: SD log could not be opened.");
+    return false;
+  }
+  dailyReconciliationSnapshotFileSize = static_cast<uint32_t>(logFile.size());
+  logFile.close();
+  cloudReconciliationState = CloudReconciliationState::BuildingLocalIndex;
+  cloudSyncCaughtUp = false;
+  Serial.printf("Cloud history reconciliation: building a local index from %lu bytes.\n",
+                static_cast<unsigned long>(dailyReconciliationSnapshotFileSize));
+  return true;
+}
+
+bool parseRemoteDailyReconciliationIndex(const String &payload)
+{
+  remoteDailyReconciliationManifestCount = 0;
+  if (payload == "null" || payload.length() == 0) {
+    return true;
+  }
+
+  int cursor = 0;
+  while (cursor >= 0 && cursor < payload.length()) {
+    const int keyStart = payload.indexOf('"', cursor);
+    if (keyStart < 0) break;
+    const int keyEnd = payload.indexOf('"', keyStart + 1);
+    if (keyEnd < 0) return false;
+    const int valueStart = payload.indexOf('{', keyEnd + 1);
+    if (valueStart < 0) return false;
+    const int valueEnd = payload.indexOf('}', valueStart + 1);
+    if (valueEnd < 0) return false;
+
+    const String key = payload.substring(keyStart + 1, keyEnd);
+    char *keyEndPointer = nullptr;
+    const unsigned long keyTimestamp = strtoul(key.c_str(), &keyEndPointer, 10);
+    if (keyEndPointer != key.c_str() && *keyEndPointer == '\0') {
+      const String aggregateJson = payload.substring(valueStart, valueEnd + 1);
+      uint32_t timestamp = 0;
+      uint32_t sampleCount = 0;
+      uint32_t syncChecksum = 0;
+      uint32_t rawSyncVersion = 0;
+      if (!extractJsonUnsignedValue(aggregateJson, "timestamp", timestamp) ||
+          !extractJsonUnsignedValue(aggregateJson, "sample_count", sampleCount)) {
+        return false;
+      }
+      if (remoteDailyReconciliationManifestCount >= MAX_DAILY_RECONCILIATION_DAYS ||
+          timestamp != keyTimestamp || sampleCount > UINT16_MAX) {
+        return false;
+      }
+      RemoteDailyReconciliationManifest &remoteManifest =
+          remoteDailyReconciliationManifests[remoteDailyReconciliationManifestCount++];
+      remoteManifest.timestamp = static_cast<time_t>(timestamp);
+      remoteManifest.sampleCount = static_cast<uint16_t>(sampleCount);
+      remoteManifest.hasSyncChecksum = extractJsonUnsignedValue(aggregateJson, "sync_checksum", syncChecksum);
+      remoteManifest.syncChecksum = syncChecksum;
+      remoteManifest.rawSyncVersion =
+          extractJsonUnsignedValue(aggregateJson, "raw_sync_version", rawSyncVersion) &&
+                  rawSyncVersion <= UINT8_MAX
+              ? static_cast<uint8_t>(rawSyncVersion)
+              : 0;
+      if (remoteManifest.rawSyncVersion >= DAILY_RAW_SYNC_VERSION) {
+        uint32_t rawSampleCount = 0;
+        String rawSyncChecksum;
+        char *checksumEnd = nullptr;
+        if (!extractJsonUnsignedValue(aggregateJson, "raw_sample_count", rawSampleCount) ||
+            rawSampleCount > UINT16_MAX ||
+            !extractJsonString(aggregateJson, "raw_sync_checksum", rawSyncChecksum)) {
+          remoteManifest.rawSyncVersion = 0;
+          remoteManifest.hasSyncChecksum = false;
+        } else {
+          const unsigned long parsedChecksum = strtoul(rawSyncChecksum.c_str(), &checksumEnd, 10);
+          if (checksumEnd == rawSyncChecksum.c_str() || *checksumEnd != '\0') {
+            remoteManifest.rawSyncVersion = 0;
+            remoteManifest.hasSyncChecksum = false;
+          } else {
+            remoteManifest.sampleCount = static_cast<uint16_t>(rawSampleCount);
+            remoteManifest.syncChecksum = static_cast<uint32_t>(parsedChecksum);
+            remoteManifest.hasSyncChecksum = true;
+          }
+        }
+      }
+    }
+    cursor = valueEnd + 1;
+  }
+  return true;
+}
+
+const RemoteDailyReconciliationManifest *findRemoteDailyReconciliationManifest(time_t timestamp)
+{
+  for (uint16_t index = 0; index < remoteDailyReconciliationManifestCount; ++index) {
+    const RemoteDailyReconciliationManifest &manifest = remoteDailyReconciliationManifests[index];
+    if (manifest.timestamp == timestamp) {
+      return &manifest;
+    }
+  }
+  return nullptr;
+}
+
+bool processCloudHistoryReconciliationIndex(const String &payload)
+{
+  if (!parseRemoteDailyReconciliationIndex(payload)) {
+    Serial.println("Cloud history reconciliation: daily Firebase index could not be parsed.");
+    return false;
+  }
+
+  dailyReconciliationDaysToTransfer = 0;
+  dailyReconciliationMeasurementsToTransfer = 0;
+  dailyReconciliationDaysCompleted = 0;
+  dailyReconciliationCurrentIndex = 0;
+  for (uint16_t index = 0; index < dailyReconciliationManifestCount; ++index) {
+    DailyReconciliationManifest &localManifest = dailyReconciliationManifests[index];
+    const RemoteDailyReconciliationManifest *remoteManifest =
+        findRemoteDailyReconciliationManifest(localManifest.aggregate.timestamp);
+    localManifest.cloudPrefixSampleCount = 0;
+    localManifest.cloudPrefixChecksum = 0;
+    const bool remoteRawHistoryVerified = remoteManifest != nullptr &&
+                                          remoteManifest->rawSyncVersion >= DAILY_RAW_SYNC_VERSION;
+    localManifest.measurementsNeedSync = remoteManifest == nullptr ||
+                                         !remoteRawHistoryVerified ||
+                                         remoteManifest->sampleCount != localManifest.aggregate.count ||
+                                         (remoteManifest->hasSyncChecksum &&
+                                          remoteManifest->syncChecksum != localManifest.aggregate.syncChecksum);
+    // Dnevni agregat brez oznake potrjene surove zgodovine se enkrat obnovi v celoti.
+    // Tako popravimo tudi morebitni manjkajoči zadnji paket iz starejše izdaje.
+    localManifest.aggregateNeedsUpdate = localManifest.measurementsNeedSync ||
+                                        (remoteManifest != nullptr && !remoteManifest->hasSyncChecksum);
+    if (localManifest.measurementsNeedSync) {
+      ++dailyReconciliationDaysToTransfer;
+      if (remoteRawHistoryVerified && remoteManifest->hasSyncChecksum &&
+          remoteManifest->sampleCount < localManifest.aggregate.count) {
+        // Cloud agregat lahko pri tekočem dnevu zaostaja. Njegovo kontrolno vsoto
+        // najprej primerjamo z enako dolgo predpono SD dnevnika in nato pošljemo le rep.
+        localManifest.cloudPrefixSampleCount = remoteManifest->sampleCount;
+        localManifest.cloudPrefixChecksum = remoteManifest->syncChecksum;
+        dailyReconciliationMeasurementsToTransfer +=
+            localManifest.aggregate.count - remoteManifest->sampleCount;
+      } else {
+        dailyReconciliationMeasurementsToTransfer += localManifest.aggregate.count;
+      }
+    }
+  }
+
+  cloudReconciliationState = CloudReconciliationState::ReconcilingDays;
+  Serial.printf("Cloud history reconciliation: %u local days, %u days and %lu measurements require recovery.\n",
+                dailyReconciliationManifestCount, dailyReconciliationDaysToTransfer,
+                static_cast<unsigned long>(dailyReconciliationMeasurementsToTransfer));
+  return true;
+}
+
+bool readNextReconciliationMeasurementBatch(DailyReconciliationManifest &manifest,
+                                             uint32_t &nextFileOffset, bool &dayFinished)
+{
+  dayFinished = false;
+  reconciliationPendingMeasurementCount = 0;
+  nextFileOffset = dailyReconciliationFileOffset;
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  if (!logFile || !logFile.seek(dailyReconciliationFileOffset)) {
+    if (logFile) logFile.close();
+    Serial.println("Cloud history reconciliation: SD log could not be read.");
+    return false;
+  }
+
+  const time_t dayEndTimestamp = manifest.aggregate.timestamp + DAILY_AGGREGATE_SECONDS;
+  const uint32_t dayReadEndOffset = min(manifest.lastFileEndOffset,
+                                        dailyReconciliationSnapshotFileSize);
+  const uint32_t startedMillis = millis();
+  uint16_t processedLines = 0;
+  char line[128];
+  while (logFile.available() &&
+         logFile.position() < dayReadEndOffset &&
+         reconciliationPendingMeasurementCount < RECONCILIATION_MEASUREMENTS_PER_REQUEST &&
+         processedLines < DAILY_RECONCILIATION_LINES_PER_LOOP &&
+         (reconciliationPendingMeasurementCount > 0 ||
+          millis() - startedMillis < DAILY_RECONCILIATION_LOOP_BUDGET_MS)) {
+    const size_t lineLength = logFile.readBytesUntil('\n', line, sizeof(line) - 1);
+    line[lineLength] = '\0';
+    const uint32_t lineEndOffset = static_cast<uint32_t>(logFile.position());
+    ++processedLines;
+    Measurement parsedMeasurement{};
+    if (!parseMeasurementCsvLine(line, parsedMeasurement)) {
+      nextFileOffset = lineEndOffset;
+      if (reconciliationPendingMeasurementCount == 0) {
+        dailyReconciliationFileOffset = lineEndOffset;
+      }
+      continue;
+    }
+    if (parsedMeasurement.timestamp < manifest.aggregate.timestamp ||
+        parsedMeasurement.timestamp >= dayEndTimestamp) {
+      nextFileOffset = lineEndOffset;
+      if (reconciliationPendingMeasurementCount == 0) {
+        dailyReconciliationFileOffset = lineEndOffset;
+      }
+      continue;
+    }
+
+    if (dailyReconciliationPrefixMeasurementsRead < manifest.cloudPrefixSampleCount) {
+      dailyReconciliationPrefixChecksum =
+          updateMeasurementChecksum(dailyReconciliationPrefixChecksum, parsedMeasurement);
+      addMeasurementToCloudAggregate(reconciliationHourlyAggregate, readyReconciliationHourlyAggregate,
+                                     reconciliationHourlyAggregateReady, parsedMeasurement,
+                                     HOURLY_AGGREGATE_SECONDS, true);
+      ++dailyReconciliationPrefixMeasurementsRead;
+      dailyReconciliationFileOffset = lineEndOffset;
+      nextFileOffset = lineEndOffset;
+
+      if (dailyReconciliationPrefixMeasurementsRead == manifest.cloudPrefixSampleCount) {
+        if (dailyReconciliationPrefixChecksum != manifest.cloudPrefixChecksum) {
+          const uint16_t invalidPrefixCount = manifest.cloudPrefixSampleCount;
+          manifest.cloudPrefixSampleCount = 0;
+          manifest.cloudPrefixChecksum = 0;
+          dailyReconciliationMeasurementsToTransfer += invalidPrefixCount;
+          dailyReconciliationFileOffset = dailyReconciliationDayStartOffset;
+          nextFileOffset = dailyReconciliationDayStartOffset;
+          dailyReconciliationPrefixMeasurementsRead = 0;
+          dailyReconciliationPrefixChecksum = 0;
+          reconciliationHourlyAggregate = {};
+          readyReconciliationHourlyAggregate = {};
+          reconciliationHourlyAggregateReady = false;
+          Serial.printf("Cloud history reconciliation: cloud prefix mismatch; recovering all %u daily measurements.\n",
+                        manifest.aggregate.count);
+          logFile.close();
+          return true;
+        }
+        Serial.printf("Cloud history reconciliation: verified %u existing measurements; uploading %u trailing measurements.\n",
+                      manifest.cloudPrefixSampleCount,
+                      manifest.aggregate.count - manifest.cloudPrefixSampleCount);
+      }
+      if (reconciliationHourlyAggregateReady) {
+        logFile.close();
+        return true;
+      }
+      continue;
+    }
+
+    reconciliationPendingMeasurements[reconciliationPendingMeasurementCount++] = parsedMeasurement;
+    nextFileOffset = lineEndOffset;
+  }
+
+  if (!logFile.available() || logFile.position() >= dayReadEndOffset) {
+    dayFinished = true;
+  }
+  logFile.close();
+  return true;
+}
+
+void queueReconciliationMeasurementBatch(uint32_t nextFileOffset, bool completesDay)
+{
+  String jsonPayload;
+  jsonPayload.reserve(reconciliationPendingMeasurementCount * 144U + 2U);
+  jsonPayload = '{';
+  for (uint8_t index = 0; index < reconciliationPendingMeasurementCount; ++index) {
+    const Measurement &measurement = reconciliationPendingMeasurements[index];
+    char measurementJson[176];
+    snprintf(measurementJson, sizeof(measurementJson),
+             "%s\"%lu\":{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
+             index == 0 ? "" : ",", static_cast<unsigned long>(measurement.timestamp),
+             measurement.temperatureC, measurement.humidityPercent, measurement.weightKg,
+             measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
+    jsonPayload += measurementJson;
+  }
+  jsonPayload += '}';
+  object_t measurementsData(jsonPayload);
+
+  cloudSyncPendingMeasurement = reconciliationPendingMeasurements[reconciliationPendingMeasurementCount - 1];
+  dailyReconciliationPendingFileOffset = nextFileOffset;
+  dailyReconciliationPendingCompletesDay = completesDay;
+  cloudSyncPending = true;
+  cloudSyncRequestStartedMillis = millis();
+  cloudSyncRequestType = CloudSyncRequestType::ReconciliationMeasurement;
+  Serial.printf("Cloud history reconciliation: uploading %u measurements (%lu/%lu).\n",
+                reconciliationPendingMeasurementCount,
+                static_cast<unsigned long>(dailyReconciliationMeasurementsUploaded),
+                static_cast<unsigned long>(dailyReconciliationMeasurementsToTransfer));
+  database.update(asyncClient, historyDatabasePath, measurementsData, processData,
+                  "syncReconciliationMeasurement");
+}
+
+void completeCurrentReconciliationDay()
+{
+  DailyReconciliationManifest &manifest = dailyReconciliationManifests[dailyReconciliationCurrentIndex];
+  manifest.measurementsNeedSync = false;
+  manifest.aggregateNeedsUpdate = false;
+  ++dailyReconciliationDaysCompleted;
+  ++dailyReconciliationCurrentIndex;
+  dailyReconciliationDayStarted = false;
+  dailyReconciliationDayRawComplete = false;
+  dailyReconciliationPendingCompletesDay = false;
+  dailyReconciliationFileOffset = 0;
+  dailyReconciliationPendingFileOffset = 0;
+  dailyReconciliationDayStartOffset = 0;
+  dailyReconciliationPrefixMeasurementsRead = 0;
+  dailyReconciliationPrefixChecksum = 0;
+  reconciliationPendingMeasurementCount = 0;
+  reconciliationHourlyAggregate = {};
+  readyReconciliationHourlyAggregate = {};
+  reconciliationHourlyAggregateReady = false;
+}
+
+void completeCloudHistoryReconciliationRequest(CloudSyncRequestType requestType)
+{
+  if (cloudReconciliationState != CloudReconciliationState::ReconcilingDays ||
+      dailyReconciliationCurrentIndex >= dailyReconciliationManifestCount) {
+    return;
+  }
+
+  if (requestType == CloudSyncRequestType::ReconciliationMeasurement) {
+    const bool completedDay = dailyReconciliationPendingCompletesDay;
+    dailyReconciliationFileOffset = dailyReconciliationPendingFileOffset;
+    for (uint8_t index = 0; index < reconciliationPendingMeasurementCount; ++index) {
+      addMeasurementToCloudAggregate(reconciliationHourlyAggregate, readyReconciliationHourlyAggregate,
+                                     reconciliationHourlyAggregateReady,
+                                     reconciliationPendingMeasurements[index],
+                                     HOURLY_AGGREGATE_SECONDS, true);
+    }
+    dailyReconciliationMeasurementsUploaded += reconciliationPendingMeasurementCount;
+    reconciliationPendingMeasurementCount = 0;
+    dailyReconciliationPendingCompletesDay = false;
+    if (completedDay) {
+      dailyReconciliationDayRawComplete = true;
+    }
+  } else if (requestType == CloudSyncRequestType::ReconciliationHourlyAggregate) {
+    reconciliationHourlyAggregateReady = false;
+  } else if (requestType == CloudSyncRequestType::ReconciliationDailyAggregate) {
+    completeCurrentReconciliationDay();
+  }
+}
+
+void processCloudHistoryReconciliation()
+{
+  if (cloudReconciliationState == CloudReconciliationState::Idle ||
+      cloudReconciliationState == CloudReconciliationState::Completed ||
+      cloudReconciliationState == CloudReconciliationState::Error) {
+    return;
+  }
+
+  if (!sdCardReady) {
+    if (dailyReconciliationLogFile) dailyReconciliationLogFile.close();
+    cloudReconciliationState = CloudReconciliationState::Error;
+    Serial.println("Cloud history reconciliation stopped because the SD card is unavailable.");
+    return;
+  }
+
+  if (cloudReconciliationState == CloudReconciliationState::BuildingLocalIndex) {
+    if (!dailyReconciliationLogFile) {
+      dailyReconciliationLogFile = SD.open(SD_LOG_PATH, FILE_READ);
+      if (!dailyReconciliationLogFile) {
+        cloudReconciliationState = CloudReconciliationState::Error;
+        Serial.println("Cloud history reconciliation: SD log could not be opened.");
+        return;
+      }
+    }
+
+    const uint32_t startedMillis = millis();
+    uint16_t processedLines = 0;
+    char line[128];
+    while (dailyReconciliationLogFile.available() &&
+           dailyReconciliationLogFile.position() < dailyReconciliationSnapshotFileSize &&
+           processedLines < DAILY_RECONCILIATION_LINES_PER_LOOP &&
+           millis() - startedMillis < DAILY_RECONCILIATION_LOOP_BUDGET_MS) {
+      const uint32_t lineOffset = static_cast<uint32_t>(dailyReconciliationLogFile.position());
+      const size_t lineLength = dailyReconciliationLogFile.readBytesUntil('\n', line, sizeof(line) - 1);
+      line[lineLength] = '\0';
+      const uint32_t lineEndOffset = static_cast<uint32_t>(dailyReconciliationLogFile.position());
+      Measurement measurement{};
+      if (parseMeasurementCsvLine(line, measurement)) {
+        if (!addDailyReconciliationMeasurement(measurement, lineOffset, lineEndOffset)) {
+          dailyReconciliationLogFile.close();
+          cloudReconciliationState = CloudReconciliationState::Error;
+          return;
+        }
+        dailyReconciliationSnapshotLastTimestamp = measurement.timestamp;
+      }
+      ++processedLines;
+    }
+
+    if (!dailyReconciliationLogFile.available() ||
+        dailyReconciliationLogFile.position() >= dailyReconciliationSnapshotFileSize) {
+      dailyReconciliationLogFile.close();
+      cloudReconciliationState = CloudReconciliationState::ReadingCloudIndex;
+      Serial.printf("Cloud history reconciliation: local index contains %u days.\n",
+                    dailyReconciliationManifestCount);
+    }
+    return;
+  }
+
+  if (cloudReconciliationState == CloudReconciliationState::ReadingCloudIndex) {
+    if (cloudSyncPending || !isFirebaseReady()) {
+      return;
+    }
+    if (millis() - lastCloudSyncAttemptMillis < cloudSyncRetryIntervalMs) {
+      return;
+    }
+    lastCloudSyncAttemptMillis = millis();
+    cloudSyncPending = true;
+    cloudSyncRequestStartedMillis = millis();
+    cloudSyncRequestType = CloudSyncRequestType::DailyReconciliationIndex;
+    database.get(asyncClient, dailyAggregateDatabasePath, processData, false, "readDailyCloudIndex");
+    return;
+  }
+
+  if (cloudReconciliationState != CloudReconciliationState::ReconcilingDays || cloudSyncPending ||
+      !isFirebaseReady()) {
+    return;
+  }
+  const uint32_t reconciliationRequestInterval = cloudSyncRetryIntervalMs > CLOUD_SYNC_INTERVAL_MS
+                                                     ? cloudSyncRetryIntervalMs
+                                                     : CLOUD_RECONCILIATION_INTERVAL_MS;
+  if (millis() - lastCloudSyncAttemptMillis < reconciliationRequestInterval) {
+    return;
+  }
+
+  while (dailyReconciliationCurrentIndex < dailyReconciliationManifestCount) {
+    DailyReconciliationManifest &manifest = dailyReconciliationManifests[dailyReconciliationCurrentIndex];
+    if (!manifest.measurementsNeedSync && !manifest.aggregateNeedsUpdate) {
+      ++dailyReconciliationDaysCompleted;
+      ++dailyReconciliationCurrentIndex;
+      continue;
+    }
+
+    if (!manifest.measurementsNeedSync) {
+      lastCloudSyncAttemptMillis = millis();
+      queueCloudAggregate(manifest.aggregate, dailyAggregateDatabasePath,
+                          CloudSyncRequestType::ReconciliationDailyAggregate,
+                          "syncReconciliationDailyAggregate", DAILY_AGGREGATE_SECONDS);
+      return;
+    }
+
+    if (!dailyReconciliationDayStarted) {
+      dailyReconciliationFileOffset = manifest.firstFileOffset;
+      dailyReconciliationDayStartOffset = dailyReconciliationFileOffset;
+      dailyReconciliationDayStarted = true;
+      dailyReconciliationDayRawComplete = false;
+      dailyReconciliationPendingCompletesDay = false;
+      dailyReconciliationPrefixMeasurementsRead = 0;
+      dailyReconciliationPrefixChecksum = 0;
+      reconciliationHourlyAggregate = {};
+      readyReconciliationHourlyAggregate = {};
+      reconciliationHourlyAggregateReady = false;
+    }
+
+    if (reconciliationHourlyAggregateReady) {
+      lastCloudSyncAttemptMillis = millis();
+      queueCloudAggregate(readyReconciliationHourlyAggregate, hourlyAggregateDatabasePath,
+                          CloudSyncRequestType::ReconciliationHourlyAggregate,
+                          "syncReconciliationHourlyAggregate", HOURLY_AGGREGATE_SECONDS);
+      return;
+    }
+
+    if (dailyReconciliationDayRawComplete) {
+      if (reconciliationHourlyAggregate.count > 0) {
+        readyReconciliationHourlyAggregate = reconciliationHourlyAggregate;
+        reconciliationHourlyAggregate = {};
+        reconciliationHourlyAggregateReady = true;
+        continue;
+      }
+      lastCloudSyncAttemptMillis = millis();
+      queueCloudAggregate(manifest.aggregate, dailyAggregateDatabasePath,
+                          CloudSyncRequestType::ReconciliationDailyAggregate,
+                          "syncReconciliationDailyAggregate", DAILY_AGGREGATE_SECONDS);
+      return;
+    }
+
+    uint32_t nextFileOffset = dailyReconciliationFileOffset;
+    bool dayFinished = false;
+    if (!readNextReconciliationMeasurementBatch(manifest, nextFileOffset, dayFinished)) {
+      cloudReconciliationState = CloudReconciliationState::Error;
+      return;
+    }
+    if (reconciliationPendingMeasurementCount == 0) {
+      if (dayFinished) {
+        dailyReconciliationDayRawComplete = true;
+        continue;
+      }
+      return;
+    }
+    lastCloudSyncAttemptMillis = millis();
+    queueReconciliationMeasurementBatch(nextFileOffset, dayFinished);
+    return;
+  }
+
+  const uint32_t previousCloudSyncFileOffset = cloudSyncFileOffset;
+  const time_t previousCloudSyncedTimestamp = lastCloudSyncedTimestamp;
+  cloudSyncFileOffset = dailyReconciliationSnapshotFileSize;
+  cloudSyncPendingFileOffset = dailyReconciliationSnapshotFileSize;
+  lastCloudSyncedTimestamp = dailyReconciliationSnapshotLastTimestamp;
+  cloudSyncWritesSincePersist = 0;
+  cloudSyncStateSavePending = false;
+  if (!persistCloudSyncState()) {
+    cloudSyncFileOffset = previousCloudSyncFileOffset;
+    cloudSyncPendingFileOffset = previousCloudSyncFileOffset;
+    lastCloudSyncedTimestamp = previousCloudSyncedTimestamp;
+    cloudReconciliationState = CloudReconciliationState::Error;
+    Serial.println("Cloud history reconciliation: verified sync position could not be saved.");
+    return;
+  }
+
+  File logFile = SD.open(SD_LOG_PATH, FILE_READ);
+  const bool newMeasurementsWereAdded = logFile &&
+                                         logFile.size() > dailyReconciliationSnapshotFileSize;
+  if (logFile) logFile.close();
+  rebuildCloudAggregateState();
+  cloudReconciliationState = CloudReconciliationState::Completed;
+  lastDailyReconciliationTimestamp = time(nullptr);
+  cloudSyncCaughtUp = !newMeasurementsWereAdded;
+  lastCloudSyncAttemptMillis = 0;
+  lastDeviceStatusMillis = 0;
+  Serial.printf("Cloud history reconciliation completed: checked %u days, recovered %u days%s.\n",
+                dailyReconciliationDaysCompleted, dailyReconciliationDaysToTransfer,
+                newMeasurementsWereAdded ? "; new SD records remain for normal sync" : "");
 }
 
 bool currentCloudAggregatesNeedRefresh(uint32_t currentMillis)
@@ -4234,6 +5108,10 @@ void prepareCurrentCloudAggregates(uint32_t currentMillis)
 
 void synchronizeSDMeasurements(uint32_t currentMillis)
 {
+  if (cloudHistoryReconciliationIsActive()) {
+    return;
+  }
+
   if (recoverStalledCloudSynchronization()) {
     return;
   }
@@ -4357,9 +5235,10 @@ void updateDeviceStatus()
   appendJsonEscaped(escapedStationSsid, WiFi.SSID());
 
   const time_t lastSeenTimestamp = time(nullptr);
-  char jsonPayload[600];
+  const bool reconciliationActive = cloudHistoryReconciliationIsActive();
+  char jsonPayload[1000];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu}",
+           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
            deviceId, escapedStationSsid.c_str(), ipAddress.c_str(), WiFi.RSSI(),
            static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
@@ -4367,7 +5246,17 @@ void updateDeviceStatus()
            static_cast<unsigned long>(lastSeenTimestamp), static_cast<unsigned long>(lastSeenTimestamp),
            timeSourceName(), rtcReady ? "true" : "false", rtcTimeValid ? "true" : "false",
            ntpSynchronizationPending ? "true" : "false",
-           static_cast<unsigned long>(lastTimeSynchronizationTimestamp));
+           static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
+           (cloudSyncPending || reconciliationActive) ? "true" : "false",
+           (cloudSyncCaughtUp && !cloudSyncPending && !hourlyAggregateReady && !dailyAggregateReady &&
+            !reconciliationActive) ? "true" : "false",
+           static_cast<unsigned long>(lastCloudSyncedTimestamp),
+           static_cast<unsigned long>(cloudSyncRetryIntervalMs / 1000), cloudReconciliationStateName(),
+           dailyReconciliationManifestCount, dailyReconciliationDaysToTransfer,
+           dailyReconciliationDaysCompleted,
+           static_cast<unsigned long>(dailyReconciliationMeasurementsToTransfer),
+           static_cast<unsigned long>(dailyReconciliationMeasurementsUploaded),
+           static_cast<unsigned long>(lastDailyReconciliationTimestamp));
   object_t deviceStatus(jsonPayload);
 
   database.set(asyncClient, deviceStatusDatabasePath, deviceStatus, processData,
@@ -4476,8 +5365,10 @@ void loop()
   processQueuedTimeCommand();
   processPendingTimeCommand();
   processPendingHistoryDeletion();
+  processPendingLocalHistoryDeletion();
   processPendingLoadCellTare();
   processLocalHistory();
+  processCloudHistoryReconciliation();
   printSystemDiagnostics();
 
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.

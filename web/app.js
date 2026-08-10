@@ -39,6 +39,8 @@ const elements = {
   accountAvatarImage: document.querySelector("#account-avatar-image"),
   accountAvatarInitials: document.querySelector("#account-avatar-initials"),
   authSignout: document.querySelector("#auth-signout"),
+  accountManagement: document.querySelector("#account-management"),
+  deviceSelectionCard: document.querySelector("#device-selection-card"),
   cloudDeviceSelect: document.querySelector("#cloud-device-select"),
   adminDeviceOverview: document.querySelector("#admin-device-overview"),
   adminDeviceList: document.querySelector("#admin-device-list"),
@@ -168,6 +170,7 @@ let latestFirmwareVersion = "";
 let availableOtaRelease;
 let otaCommandPending = false;
 let latestOtaState = "";
+let latestOtaStatus;
 let highchartsLoading;
 let latestHistoryReadings = [];
 let latestHistoryAlreadyAggregated = false;
@@ -178,6 +181,7 @@ let currentCloudUser;
 let stopCloudDeviceListListener;
 let stopCloudDeviceListeners = [];
 let cloudDevices = {};
+const ownerEmailSyncedDeviceIds = new Set();
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
 let latestLoadCellTareStatus;
@@ -371,6 +375,8 @@ function configureCloudAccountView() {
     : "Izberi panj, katerega podatke želiš pregledovati.";
   elements.claimDeviceForm.hidden = isAdministrator;
   elements.adminDeviceOverview.hidden = !isAdministrator;
+  elements.deviceSelectionCard.hidden = isAdministrator;
+  elements.accountManagement.classList.toggle("admin-mode", isAdministrator);
   elements.unclaimDevice.hidden = isAdministrator;
 }
 
@@ -393,6 +399,7 @@ function resetCloudDashboard() {
   latestDeviceStatus = undefined;
   latestSDCardStatus = undefined;
   latestHistoryManagementStatus = undefined;
+  latestOtaStatus = undefined;
   renderLatestMeasurement(null);
   renderDeviceStatus(null);
   renderSDStatus(null);
@@ -458,8 +465,14 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     card.setAttribute("aria-pressed", String(cloudDevicePath === `devices/${deviceId}`));
     card.addEventListener("click", () => selectCloudDevice(deviceId));
 
+    const identity = document.createElement("span");
+    identity.className = "admin-device-identity";
     const name = document.createElement("strong");
     name.textContent = deviceId;
+    const owner = document.createElement("small");
+    owner.className = "admin-device-owner";
+    owner.textContent = device.owner_email || "Lastnik še ni zabeležen.";
+    identity.append(name, owner);
     const state = document.createElement("span");
     state.className = `admin-device-option-state ${isOnline ? "online" : "offline"}`;
     const dot = document.createElement("span");
@@ -474,9 +487,26 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     detail.textContent = Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
       ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
       : "Naprava še ni poslala stanja.";
-    card.append(name, state, detail);
+    card.append(identity, state, detail);
     elements.adminDeviceList.append(card);
   });
+}
+
+async function ensureCloudDeviceOwnerEmail(deviceId) {
+  if (!deviceId || !firebaseDatabase || !currentCloudUser?.email || isCloudAdministrator() || ownerEmailSyncedDeviceIds.has(deviceId)) return;
+
+  const { database, ref, set } = firebaseDatabase;
+  try {
+    await set(ref(database, `devices/${deviceId}/owner_email`), currentCloudUser.email);
+    ownerEmailSyncedDeviceIds.add(deviceId);
+  } catch (error) {
+    console.warn("E-poštnega naslova lastnika ni bilo mogoče posodobiti.", error);
+  }
+}
+
+function synchronizeCurrentUserOwnerEmails() {
+  if (isCloudAdministrator()) return;
+  Object.keys(cloudDevices).forEach((deviceId) => void ensureCloudDeviceOwnerEmail(deviceId));
 }
 
 function selectCloudDevice(deviceId) {
@@ -488,6 +518,7 @@ function selectCloudDevice(deviceId) {
   setCloudDeviceManagementVisibility(Boolean(cloudDevicePath && currentCloudUser));
   elements.cloudDeviceSelect.value = deviceId;
   renderAdminDeviceOverview();
+  void ensureCloudDeviceOwnerEmail(deviceId);
   elements.unclaimDevice.disabled = !cloudDevicePath || isCloudAdministrator();
   elements.unclaimDeviceStatus.textContent = "";
   elements.otaSection.hidden = !cloudDevicePath;
@@ -1404,6 +1435,7 @@ function renderSDStatus(status) {
 
 function renderFirmwareVersion(status) {
   latestFirmwareVersion = status?.version ?? "";
+  if (!isLocalDashboard && latestOtaStatus) renderOtaDeviceStatus(latestOtaStatus);
   elements.firmwareVersion.textContent = latestFirmwareVersion || "—";
   if (!isLocalDashboard && latestFirmwareVersion) checkForFirmwareRelease();
 }
@@ -1443,6 +1475,7 @@ function renderOtaProgress(progressPercent, hasError = false) {
 }
 
 function renderOtaDeviceStatus(status) {
+  latestOtaStatus = status;
   if (!status?.state) {
     latestOtaState = "";
     resetOtaProgress();
@@ -1450,13 +1483,31 @@ function renderOtaDeviceStatus(status) {
     return;
   }
 
-  const state = String(status.state);
-  latestOtaState = state;
-  const stateLabel = OTA_STATE_LABELS[state] ?? state;
+  const reportedState = String(status.state);
+  const targetVersion = String(status.target_version ?? "");
   const message = String(status.message ?? "").trim();
-  const hasRepeatedPhase = message.toLocaleLowerCase().startsWith(stateLabel.toLocaleLowerCase());
-  elements.otaDeviceStatus.textContent = message && hasRepeatedPhase ? message : `${stateLabel}${message ? `: ${message}` : ""}`;
-  renderOtaProgress(status.progress_percent, state === "error");
+  const installedAfterCloudRestart = reportedState === "restarting"
+    && Boolean(targetVersion)
+    && targetVersion === latestFirmwareVersion;
+  const staleInvalidCommand = reportedState === "error" && message === "Neveljaven OTA ukaz.";
+  const state = installedAfterCloudRestart ? "installed" : (staleInvalidCommand ? "" : reportedState);
+  latestOtaState = state;
+  if (installedAfterCloudRestart) {
+    const updatedAt = Number(status.updated_at);
+    const installedAt = Number.isFinite(updatedAt) && updatedAt > 0
+      ? formatDashboardDateTime(new Date(updatedAt * 1000))
+      : "neznanem času";
+    elements.otaDeviceStatus.textContent = `Zadnja cloud OTA posodobitev: ${installedAt}.`;
+    renderOtaProgress(100);
+  } else if (staleInvalidCommand) {
+    elements.otaDeviceStatus.textContent = "Zadnja cloud OTA posodobitev ni zabeležena.";
+    resetOtaProgress();
+  } else {
+    const stateLabel = OTA_STATE_LABELS[state] ?? state;
+    const hasRepeatedPhase = message.toLocaleLowerCase().startsWith(stateLabel.toLocaleLowerCase());
+    elements.otaDeviceStatus.textContent = message && hasRepeatedPhase ? message : `${stateLabel}${message ? `: ${message}` : ""}`;
+    renderOtaProgress(status.progress_percent, state === "error");
+  }
 
   if (state === "error") {
     otaCommandPending = false;
@@ -2038,6 +2089,9 @@ async function claimDevice(event) {
       requested_at: Date.now(),
     });
     await set(ref(database, `devices/${deviceId}/owner_uid`), currentCloudUser.uid);
+    if (currentCloudUser.email) {
+      await set(ref(database, `devices/${deviceId}/owner_email`), currentCloudUser.email);
+    }
     await set(ref(database, `users/${currentCloudUser.uid}/devices/${deviceId}`), {
       display_name: displayName || deviceId,
       claimed_at: Date.now(),
@@ -2069,6 +2123,7 @@ async function unclaimDevice() {
   const { database, ref, remove, set } = firebaseDatabase;
   const userDevicePath = `users/${currentCloudUser.uid}/devices/${deviceId}`;
   const ownerPath = `devices/${deviceId}/owner_uid`;
+  const ownerEmailPath = `devices/${deviceId}/owner_email`;
   const registration = cloudDevices[deviceId];
   elements.unclaimDevice.disabled = true;
   elements.unclaimDeviceStatus.textContent = "Odregistriram panj …";
@@ -2076,6 +2131,7 @@ async function unclaimDevice() {
   try {
     await remove(ref(database, userDevicePath));
     try {
+      await remove(ref(database, ownerEmailPath));
       await remove(ref(database, ownerPath));
     } catch (error) {
       await set(ref(database, userDevicePath), registration);
@@ -2096,6 +2152,7 @@ function handleCloudAuthState(user) {
   stopCloudDeviceListListener?.();
   stopCloudDeviceListListener = undefined;
   cloudDevices = {};
+  ownerEmailSyncedDeviceIds.clear();
   currentCloudUser = user;
 
   if (!user) {
@@ -2123,6 +2180,7 @@ function handleCloudAuthState(user) {
   const deviceListPath = isCloudAdministrator() ? "devices" : `users/${user.uid}/devices`;
   stopCloudDeviceListListener = onValue(ref(database, deviceListPath), (snapshot) => {
     cloudDevices = snapshot.val() ?? {};
+    synchronizeCurrentUserOwnerEmails();
     renderCloudDeviceSelector();
   }, showDataError);
 }

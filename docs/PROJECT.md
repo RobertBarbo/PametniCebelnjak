@@ -83,8 +83,8 @@ Mapa `web/` je hkrati vir za Firebase Hosting in LittleFS (`data_dir`) na ESP32.
 - Odzivna postavitev prilagodi navigacijo, kartice, tabelo, graf in obrazce telefonu, tablici ter namiznemu računalniku. Upravljalni elementi na dotik so visoki najmanj 44 px.
 - Pogled **Naprava** prikazuje trenutni datum in uro, vir časa ter stanje DS3231. Lokalno ali za izbrani online cloud panj lahko uporabnik nastavi datum in uro; NTP gumb je omogočen samo ob internetni povezavi.
 - Lokalni in cloud pogled v podrobnostih naprave prikažeta kartice stanja za BME680, HX711, DS3231 in SD kartico. Ob opozorilu ali napaki se v glavi pred indikatorjem online/offline naprave pojavi rumena oziroma rdeča značka, na pogledu **Pregled** pa je prikazan kratek seznam komponent, ki jih je treba preveriti. Brez opozoril se ta seznam ne prikazuje.
-- Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani samo `owner_uid` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
-- Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Glavni skrbnik namesto njega vidi klikabilen pregled vseh naprava z zeleno/rdečo oznako online stanja in z njim izbere panj za upravljanje.
+- Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani `owner_uid`, `owner_email` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
+- Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Glavni skrbnik namesto podvojenega izbirnika vidi mrežo šestih kompaktnih kartic naprav (tri na širokem prikazu, dve na tablici) z notranjim drsenjem za nadaljnje naprave. Kartica prikaže zeleno/rdečo oznako online stanja, zadnji odziv in e-poštni naslov lastnika. Lastniška e-pošta je shranjena kot `owner_email` pod napravo, ob naslednji prijavi lastnika se samodejno dopolni za stare registracije, prikazana pa je izključno skrbniku.
 - V cloud pogledu lahko lastnik ali glavni skrbnik po potrditvi z besedo `IZBRIŠI` pošlje ukaz za trajni izbris SD dnevnika skupaj s celotno cloud zgodovino (`latest`, `measurements`, `aggregates`). Popoln izbris je omogočen le za online napravo; ESP32 ukaz postavi v čakalno vrsto, dokler ne zaključi trenutnega SD prenosa, nato znova ustvari prazen CSV dnevnik in ponastavi kazalce sinhronizacije. Lokalni pogled te nevarne funkcije namenoma ne ponuja brez cloud prijave.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
@@ -99,7 +99,9 @@ Cloud nadzorna plošča preveri najnovejšo izdajo. Uporabnik lahko pošlje OTA 
 
 Če uporabnik ni prijavljen ali ne izbere panja, cloud OTA kartica ostane skrita brez dodatnega praznega obvestila.
 
-Po kliku gumba **Posodobi napravo** cloud vmesnik oba OTA gumba zaklene do uspeha ali napake. Zaklep ostane aktiven tudi po osvežitvi strani, ker se določi iz stanja OTA v Firebase. Besedilo kartice prikazuje trenutno fazo in njen delež, oznaka ob vrstici napredka pa vedno pomeni skupni napredek celotne OTA posodobitve.
+Po kliku gumba **Posodobi napravo** cloud vmesnik oba OTA gumba zaklene do uspeha ali napake. Zaklep ostane aktiven tudi po osvežitvi strani, ker se določi iz stanja OTA v Firebase. Besedilo kartice prikazuje trenutno fazo in njen delež, oznaka ob vrstici napredka pa vedno pomeni skupni napredek celotne OTA posodobitve. Ko se po cloud OTA naprava znova zažene z zahtevano verzijo, kartica prikaže datum in uro zadnje uspešne cloud OTA posodobitve. Lokalna ElegantOTA in razvojna ArduinoOTA tega podatka namenoma ne spreminjata.
+
+Pot `commands/firmware_update` je v beta različici skupna tudi za druge cloud ukaze. Neveljaven ali nepodprt ukaz se samo odstrani in izpiše v serijski monitor, brez prepisa zadnjega OTA statusa.
 
 Lokalni pogled v zavihku **Posodobitve** pred preusmeritvijo prikaže varnostno opozorilo, nato pa odpre ElegantOTA 3.1.7 na naslovu `http://<device-ip>/update`. Glavna nadzorna plošča, API in ElegantOTA uporabljajo isti asinhroni `ESPAsyncWebServer` na portu `80`; zato ne obstaja več ločena sinhrona zanka na portu `8080`. Pred začetkom se LittleFS odklopi, ker se med posodobitvijo njegove particije ne sme hkrati brati; vgrajeni ElegantOTA portal ostane dosegljiv brez LittleFS. Firmware ne čaka samo na končni HTTP callback: ko `Update` po zadnjem bajtu ni več aktiven in nima napake, sam razporedi ponovni zagon. Tako se uspešno zapisana particija aktivira tudi ob prekinjenem zaključnem odgovoru brskalniku. Ob napaki se datotečni sistem ponovno priklopi. Vsaka datoteka se namesti posebej; SD kartica, Firebase in internet niso potrebni. Ročni postopek nima GitHub manifesta in SHA-256 preverjanja, zato se smejo uporabiti samo zaupanja vredne datoteke za `esp32-s3-devkitc-1`, po možnosti iz iste GitHub Release izdaje. Med prenosom uporabnik ne sme izklopiti naprave, zapreti brskalnika ali prekiniti Wi-Fi povezave. Odprtokodna ElegantOTA je licencirana pod AGPL-3.0; pred zaprto komercialno distribucijo je treba preveriti licenčne obveznosti ali uporabiti ustrezno Pro licenco. Med odprtim beta AP-jem lahko portal uporabi vsak povezan odjemalec, zato je treba pred produkcijo zaščititi AP in ElegantOTA dostop.
 
@@ -126,6 +128,7 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
 ```text
 /devices/{device_id}/
   owner_uid
+  owner_email
   latest/
   measurements/{unix_timestamp}/
   aggregates/

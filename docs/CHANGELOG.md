@@ -4,6 +4,27 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.109] - 2026-08-10
+
+### Fixed
+
+- Neveljaven ali nepodprt skupni cloud ukaz ne more več prepisati zadnjega OTA statusa z napačnim sporočilom.
+- Cloud OTA kartica po uspešnem ponovnem zagonu prepozna nameščeno ciljno verzijo in prikaže datum ter uro zadnje uspešne cloud OTA posodobitve. Lokalna ElegantOTA in ArduinoOTA tega zapisa namenoma ne spreminjata.
+
+## [0.1.0-beta.108] - 2026-08-10
+
+### Fixed
+
+- Skrbniški seznam prikaže šest kompaktnih kartic v omejenem drsečem območju; izbrani panj ima bolj kontrastno obrobo in ozadje brez odrezanega roba.
+- Ob prijavi običajnega lastnika se manjkajoča e-pošta samodejno dopolni za vse njegove že registrirane panje.
+
+## [0.1.0-beta.107] - 2026-08-10
+
+### Changed
+
+- Skrbniški pregled panjev uporablja kompakten drseč seznam brez podvojenega izbirnika. Vsaka vrstica prikaže ID naprave, online/offline stanje, zadnji odziv in e-poštni naslov lastnika.
+- Ob registraciji oziroma izbiri panja se e-pošta lastnika varno zapiše pod `devices/{device_id}/owner_email`; vidna je samo lastniku in glavnemu skrbniku.
+
 ## [0.1.0-beta.106] - 2026-08-10
 
 ### Fixed

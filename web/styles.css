@@ -1177,6 +1177,10 @@ select:focus {
   border-top: 1px solid var(--border);
 }
 
+.account-management.admin-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .device-selection-card {
   display: grid;
   align-content: start;
@@ -1217,9 +1221,9 @@ select:focus {
 .admin-device-overview {
   display: grid;
   align-content: start;
-  gap: 24px;
+  gap: 20px;
   min-width: 0;
-  padding: 8px 0;
+  padding: 0;
 }
 
 .admin-device-overview h2 {
@@ -1236,15 +1240,20 @@ select:focus {
 
 .admin-device-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: 360px;
   gap: 14px;
+  overflow-y: auto;
+  padding: 3px 9px 3px 3px;
+  scrollbar-color: var(--border) transparent;
 }
 
 .admin-device-option {
   display: grid;
-  gap: 9px;
-  min-height: 146px;
-  padding: 20px;
+  align-content: start;
+  gap: 10px;
+  min-height: 150px;
+  padding: 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
   background: var(--surface-soft);
@@ -1256,19 +1265,36 @@ select:focus {
 
 .admin-device-option:hover,
 .admin-device-option:focus-visible {
-  border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+  border-color: color-mix(in srgb, var(--primary) 72%, var(--border));
   background: var(--surface-solid);
   transform: translateY(-2px);
 }
 
 .admin-device-option.selected {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-solid));
+  border: 2px solid var(--primary);
+  padding: 17px;
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface-solid));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .admin-device-option strong {
   font-size: 1.05rem;
   overflow-wrap: anywhere;
+}
+
+.admin-device-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-device-owner {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-device-option-state {
@@ -1296,6 +1322,28 @@ select:focus {
 .admin-device-option small {
   color: var(--text-soft);
   line-height: 1.45;
+}
+
+@media (max-width: 1080px) {
+  .admin-device-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-device-list {
+    max-height: 360px;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-device-option {
+    padding: 14px 16px;
+    min-height: 0;
+  }
+
+  .admin-device-option.selected {
+    padding: 13px 15px;
+  }
 }
 
 .claim-device-form > div,

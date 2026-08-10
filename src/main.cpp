@@ -2807,8 +2807,9 @@ void processFirmwareUpdateCommand(const String &payload)
   String action;
   String targetVersion;
   if (!extractJsonString(payload, "action", action)) {
-    Serial.println("OTA error: invalid update command.");
-    reportOtaStatus("error", "", "Neveljaven OTA ukaz.");
+    // Ista Firebase pot sprejema tudi ukaze za tehtnico, zgodovino in kalibracijo.
+    // Neveljaven zapis zato ne sme prepisati zadnjega veljavnega OTA rezultata.
+    Serial.println("Cloud command ignored: action is missing.");
     clearFirmwareUpdateCommand();
     return;
   }
@@ -2854,6 +2855,12 @@ void processFirmwareUpdateCommand(const String &payload)
     return;
   }
 
+  if (action != "install" && action != "ignore") {
+    Serial.println("OTA command ignored: unsupported action.");
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
   if (!extractJsonString(payload, "target_version", targetVersion)) {
     Serial.println("OTA error: update command has no target version.");
     reportOtaStatus("error", "", "OTA ukaz nima ciljne različice.");
@@ -2864,12 +2871,6 @@ void processFirmwareUpdateCommand(const String &payload)
   if (action == "ignore") {
     Serial.println("OTA: update command ignored.");
     reportOtaStatus("ignored", targetVersion.c_str(), "Posodobitev je bila prezrta.");
-    clearFirmwareUpdateCommand();
-    return;
-  }
-
-  if (action != "install") {
-    Serial.println("OTA: unsupported update action.");
     clearFirmwareUpdateCommand();
     return;
   }

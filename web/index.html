@@ -166,8 +166,8 @@
             </div>
             <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
           </div>
-          <div class="account-management">
-            <section class="device-selection-card" aria-labelledby="selected-device-heading">
+          <div class="account-management" id="account-management">
+            <section class="device-selection-card" id="device-selection-card" aria-labelledby="selected-device-heading">
               <div><p class="eyebrow" id="device-list-eyebrow">Moji panji</p><h3 id="selected-device-heading">Izbrani panj</h3></div>
               <label class="account-field">Panj<select id="cloud-device-select" disabled><option value="">Noben panj ni registriran</option></select></label>
               <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
@@ -178,7 +178,7 @@
               <div>
                 <p class="eyebrow">Skrbniški pregled</p>
                 <h2 id="admin-device-overview-heading">Vsi registrirani panji</h2>
-                <p class="muted">Izberi panj za ogled meritev in upravljanje. Zelena pika pomeni, da se je naprava odzvala v zadnjih 90 sekundah.</p>
+                <p class="muted">Izberi panj za ogled meritev in upravljanje. Prikazani so stanje, zadnji odziv in e-poštni naslov lastnika.</p>
               </div>
               <div class="admin-device-list" id="admin-device-list" aria-live="polite"></div>
             </section>

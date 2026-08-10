@@ -35,6 +35,10 @@ constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10 * 1000;
 constexpr uint32_t SD_MEASUREMENT_INTERVAL_MS = 60 * 1000;
 constexpr uint32_t SD_STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
+// Nedosegljive komponente preverjamo redkeje, da ne obremenjujejo I2C, HX711 ali SD vodila.
+constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60000;
+constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;
+constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;
 constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
 constexpr uint32_t TIME_COMMAND_INTERVAL_MS = 15000;
 constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -136,6 +140,8 @@ constexpr uint8_t HX711_TARE_SAMPLES = 20;
 // Ena meritev uporabi povprečje 20 vzorcev, da zmanjša šum HX711 in merilnih celic.
 constexpr uint8_t HX711_READ_SAMPLES = 20;
 constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;
+// Pri običajnem panju tako velik skok v desetih sekundah pomeni pretrgan ali lebdeč signal HX711.
+constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;
 // Umerjeno 6. 8. 2026 z referenčnima utežema 1,464 kg in 2,470 kg na tej merilni konstrukciji.
 constexpr float HX711_CALIBRATION_FACTOR = 22500.0F;
 
@@ -185,6 +191,11 @@ struct Uptime {
   uint64_t days;
   uint64_t hours;
   uint64_t minutes;
+};
+
+struct ComponentStatus {
+  uint8_t consecutiveFailures = 0;
+  bool verified = false;
 };
 
 struct HistoryBucket {
@@ -291,6 +302,13 @@ enum class TimeSource : uint8_t {
   ManualCloud,
 };
 
+enum class ComponentHealth : uint8_t {
+  Checking,
+  Ok,
+  Warning,
+  Error,
+};
+
 enum class TimeCommandType : uint8_t {
   None,
   SetManual,
@@ -358,6 +376,7 @@ uint32_t lastMeasurementMillis = 0;
 uint32_t lastSDMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
+uint32_t lastComponentRecoveryMillis = 0;
 uint32_t lastFirmwareCommandCheckMillis = 0;
 uint32_t lastTimeCommandCheckMillis = 0;
 uint32_t lastActivationSecretAttemptMillis = 0;
@@ -414,6 +433,10 @@ bool littlefsUnmountedForArduinoOta = false;
 bool activationSecretPublishPending = false;
 bool activationSecretRegistrationReported = false;
 bool validTimeWasAvailable = false;
+// Firebase uporablja en asinhroni kanal. Med drugimi opravili hranimo samo
+// najnovejšo trenutno meritev, da cloud po sprostitvi kanala ne zaostaja.
+bool latestMeasurementUploadPending = false;
+bool latestMeasurementUploadInFlight = false;
 bool cloudSyncPending = false;
 bool cloudSyncCaughtUp = false;
 bool cloudSyncStateSavePending = false;
@@ -432,8 +455,14 @@ bool scheduledAccessPointKeepsStationEnabled = false;
 volatile bool accessPointExpected = false;
 bool bme680Ready = false;
 bool loadCellReady = false;
+bool loadCellReferenceAvailable = false;
+float lastLoadCellWeightKg = 0.0F;
 bool rtcReady = false;
 bool rtcTimeValid = false;
+ComponentStatus bme680Status;
+ComponentStatus loadCellStatus;
+ComponentStatus rtcStatus;
+ComponentStatus sdCardStatus;
 uint8_t wifiReconnectAttempts = 0;
 WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
 String pendingWiFiSsid;
@@ -512,6 +541,53 @@ char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
 uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
 FirmwareManifest otaManifest{};
 WiFiClient *otaDownloadStream = nullptr;
+
+ComponentHealth componentHealth(const ComponentStatus &status)
+{
+  if (!status.verified) return ComponentHealth::Checking;
+  if (status.consecutiveFailures >= COMPONENT_ERROR_FAILURES) return ComponentHealth::Error;
+  if (status.consecutiveFailures >= COMPONENT_WARNING_FAILURES) return ComponentHealth::Warning;
+  return ComponentHealth::Ok;
+}
+
+const char *componentHealthName(const ComponentStatus &status)
+{
+  switch (componentHealth(status)) {
+    case ComponentHealth::Ok: return "ok";
+    case ComponentHealth::Warning: return "warning";
+    case ComponentHealth::Error: return "error";
+    case ComponentHealth::Checking:
+    default: return "checking";
+  }
+}
+
+void reportComponentSuccess(ComponentStatus &status, const char *componentName)
+{
+  const ComponentHealth previousHealth = componentHealth(status);
+  status.verified = true;
+  status.consecutiveFailures = 0;
+  if (previousHealth != ComponentHealth::Ok) {
+    Serial.printf("[KOMPONENTA] %s: deluje normalno.\n", componentName);
+    lastDeviceStatusMillis = 0;
+  }
+}
+
+void reportComponentFailure(ComponentStatus &status, const char *componentName, const char *reason)
+{
+  const ComponentHealth previousHealth = componentHealth(status);
+  status.verified = true;
+  if (status.consecutiveFailures < UINT8_MAX) ++status.consecutiveFailures;
+  const ComponentHealth currentHealth = componentHealth(status);
+
+  // Serijski monitor opozori ob prvi zaznavi ter ob prehodu v opozorilo ali napako.
+  if (status.consecutiveFailures == 1 || previousHealth != currentHealth) {
+    Serial.printf("[KOMPONENTA] %s: %s (zaporedne napake: %u, stanje: %s).\n",
+                  componentName, reason, status.consecutiveFailures, componentHealthName(status));
+  }
+  if (previousHealth != currentHealth || status.consecutiveFailures == 1) {
+    lastDeviceStatusMillis = 0;
+  }
+}
 File otaLittlefsStageFile;
 mbedtls_sha256_context otaSha256Context;
 size_t otaDownloadedBytes = 0;
@@ -670,6 +746,10 @@ void cancelPendingFirebaseTasks(const char *reason)
   }
 
   firebaseTaskStartedMillis = 0;
+  if (latestMeasurementUploadInFlight) {
+    latestMeasurementUploadPending = true;
+    latestMeasurementUploadInFlight = false;
+  }
   firmwareCommandPending = false;
   timeCommandPending = false;
   activationSecretPublishPending = false;
@@ -824,6 +904,10 @@ void processData(AsyncResult &result)
     if (result.uid() == "updateFirmwareVersion") {
       firmwareVersionReported = false;
     }
+    if (result.uid() == "updateLatestMeasurement") {
+      latestMeasurementUploadInFlight = false;
+      latestMeasurementUploadPending = true;
+    }
     if (result.uid() == "updateLoadCellTareStatus") {
       loadCellTareStatusReported = false;
     }
@@ -859,6 +943,9 @@ void processData(AsyncResult &result)
 
   if (result.available()) {
     clearFirebaseNetworkErrorBackoff();
+    if (result.uid() == "updateLatestMeasurement") {
+      latestMeasurementUploadInFlight = false;
+    }
     if (result.uid() == "readFirmwareUpdateCommand") {
       firmwareCommandPending = false;
       const String payload = result.payload();
@@ -1108,17 +1195,23 @@ const char *timeSourceName()
 void initializeI2c()
 {
   Wire.begin(BME680_SDA_PIN, BME680_SCL_PIN);
+  // Pri prekinjenem I2C vodilu ne smemo dolgo zadržati glavne zanke in spletnega strežnika.
+  Wire.setTimeOut(50);
 }
 
 bool initializeRtc()
 {
   Wire.beginTransmission(DS3231_ADDRESS);
   if (Wire.endTransmission() != 0) {
+    rtcReady = false;
+    rtcTimeValid = false;
+    reportComponentFailure(rtcStatus, "DS3231", "ni zaznan na I2C naslovu 0x68");
     Serial.println("DS3231 was not detected on I2C address 0x68.");
     return false;
   }
 
   rtcReady = true;
+  reportComponentSuccess(rtcStatus, "DS3231");
   time_t rtcTimestamp = 0;
   rtcTimeValid = readDs3231Timestamp(rtcTimestamp);
   if (!rtcTimeValid) {
@@ -1134,6 +1227,23 @@ bool initializeRtc()
   currentTimeSource = TimeSource::Rtc;
   lastTimeSynchronizationTimestamp = rtcTimestamp;
   Serial.printf("System time restored from DS3231: %lu UTC.\n", static_cast<unsigned long>(rtcTimestamp));
+  return true;
+}
+
+bool verifyDs3231Connection()
+{
+  uint8_t status = 0;
+  if (!readDs3231Registers(DS3231_STATUS_REGISTER, &status, 1)) {
+    rtcReady = false;
+    rtcTimeValid = false;
+    reportComponentFailure(rtcStatus, "DS3231", "ni dosegljiv na I2C vodilu");
+    return false;
+  }
+
+  rtcReady = true;
+  time_t timestamp = 0;
+  rtcTimeValid = readDs3231Timestamp(timestamp);
+  reportComponentSuccess(rtcStatus, "DS3231");
   return true;
 }
 
@@ -1195,6 +1305,7 @@ bool storeBme680Calibration(float temperatureOffsetC, float humidityOffsetPercen
 bool initializeBme680()
 {
   if (!bme680.begin(BME680_PRIMARY_ADDRESS) && !bme680.begin(BME680_SECONDARY_ADDRESS)) {
+    reportComponentFailure(bme680Status, "BME680", "ni zaznan na I2C naslovih 0x76 ali 0x77");
     Serial.println("BME680 was not detected on I2C addresses 0x76 or 0x77.");
     return false;
   }
@@ -1203,6 +1314,7 @@ bool initializeBme680()
   bme680.setHumidityOversampling(BME680_OS_2X);
   bme680.setIIRFilterSize(BME680_FILTER_SIZE_3);
   bme680.setGasHeater(320, 150);
+  reportComponentSuccess(bme680Status, "BME680");
   Serial.println("BME680 initialized.");
   return true;
 }
@@ -1210,12 +1322,19 @@ bool initializeBme680()
 bool initializeLoadCell()
 {
   loadCell.begin(HX711_DOUT_PIN, HX711_SCK_PIN);
+  // Vgrajen pull-up prepreči lebdeče DOUT stanje, kadar je HX711 brez napajanja.
+  pinMode(HX711_DOUT_PIN, INPUT_PULLUP);
   if (!loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
+    reportComponentFailure(loadCellStatus, "HX711", "ni pripravljen; preveri napajanje, DOUT in SCK");
     Serial.println("HX711 is not ready. Check power, DOUT and SCK wiring.");
     return false;
   }
 
   loadCell.set_scale(HX711_CALIBRATION_FACTOR);
+  // Po ponovni inicializaciji prvi veljavni odčitek postane nova referenca za
+  // preverjanje nenadnih skokov; sicer bi stara masa zadržala obnovljen HX711 v napaki.
+  loadCellReferenceAvailable = false;
+  reportComponentSuccess(loadCellStatus, "HX711");
   long offset = 0;
   if (loadStoredLoadCellOffset(offset)) {
     loadCell.set_offset(offset);
@@ -1238,37 +1357,84 @@ bool initializeLoadCell()
 bool readBme680(float &temperatureC, float &humidityPercent)
 {
   if (!bme680Ready) {
-    Serial.println("Measurement skipped: BME680 is unavailable.");
+    reportComponentFailure(bme680Status, "BME680", "meritev ni mogoča, ker senzor ni dosegljiv");
     return false;
   }
   if (!bme680.performReading()) {
-    Serial.println("Measurement skipped: BME680 reading failed.");
+    reportComponentFailure(bme680Status, "BME680", "branje meritve ni uspelo");
+    if (componentHealth(bme680Status) == ComponentHealth::Error) bme680Ready = false;
     return false;
   }
 
   const float rawTemperatureC = bme680.temperature;
   const float rawHumidityPercent = bme680.humidity;
-  if (!isfinite(rawTemperatureC) || !isfinite(rawHumidityPercent)) return false;
+  if (!isfinite(rawTemperatureC) || !isfinite(rawHumidityPercent)) {
+    reportComponentFailure(bme680Status, "BME680", "vrnil je neveljavne podatke");
+    if (componentHealth(bme680Status) == ComponentHealth::Error) bme680Ready = false;
+    return false;
+  }
 
   temperatureC = rawTemperatureC + bme680TemperatureOffsetC;
   humidityPercent = fminf(100.0F, fmaxf(0.0F, rawHumidityPercent + bme680HumidityOffsetPercent));
-  return isfinite(temperatureC);
+  if (!isfinite(temperatureC)) {
+    reportComponentFailure(bme680Status, "BME680", "izračunana temperatura ni veljavna");
+    if (componentHealth(bme680Status) == ComponentHealth::Error) bme680Ready = false;
+    return false;
+  }
+  reportComponentSuccess(bme680Status, "BME680");
+  return true;
 }
 
 bool readLoadCell(float &weightKg)
 {
   if (!loadCellReady || !loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
-    Serial.println("Measurement skipped: HX711 is unavailable.");
+    reportComponentFailure(loadCellStatus, "HX711", "meritev ni mogoča, ker pretvornik ni dosegljiv");
+    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
     return false;
   }
 
   weightKg = loadCell.get_units(HX711_READ_SAMPLES);
   if (!isfinite(weightKg)) {
-    Serial.println("Measurement skipped: HX711 returned an invalid value.");
+    reportComponentFailure(loadCellStatus, "HX711", "vrnil je neveljavno maso");
+    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
     return false;
   }
   if (fabsf(weightKg) < 0.02F) weightKg = 0.0F;
+  if (loadCellReferenceAvailable && fabsf(weightKg - lastLoadCellWeightKg) > HX711_MAX_STEP_CHANGE_KG) {
+    reportComponentFailure(loadCellStatus, "HX711", "zaznan je nerealno velik skok mase");
+    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
+    return false;
+  }
+  lastLoadCellWeightKg = weightKg;
+  loadCellReferenceAvailable = true;
+  reportComponentSuccess(loadCellStatus, "HX711");
   return true;
+}
+
+void maintainComponentRecovery(uint32_t currentMillis)
+{
+  if (lastComponentRecoveryMillis != 0 &&
+      currentMillis - lastComponentRecoveryMillis < COMPONENT_RECOVERY_INTERVAL_MS) {
+    return;
+  }
+  lastComponentRecoveryMillis = currentMillis;
+
+  if (!bme680Ready) {
+    Serial.println("[KOMPONENTA] Poskušam znova inicializirati BME680.");
+    bme680Ready = initializeBme680();
+  }
+
+  if (!loadCellReady) {
+    Serial.println("[KOMPONENTA] Poskušam znova inicializirati HX711.");
+    loadCellReady = initializeLoadCell();
+  }
+
+  if (rtcReady) {
+    verifyDs3231Connection();
+  } else {
+    Serial.println("[KOMPONENTA] Poskušam znova inicializirati DS3231.");
+    initializeRtc();
+  }
 }
 
 // --- Omrežje in čas ---------------------------------------------------------
@@ -3132,6 +3298,7 @@ void processPendingLoadCellTare()
   }
 
   loadCellTareState = LoadCellTareState::Completed;
+  loadCellReferenceAvailable = false;
   lastMeasurementMillis = 0;
   Serial.printf("Load cell tare completed. Saved offset: %ld.\n", offset);
   reportLoadCellTareStatus("Tariranje je uspešno; nova ničla je shranjena.");
@@ -3421,11 +3588,13 @@ bool initializeSDCard()
 
   if (!sdCardReady || SD.cardType() == CARD_NONE) {
     sdCardReady = false;
+    reportComponentFailure(sdCardStatus, "SD kartica", "ni zaznana ali je ni mogoče priklopiti");
     Serial.println("SD card initialization failed.");
     return false;
   }
 
   if (SD.exists(SD_LOG_PATH)) {
+    reportComponentSuccess(sdCardStatus, "SD kartica");
     Serial.println("SD card initialized.");
     return true;
   }
@@ -3434,11 +3603,13 @@ bool initializeSDCard()
   if (!logFile) {
     Serial.println("Could not create measurements.csv on the SD card.");
     sdCardReady = false;
+    reportComponentFailure(sdCardStatus, "SD kartica", "dnevnika measurements.csv ni mogoče ustvariti");
     return false;
   }
 
   logFile.println("date,time,unix_timestamp,temperature_c,humidity_percent,weight_kg");
   logFile.close();
+  reportComponentSuccess(sdCardStatus, "SD kartica");
   Serial.println("SD card initialized.");
   return true;
 }
@@ -3450,6 +3621,7 @@ void markSDCardUnavailable()
   }
 
   sdCardReady = false;
+  reportComponentFailure(sdCardStatus, "SD kartica", "med delovanjem ni več dosegljiva");
   cloudSyncCaughtUp = false;
   historyIndexReady = false;
   SD.end();
@@ -4072,12 +4244,17 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   }
 
   const time_t currentTimestamp = time(nullptr);
-  static char jsonPayload[2600];
+  static char jsonPayload[3200];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
+           componentHealthName(bme680Status), bme680Status.consecutiveFailures, bme680Ready ? "true" : "false",
+           componentHealthName(loadCellStatus), loadCellStatus.consecutiveFailures, loadCellReady ? "true" : "false",
+           componentHealthName(rtcStatus), rtcStatus.consecutiveFailures, rtcReady ? "true" : "false",
+           rtcTimeValid ? "true" : "false", componentHealthName(sdCardStatus),
+           sdCardStatus.consecutiveFailures, sdCardReady ? "true" : "false",
            static_cast<unsigned long>(currentTimestamp), timeSourceName(),
            currentTimestamp >= MIN_VALID_UNIX_TIMESTAMP ? "true" : "false", rtcReady ? "true" : "false",
            rtcTimeValid ? "true" : "false", ntpSynchronizationPending ? "true" : "false",
@@ -4394,8 +4571,15 @@ void initializeLocalWebServer()
 bool createMeasurement(Measurement &measurement)
 {
   struct tm timeInfo;
-  if (!readBme680(measurement.temperatureC, measurement.humidityPercent) ||
-      !readLoadCell(measurement.weightKg)) {
+  if (rtcReady) {
+    verifyDs3231Connection();
+  }
+
+  // Vsako komponento preberemo posebej: izpad BME680 ne sme skriti napake HX711
+  // (in obratno) v serijskem izpisu ter na nadzorni plošči.
+  const bool bmeRead = readBme680(measurement.temperatureC, measurement.humidityPercent);
+  const bool loadCellRead = readLoadCell(measurement.weightKg);
+  if (!bmeRead || !loadCellRead) {
     return false;
   }
   measurement.timestamp = time(nullptr);
@@ -5466,9 +5650,9 @@ void updateDeviceStatus()
 
   const time_t lastSeenTimestamp = time(nullptr);
   const bool reconciliationActive = cloudHistoryReconciliationIsActive();
-  char jsonPayload[1000];
+  char jsonPayload[1400];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
+           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}},\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
            deviceId, escapedStationSsid.c_str(), ipAddress.c_str(), WiFi.RSSI(),
            static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
@@ -5477,6 +5661,11 @@ void updateDeviceStatus()
            timeSourceName(), rtcReady ? "true" : "false", rtcTimeValid ? "true" : "false",
            ntpSynchronizationPending ? "true" : "false",
            static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
+           componentHealthName(bme680Status), bme680Status.consecutiveFailures, bme680Ready ? "true" : "false",
+           componentHealthName(loadCellStatus), loadCellStatus.consecutiveFailures, loadCellReady ? "true" : "false",
+           componentHealthName(rtcStatus), rtcStatus.consecutiveFailures, rtcReady ? "true" : "false",
+           rtcTimeValid ? "true" : "false", componentHealthName(sdCardStatus),
+           sdCardStatus.consecutiveFailures, sdCardReady ? "true" : "false",
            (cloudSyncPending || reconciliationActive) ? "true" : "false",
            (cloudSyncCaughtUp && !cloudSyncPending && !hourlyAggregateReady && !dailyAggregateReady &&
             !reconciliationActive) ? "true" : "false",
@@ -5507,6 +5696,9 @@ void sendMeasurements()
 
   latestMeasurement = measurement;
   hasLatestMeasurement = true;
+  if (measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
+    latestMeasurementUploadPending = true;
+  }
 
   char jsonPayload[192];
   snprintf(jsonPayload, sizeof(jsonPayload),
@@ -5537,8 +5729,26 @@ void sendMeasurements()
                static_cast<unsigned long>(measurement.timestamp));
       database.set(asyncClient, historyPath, measurements, processData, "saveMeasurementHistory");
     }
-    database.set(asyncClient, latestDatabasePath, measurements, processData, "updateLatestMeasurement");
   }
+}
+
+void processPendingLatestMeasurement()
+{
+  if (!latestMeasurementUploadPending || latestMeasurementUploadInFlight || !isFirebaseReady() ||
+      latestMeasurement.timestamp < MIN_VALID_UNIX_TIMESTAMP) {
+    return;
+  }
+
+  char jsonPayload[192];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
+           latestMeasurement.temperatureC, latestMeasurement.humidityPercent, latestMeasurement.weightKg,
+           latestMeasurement.date, latestMeasurement.time,
+           static_cast<unsigned long>(latestMeasurement.timestamp));
+  object_t measurements(jsonPayload);
+  latestMeasurementUploadPending = false;
+  latestMeasurementUploadInFlight = true;
+  database.set(asyncClient, latestDatabasePath, measurements, processData, "updateLatestMeasurement");
 }
 
 }  // namespace
@@ -5606,6 +5816,7 @@ void loop()
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.
   const uint32_t currentMillis = millis();
   const bool validTimeAvailable = time(nullptr) >= MIN_VALID_UNIX_TIMESTAMP;
+  maintainComponentRecovery(currentMillis);
 
   // Če prva meritev nastane pred NTP sinhronizacijo, po pridobitvi pravega časa
   // ustvarimo še eno takojšnjo meritev, primerno za SD dnevnik in Firebase.
@@ -5621,6 +5832,14 @@ void loop()
   // Med OTA prenosom ohranimo odzivnost lokalnega strežnika in Firebase app.loop(),
   // druge cloud zahteve pa začasno ustavimo, da ne tekmujejo z OTA statusom.
   if (!firmwareUpdateInProgress && !Update.isRunning()) {
+    // Trenutna meritev ima prednost pred periodiÄnimi statusi. Tako en sam
+    // Firebase kanal ne more preskoÄiti 10-sekundne cloud posodobitve.
+    if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {
+      lastMeasurementMillis = currentMillis;
+      sendMeasurements();
+    }
+    processPendingLatestMeasurement();
+
     if (isFirebaseReady() && !activationSecretPublishPending &&
         (lastActivationSecretAttemptMillis == 0 ||
          currentMillis - lastActivationSecretAttemptMillis >= ACTIVATION_SECRET_REFRESH_INTERVAL_MS)) {
@@ -5678,10 +5897,6 @@ void loop()
 
     synchronizeSDMeasurements(currentMillis);
 
-    if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {
-      lastMeasurementMillis = currentMillis;
-      sendMeasurements();
-    }
   }
 
 }

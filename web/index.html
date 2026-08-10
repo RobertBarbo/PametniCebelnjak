@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#f4f1e8" />
     <meta name="color-scheme" content="light dark" />
     <title>Pametni čebelnjak</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png" />
     <script>
       (() => {
         const savedTheme = localStorage.getItem("pametni-cebelnjak-theme");
@@ -20,7 +21,7 @@
     <header class="app-header">
       <div class="header-inner">
         <button class="brand" type="button" data-view-target="overview" aria-label="Odpri pregled">
-          <span class="brand-mark" aria-hidden="true">PČ</span>
+          <span class="brand-mark" aria-hidden="true"><img src="assets/favicon.png" alt="" /></span>
           <span><strong>Pametni čebelnjak</strong><small>Nadzorna plošča</small></span>
         </button>
 
@@ -36,6 +37,10 @@
         </nav>
 
         <div class="header-actions">
+          <div class="hardware-alert-status" id="hardware-alert-status" aria-live="polite" hidden>
+            <span class="hardware-alert-dot" aria-hidden="true"></span>
+            <span id="hardware-alert-text">Opozorilo komponent</span>
+          </div>
           <div class="connection-status" id="connection-status" aria-live="polite">
             <span class="status-dot"></span>
             <span id="connection-text">Vzpostavljam povezavo …</span>
@@ -59,6 +64,14 @@
           </div>
           <button class="secondary-button" type="button" data-view-target="history">Odpri grafe</button>
         </div>
+
+        <section class="surface component-alert-panel" id="component-alert-panel" aria-labelledby="component-alert-heading" hidden>
+          <div>
+            <p class="eyebrow">Opozorila naprave</p>
+            <h2 id="component-alert-heading">Potrebno je preverjanje komponent</h2>
+          </div>
+          <div class="component-alert-list" id="component-alert-list" aria-live="polite"></div>
+        </section>
 
         <section class="surface latest-panel" aria-labelledby="latest-heading">
           <div class="section-heading">
@@ -214,6 +227,15 @@
             <article class="status-card" id="local-activation-card" hidden><p>Aktivacijska koda</p><strong id="local-activation-code">—</strong><small>Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.</small></article>
             <article class="status-card sd-card"><p>SD kartica</p><strong id="sd-status">—</strong><small id="sd-status-detail">Čakam na stanje …</small></article>
           </div>
+          <section class="component-health-panel" aria-labelledby="component-health-heading">
+            <div><p class="eyebrow">Stanje komponent</p><h3 id="component-health-heading">Senzorji in shranjevanje</h3></div>
+            <div class="component-health-grid">
+              <article class="component-health-card" id="component-bme680"><p>BME680</p><strong>Čakam na preverjanje</strong><small>Temperatura in vlaga</small></article>
+              <article class="component-health-card" id="component-hx711"><p>HX711</p><strong>Čakam na preverjanje</strong><small>Merilne celice</small></article>
+              <article class="component-health-card" id="component-ds3231"><p>DS3231</p><strong>Čakam na preverjanje</strong><small>RTC ura</small></article>
+              <article class="component-health-card" id="component-sd-card"><p>SD kartica</p><strong>Čakam na preverjanje</strong><small>Dnevnik meritev</small></article>
+            </div>
+          </section>
           <section class="load-cell-tare-control" data-local-only aria-labelledby="local-load-cell-tare-heading" hidden>
             <p class="eyebrow">Tehtnica</p>
             <h3 id="local-load-cell-tare-heading">Tariranje tehtnice</h3>

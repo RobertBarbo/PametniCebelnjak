@@ -19,6 +19,10 @@ const elements = {
   viewPanels: [...document.querySelectorAll("[data-view-panel]")],
   connectionStatus: document.querySelector("#connection-status"),
   connectionText: document.querySelector("#connection-text"),
+  hardwareAlertStatus: document.querySelector("#hardware-alert-status"),
+  hardwareAlertText: document.querySelector("#hardware-alert-text"),
+  componentAlertPanel: document.querySelector("#component-alert-panel"),
+  componentAlertList: document.querySelector("#component-alert-list"),
   authTrigger: document.querySelector("#auth-trigger"),
   authDialog: document.querySelector("#auth-dialog"),
   authForm: document.querySelector("#auth-form"),
@@ -68,6 +72,10 @@ const elements = {
   sdStatus: document.querySelector("#sd-status"),
   sdStatusDetail: document.querySelector("#sd-status-detail"),
   sdCard: document.querySelector(".sd-card"),
+  componentBme680: document.querySelector("#component-bme680"),
+  componentHx711: document.querySelector("#component-hx711"),
+  componentDs3231: document.querySelector("#component-ds3231"),
+  componentSdCard: document.querySelector("#component-sd-card"),
   localLoadCellTare: document.querySelector("#local-load-cell-tare"),
   localLoadCellTareStatus: document.querySelector("#local-load-cell-tare-status"),
   cloudLoadCellTare: document.querySelector("#cloud-load-cell-tare"),
@@ -621,6 +629,68 @@ function renderLatestMeasurement(measurement) {
   elements.latestTime.textContent = formatDateTime(measurement);
 }
 
+const COMPONENT_DEFINITIONS = [
+  { key: "bme680", name: "BME680", element: "componentBme680", description: "Temperatura in vlaga" },
+  { key: "hx711", name: "HX711", element: "componentHx711", description: "Merilne celice" },
+  { key: "ds3231", name: "DS3231", element: "componentDs3231", description: "RTC ura" },
+  { key: "sd_card", name: "SD kartica", element: "componentSdCard", description: "Dnevnik meritev" },
+];
+
+function getComponentPresentation(component, key) {
+  let state = component?.state ?? "checking";
+  const failures = Number(component?.failures ?? 0);
+  if (key === "ds3231" && component?.ready === true && component?.time_valid === false) state = "warning";
+
+  const stateLabels = {
+    checking: "Čakam na preverjanje",
+    ok: "Deluje normalno",
+    warning: "Potrebno preverjanje",
+    error: "Napaka komponente",
+  };
+  let detail = state === "checking"
+    ? "Komponenta še ni preverjena."
+    : state === "ok"
+      ? "Deluje normalno."
+      : failures > 0
+        ? `${failures} zaporednih neuspelih preverjanj.`
+        : "Preveri povezavo ali napajanje.";
+  if (key === "ds3231" && component?.ready === true && component?.time_valid === false) {
+    detail = "RTC ura nima veljavnega časa.";
+  }
+  return { state, label: stateLabels[state] ?? stateLabels.checking, detail };
+}
+
+function renderComponentHealth(components) {
+  const alerts = [];
+  COMPONENT_DEFINITIONS.forEach((definition) => {
+    const presentation = getComponentPresentation(components?.[definition.key], definition.key);
+    const card = elements[definition.element];
+    card.className = `component-health-card ${presentation.state}`;
+    card.querySelector("strong").textContent = presentation.label;
+    card.querySelector("small").textContent = presentation.detail;
+    if (presentation.state === "warning" || presentation.state === "error") {
+      alerts.push({ name: definition.name, ...presentation });
+    }
+  });
+
+  const hasAlerts = alerts.length > 0;
+  const hasError = alerts.some((alert) => alert.state === "error");
+  elements.hardwareAlertStatus.hidden = !hasAlerts;
+  elements.hardwareAlertStatus.className = `hardware-alert-status ${hasError ? "error" : "warning"}`;
+  elements.hardwareAlertText.textContent = hasAlerts
+    ? `${alerts.length} ${alerts.length === 1 ? "opozorilo" : "opozorili komponent"}`
+    : "";
+
+  elements.componentAlertPanel.hidden = !hasAlerts;
+  elements.componentAlertList.replaceChildren();
+  alerts.forEach((alert) => {
+    const item = document.createElement("p");
+    item.className = `component-alert-item ${alert.state}`;
+    item.textContent = `${alert.name}: ${alert.detail}`;
+    elements.componentAlertList.append(item);
+  });
+}
+
 function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   latestDeviceStatus = status;
   elements.deviceId.textContent = status?.device_id ?? "—";
@@ -647,6 +717,7 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
        : "Čakam na prvi odziv naprave.";
 
   renderHeaderDeviceState();
+  renderComponentHealth(status?.components);
   renderLoadCellTareStatus(latestLoadCellTareStatus);
   renderBme680CalibrationStatus(latestBme680CalibrationStatus);
   if (!localDashboard) {

@@ -4,6 +4,59 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.102] - 2026-08-10
+
+### Fixed
+
+- Trenutna meritev za Firebase vejo `latest` ima prednost pred periodičnimi statusnimi in zgodovinskimi opravili. Ko je en sam asinhroni Firebase kanal zaseden, firmware obdrži samo najnovejšo meritev ter jo pošlje takoj po sprostitvi, zato cloud nadzorna plošča ne preskakuje 10-sekundnih posodobitev.
+
+## [0.1.0-beta.100] - 2026-08-10
+
+### Changed
+
+- Glava lokalne in cloud nadzorne plošče namesto znaka `PČ` prikaže projektno ikono `favicon.png`.
+
+## [0.1.0-beta.99] - 2026-08-10
+
+### Added
+
+- Lokalna in cloud nadzorna plošča uporabljata ikono `web/assets/favicon.png` v zavihku brskalnika.
+
+## [0.1.0-beta.98] - 2026-08-10
+
+### Changed
+
+- V glavi lokalne in cloud nadzorne plošče je značka opozoril komponent pred indikatorjem online/offline naprave.
+
+## [0.1.0-beta.97] - 2026-08-10
+
+### Fixed
+
+- Preverjanje DS3231 bere dejanski statusni register namesto samega I2C potrjevanja naslova; odpravljena sta podvojeno preverjanje in napačni prehodi med stanji.
+- I2C uporablja 50-milisekundni timeout, zato prekinjeno vodilo ne more dalj časa blokirati meritev, lokalne strani ali omrežnih opravil.
+- Kartica opozoril komponent ima enotno kompaktno postavitev, pravilne odmike in opozorila prikaže kot kratke značke.
+
+## [0.1.0-beta.96] - 2026-08-10
+
+### Fixed
+
+- HX711 vhod DOUT uporablja notranji pull-up, meritev pa zavrne nerealni skok mase nad `5 kg` med zaporednima meritvama. Tako izpad napajanja oziroma lebdeč signal ne more tiho ustvarjati lažne meritve.
+- DS3231 se preveri pred vsako meritvijo, zato se njegov odklop prikaže kot ločeno opozorilo tudi kadar se zaradi istega I2C vodila hkrati odzove BME680.
+- Neuspeh ene meritve ne prekine več preverjanja drugega senzorja; BME680 in HX711 zdaj neodvisno poročata stanje.
+- Opozorila komponent so na nadzornih ploščah razporejena kompaktno pod naslovom in ne puščajo praznega prostora ob seznamu.
+
+## [0.1.0-beta.95] - 2026-08-10
+
+### Added
+
+- Firmware spremlja BME680, HX711, DS3231 in SD kartico z zaporednimi preverjanji. Po treh zaporednih napakah objavi opozorilo, po petih pa napako; uspešen odziv stanje samodejno obnovi.
+- Serijski monitor ob prvi napaki, prehodu v opozorilo oziroma napako in ob obnovitvi izpiše jasno sporočilo `[KOMPONENTA]`.
+- Lokalni in cloud pogled prikažeta stanje vseh štirih komponent, opozorilno značko v glavi ter opozorila na pregledu samo kadar je potreben poseg.
+
+### Changed
+
+- Nedosegljivi BME680, HX711 in DS3231 se ponovno inicializirajo vsakih 60 sekund; SD kartica ohrani obstoječi enominutni postopek ponovne inicializacije.
+
 ## [0.1.0-beta.94] - 2026-08-10
 
 ### Changed

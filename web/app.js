@@ -31,6 +31,9 @@ const elements = {
   accountSection: document.querySelector("#account-section"),
   accountHeading: document.querySelector("#account-heading"),
   accountEmail: document.querySelector("#account-email"),
+  accountAvatar: document.querySelector("#account-avatar"),
+  accountAvatarImage: document.querySelector("#account-avatar-image"),
+  accountAvatarInitials: document.querySelector("#account-avatar-initials"),
   authSignout: document.querySelector("#auth-signout"),
   cloudDeviceSelect: document.querySelector("#cloud-device-select"),
   adminDeviceOverview: document.querySelector("#admin-device-overview"),
@@ -1829,6 +1832,37 @@ function setAuthStatus(message) {
   elements.authStatus.textContent = message;
 }
 
+function getAccountInitials(user) {
+  const source = String(user?.displayName || user?.email || "PP").trim();
+  const words = source.split(/\s+|@/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word[0]).join("");
+  return (initials || "PP").toLocaleUpperCase("sl-SI");
+}
+
+function renderAccountIdentity(user) {
+  const email = user?.email || "Google račun";
+  const avatarUrl = String(user?.photoURL || "").trim();
+  elements.accountEmail.textContent = email;
+  elements.accountAvatarInitials.textContent = getAccountInitials(user);
+  elements.accountAvatar.classList.toggle("has-photo", Boolean(avatarUrl));
+  elements.accountAvatarImage.hidden = !avatarUrl;
+  elements.accountAvatarInitials.hidden = Boolean(avatarUrl);
+
+  if (avatarUrl) {
+    elements.accountAvatarImage.src = avatarUrl;
+    elements.accountAvatarImage.alt = `Profilna slika uporabnika ${user.displayName || email}`;
+    elements.accountAvatarImage.onerror = () => {
+      elements.accountAvatar.classList.remove("has-photo");
+      elements.accountAvatarImage.hidden = true;
+      elements.accountAvatarInitials.hidden = false;
+    };
+  } else {
+    elements.accountAvatarImage.removeAttribute("src");
+    elements.accountAvatarImage.alt = "";
+    elements.accountAvatarImage.onerror = null;
+  }
+}
+
 function openAuthDialog() {
   setAuthStatus("");
   if (!elements.authDialog.open) elements.authDialog.showModal();
@@ -1971,20 +2005,25 @@ function handleCloudAuthState(user) {
   currentCloudUser = user;
 
   if (!user) {
+    document.body.dataset.authState = "signed-out";
     cloudDevicePath = "";
     elements.accountSection.hidden = true;
+    elements.accountAvatarImage.removeAttribute("src");
     elements.authTrigger.hidden = false;
     elements.authTrigger.textContent = "Prijava";
     resetCloudDashboard();
     setConnectionState("Prijava je potrebna", "error");
+    window.requestAnimationFrame(openAuthDialog);
     return;
   }
 
+  document.body.dataset.authState = "signed-in";
   elements.accountSection.hidden = false;
   elements.authTrigger.hidden = false;
   elements.authTrigger.textContent = "Odjava";
-  elements.accountEmail.textContent = user.email || "Google račun";
+  renderAccountIdentity(user);
   configureCloudAccountView();
+  showView(DEFAULT_VIEW);
   renderHeaderDeviceState();
   const { database, onValue, ref } = firebaseDatabase;
   const deviceListPath = isCloudAdministrator() ? "devices" : `users/${user.uid}/devices`;
@@ -2018,6 +2057,7 @@ async function useLocalDataSource() {
   const initialStatus = await response.json();
   isLocalDashboard = true;
   document.body.dataset.dashboardMode = "local";
+  delete document.body.dataset.authState;
   elements.updatesHeading.textContent = "Lokalna posodobitev";
   elements.updatesSubtitle.textContent = "Odpri ElegantOTA za lokalno posodobitev firmware-a ali LittleFS.";
   elements.otaSection.hidden = true;
@@ -2092,6 +2132,7 @@ async function useLocalDataSource() {
 async function useFirebaseDataSource() {
   isLocalDashboard = false;
   document.body.dataset.dashboardMode = "cloud";
+  document.body.dataset.authState = "loading";
   elements.updatesHeading.textContent = "Firmware OTA";
   elements.updatesSubtitle.textContent = "Varna namestitev nove različice na izbrano napravo.";
   elements.updatesNavigationItem.hidden = false;

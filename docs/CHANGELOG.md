@@ -4,6 +4,19 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.94] - 2026-08-10
+
+### Changed
+
+- Cloud nadzorna plošča brez prijave prikaže neposredno prijavni obrazec in skrije navigacijo ter prazne podatkovne poglede. Po uspešni prijavi se samodejno odpre pogled **Pregled**.
+
+## [0.1.0-beta.93] - 2026-08-10
+
+### Added
+
+- Cloud prijava ima ikone za e-pošto, ustvarjanje računa, Google in zapiranje okna.
+- Kartica prijavljenega računa prikaže Google profilno sliko iz Firebase `photoURL`; kadar slika ni na voljo, uporabi krog z začetnicami uporabnika.
+
 ## [0.1.0-beta.92] - 2026-08-10
 
 ### Fixed

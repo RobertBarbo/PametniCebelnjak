@@ -136,7 +136,13 @@
 
         <section class="account-section surface" id="account-section" aria-labelledby="account-heading" hidden>
           <div class="account-card">
-            <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji panji</h2><p class="subtitle" id="account-email">—</p></div>
+            <div class="account-identity">
+              <div class="account-avatar" id="account-avatar" aria-hidden="true">
+                <img id="account-avatar-image" alt="" hidden />
+                <span id="account-avatar-initials">PP</span>
+              </div>
+              <div><p class="eyebrow">Moj račun</p><h2 id="account-heading">Moji panji</h2><p class="subtitle" id="account-email">—</p></div>
+            </div>
             <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
           </div>
           <div class="account-management">
@@ -352,10 +358,22 @@
         <div class="auth-dialog-heading"><p class="eyebrow">Cloud dostop</p><h2 id="auth-dialog-title">Prijava uporabnika</h2><p class="muted">Prijavi se za ogled svojih registriranih panjev.</p></div>
         <label class="account-field">E-poštni naslov<input id="auth-email" type="email" autocomplete="email" required /></label>
         <label class="account-field">Geslo<input id="auth-password" type="password" minlength="6" autocomplete="current-password" required /></label>
-        <button class="primary-button" id="auth-email-signin" type="submit">Prijava z e-pošto</button>
-        <button class="secondary-button" id="auth-register" type="button">Ustvari nov račun</button>
-        <button class="secondary-button" id="auth-google" type="button">Nadaljuj z Googlom</button>
-        <button class="secondary-button" id="auth-close" type="button">Zapri</button>
+        <button class="primary-button auth-action" id="auth-email-signin" type="submit">
+          <svg class="auth-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h17v11h-17z"/><path d="m4 7 8 6 8-6"/></svg>
+          <span>Prijava z e-pošto</span>
+        </button>
+        <button class="secondary-button auth-action" id="auth-register" type="button">
+          <svg class="auth-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.7-3.3 2.6-5 5.5-5s4.8 1.7 5.5 5M18 8v6M15 11h6"/></svg>
+          <span>Ustvari nov račun</span>
+        </button>
+        <button class="secondary-button auth-action" id="auth-google" type="button">
+          <svg class="google-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.8 3-4.3 3-7.3Z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.6-2.5L15.4 17a6 6 0 0 1-8.9-3.2H3.2v2.6A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.5 13.8A6 6 0 0 1 6.2 12c0-.6.1-1.2.3-1.8V7.6H3.2A10 10 0 0 0 3.2 16l3.3-2.2Z"/><path fill="#EA4335" d="M12 6a5.4 5.4 0 0 1 3.8 1.5l2.8-2.8A9.8 9.8 0 0 0 3.2 7.6l3.3 2.6A6 6 0 0 1 12 6Z"/></svg>
+          <span>Nadaljuj z Googlom</span>
+        </button>
+        <button class="secondary-button auth-action" id="auth-close" type="button">
+          <svg class="auth-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+          <span>Zapri</span>
+        </button>
         <p class="form-status" id="auth-status" aria-live="polite"></p>
       </form>
     </dialog>

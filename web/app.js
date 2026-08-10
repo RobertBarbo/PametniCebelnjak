@@ -113,8 +113,12 @@ const elements = {
   otaActions: document.querySelector("#ota-actions"),
   otaInstall: document.querySelector("#ota-install"),
   otaIgnore: document.querySelector("#ota-ignore"),
+  otaSafetyNotice: document.querySelector("#ota-safety-notice"),
   localManualUpdateSection: document.querySelector("#local-manual-update-section"),
   localElegantOtaLink: document.querySelector("#local-elegantota-link"),
+  localOtaWarningDialog: document.querySelector("#local-ota-warning-dialog"),
+  localOtaWarningCancel: document.querySelector("#local-ota-warning-cancel"),
+  localOtaWarningProceed: document.querySelector("#local-ota-warning-proceed"),
   provisioningSection: document.querySelector("#provisioning-section"),
   provisioningDescription: document.querySelector("#provisioning-description"),
   wifiForm: document.querySelector("#wifi-form"),
@@ -721,6 +725,7 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   renderLoadCellTareStatus(latestLoadCellTareStatus);
   renderBme680CalibrationStatus(latestBme680CalibrationStatus);
   if (!localDashboard) {
+    renderHistoryManagementStatus(latestHistoryManagementStatus);
     renderTimeStatus(status);
     renderCloudSynchronization(status?.history_sync, { station_connected: isOnline }, latestSDCardStatus);
   }
@@ -769,6 +774,8 @@ function renderTimeStatus(status, network = latestNetworkStatus) {
     elements.deviceTimeStatus.textContent = "Čakam na internetno časovno sinhronizacijo …";
   } else if (!isLocalDashboard && cloudDevicePath && currentCloudUser && !cloudDeviceReady) {
     elements.deviceTimeStatus.textContent = "Panj je offline; nastavljanje datuma in ure trenutno ni možno.";
+  } else if (!isLocalDashboard && cloudDeviceReady) {
+    elements.deviceTimeStatus.textContent = "Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.";
   }
 }
 
@@ -1000,6 +1007,7 @@ function renderHistoryManagementStatus(status) {
   latestHistoryManagementStatus = status;
   const hasSelectedDevice = Boolean(cloudDevicePath && currentCloudUser && firebaseDatabase);
   const state = status?.state;
+  const updatedAt = Number(status?.updated_at);
   const isDeleting = state === "queued" || state === "deleting";
   const isSelectedDeviceOnline = hasSelectedDevice && isDeviceOnline(latestDeviceStatus);
   elements.deleteDeviceHistory.disabled = !isSelectedDeviceOnline || isDeleting;
@@ -1020,10 +1028,14 @@ function renderHistoryManagementStatus(status) {
   const messages = {
     queued: "Ukaz za brisanje čaka, da ga ESP32 prevzame.",
     deleting: "ESP32 briše SD dnevnik in cloud zgodovino …",
-    completed: "SD dnevnik in cloud zgodovina sta izbrisana.",
+    completed: Number.isFinite(updatedAt) && updatedAt > 0
+      ? `Zadnji ukaz za brisanje je bil uspešno zaključen: ${formatDashboardDateTime(new Date(updatedAt * 1000))}.`
+      : "Zadnji ukaz za brisanje je bil uspešno zaključen.",
     error: "Brisanje ni uspelo. Preveri stanje naprave in SD kartice.",
   };
-  elements.historyManagementStatus.textContent = status?.message || messages[state] || "Stanje brisanja ni znano.";
+  elements.historyManagementStatus.textContent = state === "completed"
+    ? messages.completed
+    : status?.message || messages[state] || "Stanje brisanja ni znano.";
 }
 
 function confirmPermanentHistoryDeletion(message) {
@@ -1403,6 +1415,7 @@ function resetOtaProgress() {
   elements.otaProgressTrack.removeAttribute("aria-valuetext");
   elements.otaProgressText.textContent = "Skupaj 0 %";
   elements.otaCard.classList.remove("ota-error");
+  elements.otaSafetyNotice.hidden = true;
 }
 
 function updateOtaActionState() {
@@ -1412,6 +1425,7 @@ function updateOtaActionState() {
   elements.otaIgnore.disabled = !hasAvailableRelease || isOtaActive;
   elements.otaInstall.textContent = isOtaActive ? "Posodobitev poteka" : "Posodobi napravo";
   elements.otaCard.setAttribute("aria-busy", String(isOtaActive));
+  elements.otaSafetyNotice.hidden = !isOtaActive;
 }
 
 function renderOtaProgress(progressPercent, hasError = false) {
@@ -1487,7 +1501,7 @@ async function checkForFirmwareRelease() {
       availableOtaRelease = undefined;
       elements.otaLabel.textContent = "Firmware je posodobljen";
       elements.otaVersion.textContent = `v${latestFirmwareVersion}`;
-      elements.otaDetail.textContent = "Na GitHub Releases ni novejše različice.";
+      elements.otaDetail.textContent = "Ni navoljo novejše različice.";
       elements.otaActions.hidden = true;
     }
   } catch (error) {
@@ -1501,7 +1515,7 @@ async function checkForFirmwareRelease() {
 
 async function requestFirmwareUpdate() {
   if (!firebaseDatabase || !availableOtaRelease || otaCommandPending) return;
-  if (!window.confirm(`Ali želiš napravo posodobiti na verzijo ${availableOtaRelease.version}? Med prenosom se bo naprava ponovno zagnala.`)) return;
+  if (!window.confirm(`Ali želiš napravo posodobiti na verzijo ${availableOtaRelease.version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.`)) return;
 
   otaCommandPending = true;
   updateOtaActionState();
@@ -1532,6 +1546,15 @@ function ignoreFirmwareUpdate() {
 function initializeOtaControls() {
   elements.otaInstall.addEventListener("click", requestFirmwareUpdate);
   elements.otaIgnore.addEventListener("click", ignoreFirmwareUpdate);
+  elements.localElegantOtaLink.addEventListener("click", (event) => {
+    if (!isLocalDashboard) return;
+    event.preventDefault();
+    if (!elements.localOtaWarningDialog.open) elements.localOtaWarningDialog.showModal();
+  });
+  elements.localOtaWarningCancel.addEventListener("click", () => elements.localOtaWarningDialog.close());
+  elements.localOtaWarningProceed.addEventListener("click", () => {
+    window.location.assign(elements.localElegantOtaLink.href);
+  });
 }
 
 

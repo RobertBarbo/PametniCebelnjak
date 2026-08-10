@@ -4,6 +4,31 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.106] - 2026-08-10
+
+### Fixed
+
+- Cloud prikaz zaključenega brisanja ne uporablja več starega besedila iz Firebase, temveč ga vedno prikaže kot zgodovinski rezultat zadnjega ukaza.
+
+## [0.1.0-beta.105] - 2026-08-10
+
+### Fixed
+
+- Cloud pogled po ponovni online povezavi pravilno ponastavi sporočilo za nastavitev časa. Zaključeno brisanje zgodovine je označeno kot zadnji izvedeni ukaz z datumom namesto kot trditev o trenutnem stanju meritev.
+
+## [0.1.0-beta.104] - 2026-08-10
+
+### Changed
+
+- Velika rastrska ikona je zamenjana z majhno vektorsko ikono `favicon.svg`; znak v glavi je neposredno vdelan v HTML, zato lokalna nadzorna plošča ob odprtju ne čaka več dodatnega prenosa slike.
+
+## [0.1.0-beta.103] - 2026-08-10
+
+### Changed
+
+- Cloud OTA kartica med čakanjem, prenosom, nameščanjem in ponovnim zagonom prikaže trajno varnostno opozorilo. Gumba **Posodobi napravo** in **Prezri** ostaneta zaklenjena, dokler se postopek ne zaključi z uspehom ali napako.
+- Lokalni pogled pred preusmeritvijo na ElegantOTA zahteva izrecno potrditev ter opozori, da med prenosom ni dovoljeno izklopiti naprave, zapreti brskalnika ali prekiniti Wi-Fi povezave.
+
 ## [0.1.0-beta.102] - 2026-08-10
 
 ### Fixed

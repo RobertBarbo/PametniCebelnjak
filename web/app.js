@@ -10,6 +10,8 @@ const DEFAULT_VIEW = "overview";
 const SUPER_ADMIN_UID = "Uv2bGWlFt8h9YTsAFoxsNlNsRK72";
 
 const elements = {
+  appFavicon: document.querySelector("#app-favicon"),
+  brandIcon: document.querySelector("#brand-icon"),
   menuToggle: document.querySelector("#menu-toggle"),
   topNavigation: document.querySelector("#top-navigation"),
   themeToggle: document.querySelector("#theme-toggle"),
@@ -284,6 +286,13 @@ function initializeTheme() {
   };
   if (colorSchemeQuery.addEventListener) colorSchemeQuery.addEventListener("change", handleColorSchemeChange);
   else colorSchemeQuery.addListener(handleColorSchemeChange);
+}
+
+function applyBrandAssets(useLocalAssets) {
+  const source = useLocalAssets ? "assets/favicon2.svg" : "assets/favicon.png";
+  elements.appFavicon.href = source;
+  elements.appFavicon.type = useLocalAssets ? "image/svg+xml" : "image/png";
+  elements.brandIcon.src = source;
 }
 
 function showView(viewName, updateLocation = true) {
@@ -2208,6 +2217,7 @@ async function useLocalDataSource() {
   if (!response.ok) throw new Error("Lokalni API ni dosegljiv");
   const initialStatus = await response.json();
   isLocalDashboard = true;
+  applyBrandAssets(true);
   document.body.dataset.dashboardMode = "local";
   delete document.body.dataset.authState;
   elements.updatesHeading.textContent = "Lokalna posodobitev";
@@ -2283,6 +2293,7 @@ async function useLocalDataSource() {
 
 async function useFirebaseDataSource() {
   isLocalDashboard = false;
+  applyBrandAssets(false);
   document.body.dataset.dashboardMode = "cloud";
   document.body.dataset.authState = "loading";
   elements.updatesHeading.textContent = "Firmware OTA";

@@ -144,11 +144,11 @@ select {
   background: var(--surface-solid);
 }
 
-.brand-mark svg {
+.brand-mark img {
   display: block;
   width: 100%;
   height: 100%;
-  color: var(--primary);
+  object-fit: contain;
 }
 
 .brand > span:last-child {

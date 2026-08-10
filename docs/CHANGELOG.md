@@ -4,6 +4,31 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.1] - 2026-08-10
+
+### Changed
+
+- Prva kandidatska izdaja za terenski preizkus na dejanskem panju. Vključuje preverjene meritve BME680 in HX711, DS3231 čas, SD dnevnik, cloud sinhronizacijo, lokalno nadzorno ploščo ter cloud OTA.
+- Lokalni pogled uporablja `favicon2.svg`, cloud pogled pa barvno `favicon.png`; lokalni strežnik za obe sliki uporabi ustrezen MIME tip.
+
+## [0.1.0-beta.112] - 2026-08-10
+
+### Fixed
+
+- Lokalni strežnik za datoteki SVG in PNG pošlje pravilna MIME tipa, zato brskalnik pravilno prikaže favicon in znak v glavi.
+
+## [0.1.0-beta.111] - 2026-08-10
+
+### Changed
+
+- Lokalna nadzorna plošča prednostno uporablja majhen `assets/favicon2.svg`, cloud pogled pa barvno `assets/favicon.png`; s tem je lokalni prvi prikaz glave hitrejši, cloud pa ohrani podrobnejšo ikono.
+
+## [0.1.0-beta.110] - 2026-08-10
+
+### Changed
+
+- Cloud in lokalna nadzorna plošča za favicon ter znak v glavi testno uporabljata isto barvno ikono `web/assets/favicon.png`; manjši `favicon.svg` ostane v projektu kot možna hitrejša lokalna alternativa.
+
 ## [0.1.0-beta.109] - 2026-08-10
 
 ### Fixed

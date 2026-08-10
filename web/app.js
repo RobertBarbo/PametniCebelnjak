@@ -1,5 +1,6 @@
 const DEVICE_ONLINE_TIMEOUT_SECONDS = 90;
 const LOAD_CELL_TARE_TIMEOUT_SECONDS = 90;
+const BME680_CALIBRATION_TIMEOUT_SECONDS = 90;
 const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
@@ -68,6 +69,16 @@ const elements = {
   localLoadCellTareStatus: document.querySelector("#local-load-cell-tare-status"),
   cloudLoadCellTare: document.querySelector("#cloud-load-cell-tare"),
   cloudLoadCellTareStatus: document.querySelector("#cloud-load-cell-tare-status"),
+  localBme680CalibrationForm: document.querySelector("#local-bme680-calibration-form"),
+  localTemperatureOffset: document.querySelector("#local-temperature-offset"),
+  localHumidityOffset: document.querySelector("#local-humidity-offset"),
+  localSaveBme680Calibration: document.querySelector("#local-save-bme680-calibration"),
+  localBme680CalibrationStatus: document.querySelector("#local-bme680-calibration-status"),
+  cloudBme680CalibrationForm: document.querySelector("#cloud-bme680-calibration-form"),
+  cloudTemperatureOffset: document.querySelector("#cloud-temperature-offset"),
+  cloudHumidityOffset: document.querySelector("#cloud-humidity-offset"),
+  cloudSaveBme680Calibration: document.querySelector("#cloud-save-bme680-calibration"),
+  cloudBme680CalibrationStatus: document.querySelector("#cloud-bme680-calibration-status"),
   rangeTrigger: document.querySelector("#date-range-trigger"),
   rangeValue: document.querySelector("#date-range-value"),
   rangeDialog: document.querySelector("#date-range-dialog"),
@@ -155,12 +166,15 @@ let cloudDevices = {};
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
 let latestLoadCellTareStatus;
+let latestBme680CalibrationStatus;
 let latestTimeStatus;
 let latestNetworkStatus;
 let latestSDCardStatus;
 let dashboardDataSourceReady = false;
 let historyViewLoading;
 let localHistoryRequestGeneration = 0;
+let bme680CalibrationPendingUntil = 0;
+let bme680CalibrationRequestedAt = 0;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -369,6 +383,7 @@ function resetCloudDashboard() {
   renderSDStatus(null);
   renderFirmwareVersion(null);
   renderLoadCellTareStatus(null);
+  renderBme680CalibrationStatus(null);
   renderTimeStatus(null);
   elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
   resetOtaProgress();
@@ -451,6 +466,9 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
 
 function selectCloudDevice(deviceId) {
   clearCloudDeviceListeners();
+  bme680CalibrationPendingUntil = 0;
+  bme680CalibrationRequestedAt = 0;
+  elements.cloudBme680CalibrationForm.dataset.dirty = "false";
   cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
   setCloudDeviceManagementVisibility(Boolean(cloudDevicePath && currentCloudUser));
   elements.cloudDeviceSelect.value = deviceId;
@@ -469,6 +487,7 @@ function selectCloudDevice(deviceId) {
   renderDeviceStatus(null);
   renderHistoryManagementStatus(null);
   renderLoadCellTareStatus(null);
+  renderBme680CalibrationStatus(null);
   renderTimeStatus(null);
   localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
   const { database, onValue, ref } = firebaseDatabase;
@@ -482,6 +501,7 @@ function selectCloudDevice(deviceId) {
   subscribe("status/ota", renderOtaDeviceStatus);
   subscribe("status/history", renderHistoryManagementStatus);
   subscribe("status/load_cell", renderLoadCellTareStatus);
+  subscribe("status/bme680", renderBme680CalibrationStatus);
   historyViewLoading = undefined;
   refreshVisibleHistory();
 }
@@ -625,6 +645,7 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
 
   renderHeaderDeviceState();
   renderLoadCellTareStatus(latestLoadCellTareStatus);
+  renderBme680CalibrationStatus(latestBme680CalibrationStatus);
   if (!localDashboard) {
     renderTimeStatus(status);
     renderCloudSynchronization(status?.history_sync, { station_connected: isOnline }, latestSDCardStatus);
@@ -706,7 +727,81 @@ function renderLoadCellTareStatus(status) {
       ? cloudDevicePath
         ? "Panj je offline; tariranje trenutno ni možno."
         : "Izberi online panj za tariranje."
-    : status?.message ?? messages[state] ?? messages.idle;
+       : status?.message ?? messages[state] ?? messages.idle;
+}
+
+function formatCalibrationOffset(value, unit) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "—";
+  const sign = numericValue >= 0 ? "+" : "";
+  return `${sign}${numericValue.toFixed(1).replace(".", ",")} ${unit}`;
+}
+
+function renderBme680CalibrationStatus(status) {
+  latestBme680CalibrationStatus = status;
+  const temperatureOffset = Number(status?.temperature_offset_c ?? 0);
+  const humidityOffset = Number(status?.humidity_offset_percent ?? 0);
+  const offsetsValid = Number.isFinite(temperatureOffset) && Number.isFinite(humidityOffset);
+  const reportedState = status?.state ?? "idle";
+  const nowSeconds = Date.now() / 1000;
+  const updatedAt = Number(status?.updated_at);
+  const calibrationRequestIsPending = bme680CalibrationPendingUntil > nowSeconds;
+  const commandAwaitingResponse = calibrationRequestIsPending &&
+    (!Number.isFinite(updatedAt) || updatedAt < bme680CalibrationRequestedAt);
+  const state = commandAwaitingResponse ? "queued" : reportedState;
+  const calibrationRequestFinished = calibrationRequestIsPending && !commandAwaitingResponse &&
+    (reportedState === "completed" || reportedState === "error");
+  if (calibrationRequestFinished || bme680CalibrationPendingUntil <= nowSeconds) {
+    bme680CalibrationPendingUntil = 0;
+  }
+
+  const isBusy = state === "queued" || state === "applying";
+  const cloudDeviceReady = Boolean(cloudDevicePath && currentCloudUser && isDeviceOnline(latestDeviceStatus));
+  const canChange = isLocalDashboard || cloudDeviceReady;
+  const controls = isLocalDashboard
+    ? [{
+      temperature: elements.localTemperatureOffset,
+      humidity: elements.localHumidityOffset,
+      button: elements.localSaveBme680Calibration,
+      status: elements.localBme680CalibrationStatus,
+      form: elements.localBme680CalibrationForm,
+    }]
+    : [{
+      temperature: elements.cloudTemperatureOffset,
+      humidity: elements.cloudHumidityOffset,
+      button: elements.cloudSaveBme680Calibration,
+      status: elements.cloudBme680CalibrationStatus,
+      form: elements.cloudBme680CalibrationForm,
+    }];
+
+  const messages = {
+    idle: offsetsValid
+      ? `Trenutna odmika: temperatura ${formatCalibrationOffset(temperatureOffset, "°C")}, vlaga ${formatCalibrationOffset(humidityOffset, "%")}.`
+      : "Čakam na stanje kalibracije BME680 …",
+    queued: "Ukaz za kalibracijo čaka na izvedbo.",
+    applying: "Shranjujem kalibracijo BME680 …",
+    completed: "Kalibracija BME680 je shranjena in uporabljena pri novih meritvah.",
+    error: "Kalibracije BME680 ni bilo mogoče shraniti.",
+  };
+
+  controls.forEach((control) => {
+    if (calibrationRequestFinished) control.form.dataset.dirty = "false";
+    const preserveUserInput = control.form.dataset.dirty === "true";
+    if (offsetsValid && !preserveUserInput) {
+      control.temperature.value = temperatureOffset.toFixed(1);
+      control.humidity.value = humidityOffset.toFixed(1);
+    }
+    control.temperature.disabled = !canChange || isBusy;
+    control.humidity.disabled = !canChange || isBusy;
+    control.button.disabled = !canChange || isBusy;
+    control.status.textContent = !isLocalDashboard && !cloudDeviceReady
+      ? cloudDevicePath
+        ? "Panj je offline; kalibracije trenutno ni mogoče nastaviti."
+        : "Izberi online panj za kalibracijo."
+      : (state === "completed" || state === "error") && status?.message
+        ? status.message
+        : messages[state] ?? messages.idle;
+  });
 }
 
 function renderProvisioning(network) {
@@ -1062,6 +1157,69 @@ async function requestLoadCellTare() {
   }
 }
 
+function readBme680CalibrationInputs() {
+  const temperatureInput = isLocalDashboard ? elements.localTemperatureOffset : elements.cloudTemperatureOffset;
+  const humidityInput = isLocalDashboard ? elements.localHumidityOffset : elements.cloudHumidityOffset;
+  const temperatureOffset = Number(String(temperatureInput.value).replace(",", "."));
+  const humidityOffset = Number(String(humidityInput.value).replace(",", "."));
+  if (!Number.isFinite(temperatureOffset) || temperatureOffset < -10 || temperatureOffset > 10) {
+    throw new Error("Temperaturni odmik mora biti med -10,0 in +10,0 °C.");
+  }
+  if (!Number.isFinite(humidityOffset) || humidityOffset < -30 || humidityOffset > 30) {
+    throw new Error("Odmik vlage mora biti med -30,0 in +30,0 %.");
+  }
+  return { temperatureOffset, humidityOffset };
+}
+
+async function saveBme680Calibration(event) {
+  event.preventDefault();
+  const statusElement = isLocalDashboard
+    ? elements.localBme680CalibrationStatus
+    : elements.cloudBme680CalibrationStatus;
+  try {
+    const { temperatureOffset, humidityOffset } = readBme680CalibrationInputs();
+    bme680CalibrationRequestedAt = Math.floor(Date.now() / 1000);
+    bme680CalibrationPendingUntil = bme680CalibrationRequestedAt + BME680_CALIBRATION_TIMEOUT_SECONDS;
+    statusElement.textContent = isLocalDashboard
+      ? "Kalibracijo pošiljam ESP32 …"
+      : "Ukaz za kalibracijo pošiljam napravi …";
+    if (isLocalDashboard) {
+      const body = new URLSearchParams({
+        temperature_offset_c: temperatureOffset.toFixed(1),
+        humidity_offset_percent: humidityOffset.toFixed(1),
+      });
+      const response = await fetch("/api/sensors/bme680/calibration", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Kalibracije BME680 ni bilo mogoče začeti");
+    } else {
+      if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
+        throw new Error("Za kalibracijo mora biti izbrani ESP32 online");
+      }
+      const { database, ref, set } = firebaseDatabase;
+      await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
+        action: "set_bme680_calibration",
+        temperature_offset_c: Number(temperatureOffset.toFixed(1)),
+        humidity_offset_percent: Number(humidityOffset.toFixed(1)),
+        requested_at: bme680CalibrationRequestedAt,
+      });
+    }
+    renderBme680CalibrationStatus({
+      ready: latestBme680CalibrationStatus?.ready,
+      temperature_offset_c: temperatureOffset,
+      humidity_offset_percent: humidityOffset,
+      state: "queued",
+    });
+  } catch (error) {
+    bme680CalibrationPendingUntil = 0;
+    renderBme680CalibrationStatus(latestBme680CalibrationStatus);
+    statusElement.textContent = error.message;
+  }
+}
+
 async function sendDeviceTimeCommand(action, timestamp) {
   if (isLocalDashboard) {
     const body = new URLSearchParams({ action });
@@ -1133,6 +1291,13 @@ function initializeProvisioningForm() {
   elements.deleteLocalMeasurementLog.addEventListener("click", deleteLocalMeasurementHistory);
   elements.localLoadCellTare.addEventListener("click", requestLoadCellTare);
   elements.cloudLoadCellTare.addEventListener("click", requestLoadCellTare);
+  elements.localBme680CalibrationForm.addEventListener("submit", saveBme680Calibration);
+  elements.cloudBme680CalibrationForm.addEventListener("submit", saveBme680Calibration);
+  [elements.localBme680CalibrationForm, elements.cloudBme680CalibrationForm].forEach((form) => {
+    form.addEventListener("input", () => {
+      form.dataset.dirty = "true";
+    });
+  });
   elements.deviceTimeForm.addEventListener("submit", setDeviceTime);
   elements.syncDeviceTime.addEventListener("click", synchronizeDeviceTime);
 }
@@ -1877,6 +2042,7 @@ async function useLocalDataSource() {
     renderSDStatus(status.sd_card);
     renderFirmwareVersion(status.firmware);
     renderLoadCellTareStatus(status.sensors?.load_cell);
+    renderBme680CalibrationStatus(status.sensors?.bme680);
     setConnectionState("Lokalna povezava");
   }
 

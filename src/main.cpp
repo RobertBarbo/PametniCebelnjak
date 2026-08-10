@@ -156,7 +156,13 @@ constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";
 constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";
 constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";
 constexpr char HX711_OFFSET_KEY[] = "hx_offset";
+constexpr char BME680_TEMPERATURE_OFFSET_KEY[] = "bme_temp_off";
+constexpr char BME680_HUMIDITY_OFFSET_KEY[] = "bme_hum_off";
 constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 1;
+constexpr float BME680_TEMPERATURE_OFFSET_MIN_C = -10.0F;
+constexpr float BME680_TEMPERATURE_OFFSET_MAX_C = 10.0F;
+constexpr float BME680_HUMIDITY_OFFSET_MIN_PERCENT = -30.0F;
+constexpr float BME680_HUMIDITY_OFFSET_MAX_PERCENT = 30.0F;
 constexpr char WIFI_SSID_KEY[] = "ssid";
 constexpr char WIFI_PASSWORD_KEY[] = "password";
 constexpr char ACTIVATION_ALPHABET[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -265,6 +271,14 @@ enum class LoadCellTareState : uint8_t {
   Idle,
   Queued,
   Taring,
+  Completed,
+  Error,
+};
+
+enum class Bme680CalibrationState : uint8_t {
+  Idle,
+  Queued,
+  Applying,
   Completed,
   Error,
 };
@@ -385,7 +399,9 @@ bool historyDeletionRequestPending = false;
 volatile bool localHistoryDeletionQueued = false;
 // Nastavlja ga lokalni HTTP zahtevek ali Firebase ukaz; obdelava ostane v glavni zanki.
 volatile bool loadCellTareQueued = false;
+volatile bool bme680CalibrationQueued = false;
 bool loadCellTareStatusReported = false;
+bool bme680CalibrationStatusReported = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool littlefsUnmountedForOta = false;
@@ -485,6 +501,7 @@ char deviceStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char loadCellStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char bme680StatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char timeCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
@@ -513,6 +530,7 @@ uint16_t lastPublishedDailyCount = 0;
 CloudSyncRequestType cloudSyncRequestType = CloudSyncRequestType::None;
 OtaUpdateState otaUpdateState = OtaUpdateState::Idle;
 LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
+Bme680CalibrationState bme680CalibrationState = Bme680CalibrationState::Idle;
 HistoryDeletionStep historyDeletionStep = HistoryDeletionStep::Idle;
 volatile LocalHistoryDeletionState localHistoryDeletionState = LocalHistoryDeletionState::Idle;
 TimeSource currentTimeSource = TimeSource::Unavailable;
@@ -520,6 +538,12 @@ TimeCommandType pendingTimeCommandType = TimeCommandType::None;
 time_t pendingTimeCommandTimestamp = 0;
 time_t lastTimeSynchronizationTimestamp = 0;
 portMUX_TYPE timeCommandMux = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE bme680CalibrationMux = portMUX_INITIALIZER_UNLOCKED;
+float bme680TemperatureOffsetC = 0.0F;
+float bme680HumidityOffsetPercent = 0.0F;
+float pendingBme680TemperatureOffsetC = 0.0F;
+float pendingBme680HumidityOffsetPercent = 0.0F;
+bool bme680CalibrationFromCloud = false;
 
 void processFirmwareUpdateCommand(const String &payload);
 void queueFirmwareUpdateCommand(const String &payload);
@@ -533,6 +557,8 @@ bool isHistoryDeletionRequest(const String &requestId);
 void completeHistoryDeletionRequest();
 bool queueLoadCellTare(bool publishCloudStatus = true);
 void processPendingLoadCellTare();
+bool queueBme680Calibration(float temperatureOffsetC, float humidityOffsetPercent, bool fromCloud);
+void processPendingBme680Calibration();
 void processOtaUpdate();
 void processLocalHistory();
 void printSystemDiagnostics();
@@ -800,6 +826,9 @@ void processData(AsyncResult &result)
     }
     if (result.uid() == "updateLoadCellTareStatus") {
       loadCellTareStatusReported = false;
+    }
+    if (result.uid() == "updateBme680CalibrationStatus") {
+      bme680CalibrationStatusReported = false;
     }
     if (result.uid() == "readFirmwareUpdateCommand") {
       firmwareCommandPending = false;
@@ -1129,6 +1158,40 @@ bool storeLoadCellOffset(long offset)
   return writtenBytes == sizeof(int32_t);
 }
 
+bool loadBme680Calibration()
+{
+  if (!preferences.begin(SENSOR_SETTINGS_NAMESPACE, true)) return false;
+
+  bme680TemperatureOffsetC = preferences.getFloat(BME680_TEMPERATURE_OFFSET_KEY, 0.0F);
+  bme680HumidityOffsetPercent = preferences.getFloat(BME680_HUMIDITY_OFFSET_KEY, 0.0F);
+  preferences.end();
+
+  const bool offsetsAreValid = isfinite(bme680TemperatureOffsetC) &&
+                               isfinite(bme680HumidityOffsetPercent) &&
+                               bme680TemperatureOffsetC >= BME680_TEMPERATURE_OFFSET_MIN_C &&
+                               bme680TemperatureOffsetC <= BME680_TEMPERATURE_OFFSET_MAX_C &&
+                               bme680HumidityOffsetPercent >= BME680_HUMIDITY_OFFSET_MIN_PERCENT &&
+                               bme680HumidityOffsetPercent <= BME680_HUMIDITY_OFFSET_MAX_PERCENT;
+  if (!offsetsAreValid) {
+    bme680TemperatureOffsetC = 0.0F;
+    bme680HumidityOffsetPercent = 0.0F;
+  }
+
+  Serial.printf("BME680 calibration: temperature %+.1f C, humidity %+.1f %%\n",
+                bme680TemperatureOffsetC, bme680HumidityOffsetPercent);
+  return offsetsAreValid;
+}
+
+bool storeBme680Calibration(float temperatureOffsetC, float humidityOffsetPercent)
+{
+  if (!preferences.begin(SENSOR_SETTINGS_NAMESPACE, false)) return false;
+
+  const size_t temperatureBytes = preferences.putFloat(BME680_TEMPERATURE_OFFSET_KEY, temperatureOffsetC);
+  const size_t humidityBytes = preferences.putFloat(BME680_HUMIDITY_OFFSET_KEY, humidityOffsetPercent);
+  preferences.end();
+  return temperatureBytes == sizeof(float) && humidityBytes == sizeof(float);
+}
+
 bool initializeBme680()
 {
   if (!bme680.begin(BME680_PRIMARY_ADDRESS) && !bme680.begin(BME680_SECONDARY_ADDRESS)) {
@@ -1183,9 +1246,13 @@ bool readBme680(float &temperatureC, float &humidityPercent)
     return false;
   }
 
-  temperatureC = bme680.temperature;
-  humidityPercent = bme680.humidity;
-  return isfinite(temperatureC) && isfinite(humidityPercent);
+  const float rawTemperatureC = bme680.temperature;
+  const float rawHumidityPercent = bme680.humidity;
+  if (!isfinite(rawTemperatureC) || !isfinite(rawHumidityPercent)) return false;
+
+  temperatureC = rawTemperatureC + bme680TemperatureOffsetC;
+  humidityPercent = fminf(100.0F, fmaxf(0.0F, rawHumidityPercent + bme680HumidityOffsetPercent));
+  return isfinite(temperatureC);
 }
 
 bool readLoadCell(float &weightKg)
@@ -1309,6 +1376,7 @@ void initializeDeviceDatabasePaths()
   snprintf(firmwareStatusDatabasePath, sizeof(firmwareStatusDatabasePath), "%s/status/firmware", deviceDatabasePath);
   snprintf(otaStatusDatabasePath, sizeof(otaStatusDatabasePath), "%s/status/ota", deviceDatabasePath);
   snprintf(loadCellStatusDatabasePath, sizeof(loadCellStatusDatabasePath), "%s/status/load_cell", deviceDatabasePath);
+  snprintf(bme680StatusDatabasePath, sizeof(bme680StatusDatabasePath), "%s/status/bme680", deviceDatabasePath);
   snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
   snprintf(timeCommandDatabasePath, sizeof(timeCommandDatabasePath), "%s/commands/time", deviceDatabasePath);
   snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
@@ -1889,6 +1957,22 @@ bool extractJsonTimestamp(const String &json, const char *key, time_t &value)
     return false;
   }
   value = static_cast<time_t>(parsed);
+  return true;
+}
+
+bool extractJsonFloat(const String &json, const char *key, float &value)
+{
+  const String keyPrefix = String('"') + key + "\":";
+  const int keyPosition = json.indexOf(keyPrefix);
+  if (keyPosition < 0) return false;
+
+  const char *numberStart = json.c_str() + keyPosition + keyPrefix.length();
+  while (*numberStart == ' ' || *numberStart == '\t') ++numberStart;
+  char *numberEnd = nullptr;
+  const float parsed = strtof(numberStart, &numberEnd);
+  if (numberEnd == numberStart || !isfinite(parsed)) return false;
+
+  value = parsed;
   return true;
 }
 
@@ -2591,6 +2675,19 @@ void processFirmwareUpdateCommand(const String &payload)
     return;
   }
 
+  if (action == "set_bme680_calibration") {
+    float temperatureOffsetC = 0.0F;
+    float humidityOffsetPercent = 0.0F;
+    if (!extractJsonFloat(payload, "temperature_offset_c", temperatureOffsetC) ||
+        !extractJsonFloat(payload, "humidity_offset_percent", humidityOffsetPercent)) {
+      Serial.println("BME680 calibration command ignored: offsets are invalid.");
+    } else if (!queueBme680Calibration(temperatureOffsetC, humidityOffsetPercent, true)) {
+      Serial.println("BME680 calibration command ignored: calibration is already active or out of range.");
+    }
+    clearFirmwareUpdateCommand();
+    return;
+  }
+
   if (!extractJsonString(payload, "target_version", targetVersion)) {
     Serial.println("OTA error: update command has no target version.");
     reportOtaStatus("error", "", "OTA ukaz nima ciljne različice.");
@@ -2841,7 +2938,9 @@ void processPendingTimeCommand()
 
   if (commandType == TimeCommandType::None || firmwareUpdateInProgress || Update.isRunning()) return;
   // Cloud ukaz najprej odstranimo iz Firebase. NTP DNS se zato ne more prekrivati z aktivnim remove opravilom.
-  if (fromCloud && asyncClient.taskCount() > 0) return;
+  // Enako kot pri tariranju počakamo na prazen Firebase kanal. Tako lokalna
+  // kalibracija ne tekmuje z meritvijo ali statusnim zapisom v isti asinhroni vrsti.
+  if (asyncClient.taskCount() > 0) return;
 
   portENTER_CRITICAL(&timeCommandMux);
   pendingTimeCommandType = TimeCommandType::None;
@@ -2916,6 +3015,18 @@ const char *localHistoryDeletionStateName()
   }
 }
 
+const char *bme680CalibrationStateName()
+{
+  switch (bme680CalibrationState) {
+    case Bme680CalibrationState::Queued: return "queued";
+    case Bme680CalibrationState::Applying: return "applying";
+    case Bme680CalibrationState::Completed: return "completed";
+    case Bme680CalibrationState::Error: return "error";
+    case Bme680CalibrationState::Idle:
+    default: return "idle";
+  }
+}
+
 void reportLoadCellTareStatus(const char *message)
 {
   if (!isFirebaseReady()) return;
@@ -2926,6 +3037,24 @@ void reportLoadCellTareStatus(const char *message)
            loadCellTareStateName(), message, static_cast<unsigned long>(time(nullptr)));
   object_t tareStatus(jsonPayload);
   database.set(asyncClient, loadCellStatusDatabasePath, tareStatus, processData, "updateLoadCellTareStatus");
+}
+
+void reportBme680CalibrationStatus(const char *message)
+{
+  if (!isFirebaseReady()) {
+    bme680CalibrationStatusReported = false;
+    return;
+  }
+
+  char jsonPayload[256];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
+           bme680Ready ? "true" : "false", bme680TemperatureOffsetC, bme680HumidityOffsetPercent,
+           bme680CalibrationStateName(), message, static_cast<unsigned long>(time(nullptr)));
+  object_t calibrationStatus(jsonPayload);
+  bme680CalibrationStatusReported = true;
+  database.set(asyncClient, bme680StatusDatabasePath, calibrationStatus, processData,
+               "updateBme680CalibrationStatus");
 }
 
 bool queueLoadCellTare(bool publishCloudStatus)
@@ -2942,6 +3071,32 @@ bool queueLoadCellTare(bool publishCloudStatus)
   // objavimo šele po tariranju in ne ustvarimo dveh sočasnih Firebase opravil.
   (void)publishCloudStatus;
   return true;
+}
+
+bool queueBme680Calibration(float temperatureOffsetC, float humidityOffsetPercent, bool fromCloud)
+{
+  if (!isfinite(temperatureOffsetC) || !isfinite(humidityOffsetPercent) ||
+      temperatureOffsetC < BME680_TEMPERATURE_OFFSET_MIN_C ||
+      temperatureOffsetC > BME680_TEMPERATURE_OFFSET_MAX_C ||
+      humidityOffsetPercent < BME680_HUMIDITY_OFFSET_MIN_PERCENT ||
+      humidityOffsetPercent > BME680_HUMIDITY_OFFSET_MAX_PERCENT) {
+    return false;
+  }
+
+  bool queued = false;
+  portENTER_CRITICAL(&bme680CalibrationMux);
+  if (!bme680CalibrationQueued && bme680CalibrationState != Bme680CalibrationState::Applying) {
+    pendingBme680TemperatureOffsetC = temperatureOffsetC;
+    pendingBme680HumidityOffsetPercent = humidityOffsetPercent;
+    bme680CalibrationFromCloud = fromCloud;
+    bme680CalibrationQueued = true;
+    bme680CalibrationState = Bme680CalibrationState::Queued;
+    queued = true;
+  }
+  portEXIT_CRITICAL(&bme680CalibrationMux);
+
+  if (queued) Serial.println("BME680 calibration command queued.");
+  return queued;
 }
 
 void processPendingLoadCellTare()
@@ -2980,6 +3135,47 @@ void processPendingLoadCellTare()
   lastMeasurementMillis = 0;
   Serial.printf("Load cell tare completed. Saved offset: %ld.\n", offset);
   reportLoadCellTareStatus("Tariranje je uspešno; nova ničla je shranjena.");
+}
+
+void processPendingBme680Calibration()
+{
+  if (!bme680CalibrationQueued || firmwareUpdateInProgress || Update.isRunning()) return;
+
+  bool fromCloud = false;
+  float temperatureOffsetC = 0.0F;
+  float humidityOffsetPercent = 0.0F;
+  portENTER_CRITICAL(&bme680CalibrationMux);
+  fromCloud = bme680CalibrationFromCloud;
+  temperatureOffsetC = pendingBme680TemperatureOffsetC;
+  humidityOffsetPercent = pendingBme680HumidityOffsetPercent;
+  portEXIT_CRITICAL(&bme680CalibrationMux);
+
+  if (fromCloud && asyncClient.taskCount() > 0) return;
+
+  portENTER_CRITICAL(&bme680CalibrationMux);
+  bme680CalibrationQueued = false;
+  bme680CalibrationFromCloud = false;
+  bme680CalibrationState = Bme680CalibrationState::Applying;
+  portEXIT_CRITICAL(&bme680CalibrationMux);
+
+  if (!storeBme680Calibration(temperatureOffsetC, humidityOffsetPercent)) {
+    bme680CalibrationState = Bme680CalibrationState::Error;
+    bme680CalibrationStatusReported = false;
+    Serial.println("BME680 calibration could not be saved to NVS.");
+    reportBme680CalibrationStatus("Kalibracije BME680 ni bilo mogoce shraniti.");
+    return;
+  }
+
+  bme680TemperatureOffsetC = temperatureOffsetC;
+  bme680HumidityOffsetPercent = humidityOffsetPercent;
+  bme680CalibrationState = Bme680CalibrationState::Completed;
+  bme680CalibrationStatusReported = false;
+  lastMeasurementMillis = 0;
+  lastDeviceStatusMillis = 0;
+  Serial.printf("BME680 calibration saved from %s: temperature %+.1f C, humidity %+.1f %%\n",
+                fromCloud ? "cloud" : "local dashboard", bme680TemperatureOffsetC,
+                bme680HumidityOffsetPercent);
+  reportBme680CalibrationStatus("Kalibracija BME680 je shranjena in uporabljena pri novih meritvah.");
 }
 
 bool deleteMeasurementHistoryFromSD()
@@ -3761,6 +3957,38 @@ void deleteWiFiConfiguration(AsyncWebServerRequest *request)
   scheduledWiFiSettingsClearMillis = millis() + WIFI_SETTINGS_CLEAR_DELAY_MS;
 }
 
+bool parseRequestFloat(AsyncWebServerRequest *request, const char *parameterName, float &value)
+{
+  if (!request->hasParam(parameterName, true)) return false;
+
+  const String text = request->getParam(parameterName, true)->value();
+  char *numberEnd = nullptr;
+  const float parsed = strtof(text.c_str(), &numberEnd);
+  if (numberEnd == text.c_str() || *numberEnd != '\0' || !isfinite(parsed)) return false;
+
+  value = parsed;
+  return true;
+}
+
+void requestBme680Calibration(AsyncWebServerRequest *request)
+{
+  float temperatureOffsetC = 0.0F;
+  float humidityOffsetPercent = 0.0F;
+  if (!parseRequestFloat(request, "temperature_offset_c", temperatureOffsetC) ||
+      !parseRequestFloat(request, "humidity_offset_percent", humidityOffsetPercent)) {
+    sendLocalJsonResponse(request, 400, "{\"error\":\"Temperature and humidity offsets are required\"}");
+    return;
+  }
+
+  if (!queueBme680Calibration(temperatureOffsetC, humidityOffsetPercent, false)) {
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Calibration is active or the offsets are out of range\"}");
+    return;
+  }
+
+  Serial.println("Local BME680 calibration request accepted.");
+  sendLocalJsonResponse(request, 202, "{\"state\":\"queued\"}");
+}
+
 void requestLoadCellTare(AsyncWebServerRequest *request)
 {
   if (!loadCellReady) {
@@ -3846,7 +4074,7 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   const time_t currentTimestamp = time(nullptr);
   static char jsonPayload[2600];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
@@ -3869,7 +4097,8 @@ void sendLocalStatus(AsyncWebServerRequest *request)
            localHistoryDeletionStateName(),
            sdCardReady ? "true" : "false", sdInitializationFailures,
            sdErrorReported ? "true" : "false", loadCellReady ? "true" : "false",
-           loadCellTareStateName(), FIRMWARE_VERSION);
+           loadCellTareStateName(), bme680Ready ? "true" : "false", bme680TemperatureOffsetC,
+           bme680HumidityOffsetPercent, bme680CalibrationStateName(), FIRMWARE_VERSION);
   sendLocalJsonResponse(request, 200, jsonPayload);
 }
 
@@ -4143,6 +4372,7 @@ void initializeLocalWebServer()
   localServer.on("/api/history", HTTP_DELETE, requestLocalHistoryDeletion);
   localServer.on("/api/sync/reset", HTTP_POST, resetCloudSynchronization);
   localServer.on("/api/sensors/load-cell/tare", HTTP_POST, requestLoadCellTare);
+  localServer.on("/api/sensors/bme680/calibration", HTTP_POST, requestBme680Calibration);
   localServer.on("/api/time", HTTP_POST, requestTimeConfiguration);
   localServer.on("/api/wifi", HTTP_POST, saveWiFiConfiguration);
   localServer.on("/api/wifi", HTTP_DELETE, deleteWiFiConfiguration);
@@ -5327,6 +5557,7 @@ void setup()
   initializeI2c();
   initializeSDCard();
   initializeMeasurementHistoryIndex();
+  loadBme680Calibration();
   bme680Ready = initializeBme680();
   initializeRtc();
   loadCellReady = initializeLoadCell();
@@ -5367,6 +5598,7 @@ void loop()
   processPendingHistoryDeletion();
   processPendingLocalHistoryDeletion();
   processPendingLoadCellTare();
+  processPendingBme680Calibration();
   processLocalHistory();
   processCloudHistoryReconciliation();
   printSystemDiagnostics();
@@ -5412,6 +5644,10 @@ void loop()
         reportLoadCellTareStatus("HX711 ni dosegljiv; tariranje ni mogoče.");
       }
       loadCellTareStatusReported = true;
+    }
+
+    if (isFirebaseReady() && !bme680CalibrationStatusReported) {
+      reportBme680CalibrationStatus("Nastavi odmika temperature in vlage po referencnem merilniku.");
     }
 
     if (currentMillis - lastSDStatusMillis >= SD_STATUS_INTERVAL_MS) {

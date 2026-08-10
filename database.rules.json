@@ -84,6 +84,9 @@
           },
           "load_cell": {
             ".write": "auth == null"
+          },
+          "bme680": {
+            ".write": "auth == null"
           }
         },
         "commands": {

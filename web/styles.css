@@ -658,6 +658,44 @@ select {
   justify-self: start;
 }
 
+.sensor-calibration-control {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.sensor-calibration-control h3,
+.sensor-calibration-control .muted,
+.sensor-calibration-control .form-status {
+  margin: 0;
+}
+
+.sensor-calibration-control h3 {
+  font-size: 1.08rem;
+}
+
+.sensor-calibration-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 260px));
+  gap: 12px;
+  align-items: end;
+}
+
+.sensor-calibration-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.sensor-calibration-form .secondary-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .device-time-control {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(320px, 1.2fr);
@@ -1557,6 +1595,14 @@ dialog::backdrop {
 
   .device-time-actions {
     grid-template-columns: 1fr;
+  }
+
+  .sensor-calibration-form {
+    grid-template-columns: 1fr;
+  }
+
+  .sensor-calibration-form .secondary-button {
+    grid-column: auto;
   }
 
   .app-shell {

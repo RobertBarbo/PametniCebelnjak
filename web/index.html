@@ -215,12 +215,34 @@
             <button class="secondary-button" id="local-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
             <p class="form-status" id="local-load-cell-tare-status" aria-live="polite">Čakam na stanje tehtnice …</p>
           </section>
+          <section class="sensor-calibration-control" data-local-only aria-labelledby="local-bme680-calibration-heading" hidden>
+            <p class="eyebrow">Senzor BME680</p>
+            <h3 id="local-bme680-calibration-heading">Kalibracija temperature in vlage</h3>
+            <p class="muted">Vpiši razliko med referenčnim merilnikom in BME680. Odmika se uporabita pri vseh novih meritvah.</p>
+            <form class="sensor-calibration-form" id="local-bme680-calibration-form">
+              <label>Odmik temperature (°C)<input id="local-temperature-offset" type="number" step="0.1" min="-10" max="10" value="0.0" inputmode="decimal" required /></label>
+              <label>Odmik vlage (%)<input id="local-humidity-offset" type="number" step="0.1" min="-30" max="30" value="0.0" inputmode="decimal" required /></label>
+              <button class="secondary-button" id="local-save-bme680-calibration" type="submit" disabled>Shrani kalibracijo</button>
+            </form>
+            <p class="form-status" id="local-bme680-calibration-status" aria-live="polite">Čakam na stanje BME680 …</p>
+          </section>
           <section class="load-cell-tare-control" data-cloud-device-management aria-labelledby="cloud-load-cell-tare-heading" hidden>
             <p class="eyebrow">Tehtnica</p>
             <h3 id="cloud-load-cell-tare-heading">Tariranje tehtnice</h3>
             <p class="muted">Odstrani panj in vse uteži s ploščadi. ESP32 bo prazno stanje shranil kot 0,00 kg.</p>
             <button class="secondary-button" id="cloud-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
             <p class="form-status" id="cloud-load-cell-tare-status" aria-live="polite">Izberi online panj za tariranje.</p>
+          </section>
+          <section class="sensor-calibration-control" data-cloud-device-management aria-labelledby="cloud-bme680-calibration-heading" hidden>
+            <p class="eyebrow">Senzor BME680</p>
+            <h3 id="cloud-bme680-calibration-heading">Kalibracija temperature in vlage</h3>
+            <p class="muted">Vpiši razliko med referenčnim merilnikom in BME680. Odmika se uporabita pri vseh novih meritvah.</p>
+            <form class="sensor-calibration-form" id="cloud-bme680-calibration-form">
+              <label>Odmik temperature (°C)<input id="cloud-temperature-offset" type="number" step="0.1" min="-10" max="10" value="0.0" inputmode="decimal" required /></label>
+              <label>Odmik vlage (%)<input id="cloud-humidity-offset" type="number" step="0.1" min="-30" max="30" value="0.0" inputmode="decimal" required /></label>
+              <button class="secondary-button" id="cloud-save-bme680-calibration" type="submit" disabled>Shrani kalibracijo</button>
+            </form>
+            <p class="form-status" id="cloud-bme680-calibration-status" aria-live="polite">Izberi online panj za kalibracijo.</p>
           </section>
           <section class="device-time-control" aria-labelledby="device-time-heading">
             <div class="device-time-summary">

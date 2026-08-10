@@ -4,6 +4,23 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-beta.92] - 2026-08-10
+
+### Fixed
+
+- Polji odmika BME680 med urejanjem ne prepiše več samodejno osveževanje statusa. Izbrana vrednost ostane v obrazcu, dokler uporabnik ne potrdi kalibracije.
+
+## [0.1.0-beta.91] - 2026-08-10
+
+### Added
+
+- Lokalna in cloud nadzorna plošča pod tariranjem tehtnice omogočata nastavitev programskega odmika BME680 za temperaturo in relativno vlago v korakih `0,1`.
+- ESP32 shrani odmika v NVS, ju uporabi pri vseh novih meritvah ter objavi stanje kalibracije pod `status/bme680`.
+
+### Changed
+
+- Lastnik izbranega online panja lahko kalibracijo nastavi tudi iz cloud pogleda; ukaz uporablja obstoječi varni kanal `commands/firmware_update`.
+
 ## [0.1.0-beta.90] - 2026-08-10
 
 ### Added

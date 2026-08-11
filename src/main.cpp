@@ -141,13 +141,14 @@ constexpr uint8_t DS3231_OSCILLATOR_STOP_FLAG = 0x80;
 constexpr int HX711_DOUT_PIN = 4;
 constexpr int HX711_SCK_PIN = 5;
 constexpr uint8_t HX711_TARE_SAMPLES = 20;
-// Ena meritev uporabi povprečje 20 vzorcev, da zmanjša šum HX711 in merilnih celic.
-constexpr uint8_t HX711_READ_SAMPLES = 20;
+// Periodično branje uporablja manj vzorcev, da HX711 ne zadržuje omrežnih in spletnih opravil.
+constexpr uint8_t HX711_READ_SAMPLES = 5;
 constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;
-// Pri običajnem panju tako velik skok v desetih sekundah pomeni pretrgan ali lebdeč signal HX711.
-constexpr float HX711_MAX_STEP_CHANGE_KG = 105.0F; //5 je org
+// Večji skok ni napaka HX711, temveč zahteva še eno podobno meritev za potrditev.
+constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;
+constexpr float HX711_STEP_CONFIRM_TOLERANCE_KG = 1.0F;
 // Umerjeno 6. 8. 2026 z referenčnima utežema 1,464 kg in 2,470 kg na tej merilni konstrukciji.
-constexpr float HX711_CALIBRATION_FACTOR = 22500.0F;
+constexpr float HX711_CALIBRATION_FACTOR = 22845.060F;  //22500.0F;
 
 constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 constexpr char NTP_SERVER_1[] = "pool.ntp.org";
@@ -462,6 +463,8 @@ bool bme680Ready = false;
 bool loadCellReady = false;
 bool loadCellReferenceAvailable = false;
 float lastLoadCellWeightKg = 0.0F;
+bool loadCellCandidateAvailable = false;
+float loadCellCandidateWeightKg = 0.0F;
 bool rtcReady = false;
 bool rtcTimeValid = false;
 ComponentStatus bme680Status;
@@ -1326,8 +1329,17 @@ bool initializeBme680()
   return true;
 }
 
+void resetLoadCellWeightFilter()
+{
+  loadCellReferenceAvailable = false;
+  lastLoadCellWeightKg = 0.0F;
+  loadCellCandidateAvailable = false;
+  loadCellCandidateWeightKg = 0.0F;
+}
+
 bool initializeLoadCell()
 {
+  resetLoadCellWeightFilter();
   loadCell.begin(HX711_DOUT_PIN, HX711_SCK_PIN);
   // Vgrajen pull-up prepreči lebdeče DOUT stanje, kadar je HX711 brez napajanja.
   pinMode(HX711_DOUT_PIN, INPUT_PULLUP);
@@ -1338,9 +1350,6 @@ bool initializeLoadCell()
   }
 
   loadCell.set_scale(HX711_CALIBRATION_FACTOR);
-  // Po ponovni inicializaciji prvi veljavni odčitek postane nova referenca za
-  // preverjanje nenadnih skokov; sicer bi stara masa zadržala obnovljen HX711 v napaki.
-  loadCellReferenceAvailable = false;
   reportComponentSuccess(loadCellStatus, "HX711");
   long offset = 0;
   if (loadStoredLoadCellOffset(offset)) {
@@ -1359,6 +1368,96 @@ bool initializeLoadCell()
   Serial.printf("HX711 initialized. Tare offset: %ld, calibration factor: %.2f.\n", offset,
                 HX711_CALIBRATION_FACTOR);
   return true;
+}
+
+bool acceptLoadCellWeight(float measuredWeightKg, float &acceptedWeightKg)
+{
+  if (!loadCellReferenceAvailable) {
+    lastLoadCellWeightKg = measuredWeightKg;
+    loadCellReferenceAvailable = true;
+    loadCellCandidateAvailable = false;
+    acceptedWeightKg = measuredWeightKg;
+    return true;
+  }
+
+  const float referenceDifferenceKg = fabsf(measuredWeightKg - lastLoadCellWeightKg);
+  if (referenceDifferenceKg <= HX711_MAX_STEP_CHANGE_KG) {
+    if (loadCellCandidateAvailable) {
+      Serial.printf("HX711 weight candidate rejected: candidate=%.1f kg, current=%.1f kg\n",
+                    loadCellCandidateWeightKg, measuredWeightKg);
+    }
+    loadCellCandidateAvailable = false;
+    lastLoadCellWeightKg = measuredWeightKg;
+    acceptedWeightKg = measuredWeightKg;
+    return true;
+  }
+
+  // Kandidat iz prejšnjega nejasnega cikla je rezervni mehanizem. Običajen
+  // velik skok se spodaj vedno poskusi potrditi takoj z dodatnim branjem.
+  if (loadCellCandidateAvailable &&
+      fabsf(measuredWeightKg - loadCellCandidateWeightKg) <= HX711_STEP_CONFIRM_TOLERANCE_KG) {
+    acceptedWeightKg = (loadCellCandidateWeightKg + measuredWeightKg) * 0.5F;
+    lastLoadCellWeightKg = acceptedWeightKg;
+    loadCellReferenceAvailable = true;
+    loadCellCandidateAvailable = false;
+    Serial.printf("HX711 pending large weight change confirmed: %.2f kg\n", acceptedWeightKg);
+    return true;
+  }
+
+  if (loadCellCandidateAvailable) {
+    Serial.printf("HX711 weight candidate rejected: candidate=%.1f kg, current=%.1f kg\n",
+                  loadCellCandidateWeightKg, measuredWeightKg);
+  }
+
+  loadCellCandidateWeightKg = measuredWeightKg;
+  loadCellCandidateAvailable = true;
+  Serial.printf("HX711 large weight change detected: old=%.1f kg, first=%.1f kg\n",
+                lastLoadCellWeightKg, measuredWeightKg);
+
+  if (!loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
+    reportComponentFailure(loadCellStatus, "HX711",
+                           "potrditvena meritev ni mogoča, ker pretvornik ni dosegljiv");
+    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
+    return false;
+  }
+
+  float confirmationWeightKg = loadCell.get_units(HX711_READ_SAMPLES);
+  if (!isfinite(confirmationWeightKg)) {
+    reportComponentFailure(loadCellStatus, "HX711", "potrditvena meritev je vrnila neveljavno maso");
+    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
+    return false;
+  }
+
+  reportComponentSuccess(loadCellStatus, "HX711");
+  if (fabsf(confirmationWeightKg) < 0.02F) confirmationWeightKg = 0.0F;
+  Serial.printf("HX711 confirmation read: %.1f kg\n", confirmationWeightKg);
+
+  if (fabsf(measuredWeightKg - confirmationWeightKg) <= HX711_STEP_CONFIRM_TOLERANCE_KG) {
+    acceptedWeightKg = (measuredWeightKg + confirmationWeightKg) * 0.5F;
+    if (fabsf(acceptedWeightKg) < 0.02F) acceptedWeightKg = 0.0F;
+    lastLoadCellWeightKg = acceptedWeightKg;
+    loadCellReferenceAvailable = true;
+    loadCellCandidateAvailable = false;
+    Serial.printf("HX711 large weight change confirmed: %.2f kg\n", acceptedWeightKg);
+    return true;
+  }
+
+  if (fabsf(confirmationWeightKg - lastLoadCellWeightKg) <= HX711_MAX_STEP_CHANGE_KG) {
+    acceptedWeightKg = confirmationWeightKg;
+    lastLoadCellWeightKg = acceptedWeightKg;
+    loadCellReferenceAvailable = true;
+    loadCellCandidateAvailable = false;
+    Serial.printf("HX711 large weight change rejected; using confirmed reference-side reading: %.1f kg\n",
+                  acceptedWeightKg);
+    return true;
+  }
+
+  // Obe veljavni meritvi sta dale različen velik skok. Novejši odčitek ostane
+  // kandidat za naslednji cikel, vendar ne vpliva na health diagnostiko HX711.
+  loadCellCandidateWeightKg = confirmationWeightKg;
+  Serial.printf("HX711 confirmation was inconclusive; pending candidate=%.1f kg\n",
+                loadCellCandidateWeightKg);
+  return false;
 }
 
 bool readBme680(float &temperatureC, float &humidityPercent)
@@ -1400,22 +1499,17 @@ bool readLoadCell(float &weightKg)
     return false;
   }
 
-  weightKg = loadCell.get_units(HX711_READ_SAMPLES);
-  if (!isfinite(weightKg)) {
+  float measuredWeightKg = loadCell.get_units(HX711_READ_SAMPLES);
+  if (!isfinite(measuredWeightKg)) {
     reportComponentFailure(loadCellStatus, "HX711", "vrnil je neveljavno maso");
     if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
     return false;
   }
-  if (fabsf(weightKg) < 0.02F) weightKg = 0.0F;
-  if (loadCellReferenceAvailable && fabsf(weightKg - lastLoadCellWeightKg) > HX711_MAX_STEP_CHANGE_KG) {
-    reportComponentFailure(loadCellStatus, "HX711", "zaznan je nerealno velik skok mase");
-    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
-    return false;
-  }
-  lastLoadCellWeightKg = weightKg;
-  loadCellReferenceAvailable = true;
+
+  // Veljavna ADC vrednost potrjuje delovanje HX711 ne glede na rezultat filtra mase.
   reportComponentSuccess(loadCellStatus, "HX711");
-  return true;
+  if (fabsf(measuredWeightKg) < 0.02F) measuredWeightKg = 0.0F;
+  return acceptLoadCellWeight(measuredWeightKg, weightKg);
 }
 
 void maintainComponentRecovery(uint32_t currentMillis)
@@ -3309,7 +3403,7 @@ void processPendingLoadCellTare()
   }
 
   loadCellTareState = LoadCellTareState::Completed;
-  loadCellReferenceAvailable = false;
+  resetLoadCellWeightFilter();
   lastMeasurementMillis = 0;
   Serial.printf("Load cell tare completed. Saved offset: %ld.\n", offset);
   reportLoadCellTareStatus("Tariranje je uspešno; nova ničla je shranjena.");

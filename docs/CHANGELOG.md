@@ -4,6 +4,27 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.14] - 2026-08-11
+
+### Changed
+
+- Ob skoku mase nad `5 kg` firmware v istem 10-sekundnem ciklu takoj izvede dodatno 5-vzorčno HX711 meritev. Ujemajoča se odčitka znotraj `±1 kg` sprejme kot njuno povprečje, zato legitimnega velikega skoka ni več treba potrjevati šele v naslednjem ciklu.
+
+### Fixed
+
+- Osamljen velik odčitek se zavrne, kadar je takojšnja potrditvena meritev blizu zadnje potrjene mase. Nejasna potrditev ostane kandidat za naslednji cikel, plausibility zavrnitev pa ne vpliva na HX711 health stanje.
+
+## [0.1.0-rc.13] - 2026-08-11
+
+### Changed
+
+- Periodična HX711 meritev uporablja `5` namesto `20` vzorcev, zato manj časa blokira glavno zanko; tariranje še vedno uporablja `20` vzorcev, kalibracijski faktor pa ostaja nespremenjen.
+
+### Fixed
+
+- Velik skok mase nad `5 kg` ni več napaka komponente. Firmware ga shrani kot kandidata in sprejme po naslednji meritvi znotraj `±1 kg`; osamljen skok zavrne brez vpliva na HX711 `consecutiveFailures`, warning/error stanje ali recovery.
+- HX711 health zdaj povečujejo samo nedosegljiv pretvornik ter numerično neveljaven odčitek. Po tariranju ali ponovni inicializaciji se referenca in kandidat filtra ponastavita.
+
 ## [0.1.0-rc.12] - 2026-08-11
 
 ### Changed

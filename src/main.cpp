@@ -811,7 +811,7 @@ uint32_t updateMeasurementChecksum(uint32_t checksum, const Measurement &measure
   constexpr uint32_t FNV_OFFSET_BASIS = 2166136261UL;
   constexpr uint32_t FNV_PRIME = 16777619UL;
   char normalizedMeasurement[72];
-  snprintf(normalizedMeasurement, sizeof(normalizedMeasurement), "%lu,%.1f,%.1f,%.2f",
+  snprintf(normalizedMeasurement, sizeof(normalizedMeasurement), "%lu,%.1f,%.1f,%.1f",
            static_cast<unsigned long>(measurement.timestamp), measurement.temperatureC,
            measurement.humidityPercent, measurement.weightKg);
 
@@ -4616,7 +4616,7 @@ bool appendToSDCard(const Measurement &measurement)
   }
 
   const uint32_t fileOffset = static_cast<uint32_t>(logFile.size());
-  const size_t bytesWritten = logFile.printf("%s,%s,%lu,%.1f,%.1f,%.2f\n", measurement.date, measurement.time,
+  const size_t bytesWritten = logFile.printf("%s,%s,%lu,%.1f,%.1f,%.1f\n", measurement.date, measurement.time,
                                              static_cast<unsigned long>(measurement.timestamp),
                                              measurement.temperatureC, measurement.humidityPercent,
                                              measurement.weightKg);

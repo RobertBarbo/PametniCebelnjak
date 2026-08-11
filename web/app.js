@@ -1684,6 +1684,7 @@ function renderHistory(readings, alreadyAggregated = false) {
       data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]),
       color: colors.temperature,
       yAxis: 0,
+      marker: { enabled: chartReadings.length === 1, radius: 5 },
       tooltip: { valueDecimals: 1 },
     },
     {
@@ -1691,6 +1692,7 @@ function renderHistory(readings, alreadyAggregated = false) {
       data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]),
       color: colors.humidity,
       yAxis: 1,
+      marker: { enabled: chartReadings.length === 1, radius: 5 },
       tooltip: { valueDecimals: 1 },
     },
   ];
@@ -1700,6 +1702,7 @@ function renderHistory(readings, alreadyAggregated = false) {
       data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]),
       color: colors.weight,
       yAxis: 0,
+      marker: { enabled: chartReadings.length === 1, radius: 5 },
       tooltip: { valueDecimals: 1 },
     },
   ];
@@ -1786,6 +1789,18 @@ function loadHighcharts() {
     document.head.append(script);
   });
   return highchartsLoading;
+}
+
+function preloadLocalCharts() {
+  const loadChartsWhenIdle = () => {
+    loadHighcharts().catch((error) => console.warn("Prednalaganje lokalnih grafov ni uspelo.", error));
+  };
+
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(loadChartsWhenIdle, { timeout: 1500 });
+    return;
+  }
+  window.setTimeout(loadChartsWhenIdle, 1000);
 }
 
 function showDataError(error) {
@@ -2288,6 +2303,7 @@ async function useLocalDataSource() {
   };
 
   renderLocalStatus(initialStatus);
+  preloadLocalCharts();
   setInterval(() => refreshStatus().catch(showDataError), 5_000);
 }
 

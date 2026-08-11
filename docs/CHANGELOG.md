@@ -4,6 +4,20 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.3] - 2026-08-10
+
+### Fixed
+
+- Lokalna nadzorna plošča po začetnem prikazu v ozadju prenese knjižnico Highcharts, zato prvi prehod na grafe ne čaka na njen prenos iz LittleFS.
+- Graf pri enem samem zapisu vedno prikaže vidno merilno točko.
+
+## [0.1.0-rc.2] - 2026-08-10
+
+### Changed
+
+- SD dnevnik `measurements.csv` težo zapisuje na eno decimalno mesto, enako kot prikaz na nadzornih ploščah.
+- Kontrolni seštevek dnevnika uporablja enako natančnost kot CSV zapis, zato sinhronizacija ne zazna navideznih razlik.
+
 ## [0.1.0-rc.1] - 2026-08-10
 
 ### Changed

@@ -672,9 +672,24 @@ const COMPONENT_DEFINITIONS = [
   { key: "sd_card", name: "SD kartica", element: "componentSdCard", description: "Dnevnik meritev" },
 ];
 
+function isComponentOperational(componentKey, fallbackStatus) {
+  const component = latestDeviceStatus?.components?.[componentKey];
+  const status = component ?? fallbackStatus;
+  return status?.ready === true && status?.state !== "error";
+}
+
+function isSDCardOperational(status = latestSDCardStatus) {
+  const component = latestDeviceStatus?.components?.sd_card;
+  return status?.present === true && status?.error !== true &&
+    component?.ready !== false && component?.state !== "error";
+}
+
 function getComponentPresentation(component, key) {
   let state = component?.state ?? "checking";
   const failures = Number(component?.failures ?? 0);
+  // Starejši firmware lahko ob prvih neuspelih preverjanjih pošlje state=ok
+  // skupaj z ready=false. Takšna komponenta ne sme biti prikazana kot zdrava.
+  if (component?.ready === false && state === "ok") state = "checking";
   if (key === "ds3231" && component?.ready === true && component?.time_valid === false) state = "warning";
 
   const stateLabels = {
@@ -684,7 +699,9 @@ function getComponentPresentation(component, key) {
     error: "Napaka komponente",
   };
   let detail = state === "checking"
-    ? "Komponenta še ni preverjena."
+    ? component?.ready === false
+      ? "Komponenta trenutno ni dosegljiva; preverjanje se ponavlja."
+      : "Komponenta še ni preverjena."
     : state === "ok"
       ? "Deluje normalno."
       : failures > 0
@@ -797,13 +814,19 @@ function renderTimeStatus(status, network = latestNetworkStatus) {
     elements.deviceDateTime.value = formatDateTimeInput(new Date(timestamp * 1000));
   }
 
+  const rtcOperational = isComponentOperational("ds3231", {
+    ready: rtcPresent,
+    state: rtcPresent ? "ok" : "error",
+  });
   const cloudDeviceReady = Boolean(cloudDevicePath && currentCloudUser && isDeviceOnline(latestDeviceStatus));
-  const canSetTime = isLocalDashboard || cloudDeviceReady;
-  const internetAvailable = isLocalDashboard ? network?.station_connected === true : cloudDeviceReady;
+  const canSetTime = (isLocalDashboard || cloudDeviceReady) && rtcOperational;
+  const internetAvailable = (isLocalDashboard ? network?.station_connected === true : cloudDeviceReady) && rtcOperational;
   elements.setDeviceTime.disabled = !canSetTime || ntpPending;
   elements.syncDeviceTime.disabled = !internetAvailable || ntpPending;
   if (ntpPending) {
     elements.deviceTimeStatus.textContent = "Čakam na internetno časovno sinhronizacijo …";
+  } else if (!rtcOperational) {
+    elements.deviceTimeStatus.textContent = "DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.";
   } else if (!isLocalDashboard && cloudDevicePath && currentCloudUser && !cloudDeviceReady) {
     elements.deviceTimeStatus.textContent = "Panj je offline; nastavljanje datuma in ure trenutno ni možno.";
   } else if (!isLocalDashboard && cloudDeviceReady) {
@@ -827,9 +850,9 @@ function renderLoadCellTareStatus(status) {
     error: "Tariranje ni uspelo. Preveri povezavo HX711.",
   };
   const isBusy = state === "queued" || state === "taring";
-  const loadCellReady = status?.ready !== false;
+  const loadCellReady = isComponentOperational("hx711", status);
   const cloudDeviceReady = Boolean(cloudDevicePath && currentCloudUser && isDeviceOnline(latestDeviceStatus));
-  const canTare = isLocalDashboard ? loadCellReady : cloudDeviceReady;
+  const canTare = (isLocalDashboard || cloudDeviceReady) && loadCellReady;
   const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
   const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
 
@@ -840,6 +863,8 @@ function renderLoadCellTareStatus(status) {
       ? cloudDevicePath
         ? "Panj je offline; tariranje trenutno ni možno."
         : "Izberi online panj za tariranje."
+      : !loadCellReady
+        ? "HX711 ni pripravljen; tariranje trenutno ni možno."
        : status?.message ?? messages[state] ?? messages.idle;
 }
 
@@ -869,8 +894,9 @@ function renderBme680CalibrationStatus(status) {
   }
 
   const isBusy = state === "queued" || state === "applying";
+  const bme680Operational = isComponentOperational("bme680", status);
   const cloudDeviceReady = Boolean(cloudDevicePath && currentCloudUser && isDeviceOnline(latestDeviceStatus));
-  const canChange = isLocalDashboard || cloudDeviceReady;
+  const canChange = (isLocalDashboard || cloudDeviceReady) && bme680Operational;
   const controls = isLocalDashboard
     ? [{
       temperature: elements.localTemperatureOffset,
@@ -911,6 +937,8 @@ function renderBme680CalibrationStatus(status) {
       ? cloudDevicePath
         ? "Panj je offline; kalibracije trenutno ni mogoče nastaviti."
         : "Izberi online panj za kalibracijo."
+      : !bme680Operational
+        ? "BME680 ni pripravljen; odmikov trenutno ni mogoče nastaviti."
       : (state === "completed" || state === "error") && status?.message
         ? status.message
         : messages[state] ?? messages.idle;
@@ -955,7 +983,7 @@ function renderCloudSynchronization(sync, network, sdCard) {
   const isPending = sync?.pending === true;
   const isCaughtUp = sync?.caught_up === true;
   const hasCloudConnection = network?.station_connected === true;
-  const hasSDCard = sdCard?.present === true;
+  const hasSDCard = isSDCardOperational(sdCard);
   const retrySeconds = Number(sync?.retry_seconds);
   const lastSyncedTimestamp = Number(sync?.last_synced_timestamp);
   const reconciliation = sync?.reconciliation ?? {};
@@ -967,7 +995,9 @@ function renderCloudSynchronization(sync, network, sdCard) {
   const measurementsUploaded = Number(reconciliation.measurements_uploaded);
 
   if (!hasSDCard) {
-    elements.cloudSyncStatus.textContent = "SD kartica ni dosegljiva.";
+    elements.cloudSyncStatus.textContent = sdCard?.error === true
+      ? "SD kartica javlja napako; sinhronizacija s Firebase trenutno ni mogoča."
+      : "SD kartica ni dosegljiva; sinhronizacija s Firebase trenutno ni mogoča.";
   } else if (!hasCloudConnection) {
     elements.cloudSyncStatus.textContent = "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.";
   } else if (reconciliationState === "preparing") {
@@ -1042,7 +1072,8 @@ function renderHistoryManagementStatus(status) {
   const updatedAt = Number(status?.updated_at);
   const isDeleting = state === "queued" || state === "deleting";
   const isSelectedDeviceOnline = hasSelectedDevice && isDeviceOnline(latestDeviceStatus);
-  elements.deleteDeviceHistory.disabled = !isSelectedDeviceOnline || isDeleting;
+  const hasOperationalSDCard = isSDCardOperational();
+  elements.deleteDeviceHistory.disabled = !isSelectedDeviceOnline || !hasOperationalSDCard || isDeleting;
 
   if (!hasSelectedDevice) {
     elements.historyManagementStatus.textContent = "Izberi panj za upravljanje zgodovine.";
@@ -1050,6 +1081,10 @@ function renderHistoryManagementStatus(status) {
   }
   if (!isSelectedDeviceOnline) {
     elements.historyManagementStatus.textContent = "Panj je offline; brisanje merilne zgodovine trenutno ni možno.";
+    return;
+  }
+  if (!hasOperationalSDCard) {
+    elements.historyManagementStatus.textContent = "SD kartica ni pripravljena; popoln izbris SD in cloud zgodovine ni dovoljen.";
     return;
   }
   if (!state) {
@@ -1078,6 +1113,11 @@ async function deleteDeviceHistory() {
   if (!cloudDevicePath || !firebaseDatabase) return;
   if (!isDeviceOnline(latestDeviceStatus)) {
     elements.historyManagementStatus.textContent = "Za popoln izbris mora biti ESP32 online.";
+    return;
+  }
+  if (!isSDCardOperational()) {
+    elements.historyManagementStatus.textContent = "SD kartica ni pripravljena; cloud zgodovine brez brisanja SD dnevnika ni dovoljeno izbrisati.";
+    elements.deleteDeviceHistory.disabled = true;
     return;
   }
   if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
@@ -1199,6 +1239,11 @@ async function forgetWiFiConfiguration() {
 }
 
 async function resetCloudHistorySynchronization() {
+  if (!isSDCardOperational()) {
+    elements.cloudSyncStatus.textContent = "SD kartica ni pripravljena; sinhronizacije ni mogoče začeti.";
+    elements.cloudResync.disabled = true;
+    return;
+  }
   if (!window.confirm("Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve. Nadaljujem?")) return;
 
   elements.cloudResync.disabled = true;
@@ -1222,11 +1267,19 @@ async function resetCloudHistorySynchronization() {
     }
   } catch (error) {
     elements.cloudSyncStatus.textContent = error.message;
-    elements.cloudResync.disabled = false;
+    const hasCloudConnection = isLocalDashboard
+      ? latestNetworkStatus?.station_connected === true
+      : isDeviceOnline(latestDeviceStatus);
+    elements.cloudResync.disabled = !isSDCardOperational() || !hasCloudConnection;
   }
 }
 
 async function deleteLocalMeasurementHistory() {
+  if (!isSDCardOperational()) {
+    elements.localMeasurementLogStatus.textContent = "SD kartica ni pripravljena; meritev ni mogoče izbrisati.";
+    elements.deleteLocalMeasurementLog.disabled = true;
+    return;
+  }
   if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.")) return;
 
   elements.deleteLocalMeasurementLog.disabled = true;
@@ -1238,16 +1291,20 @@ async function deleteLocalMeasurementHistory() {
     elements.localMeasurementLogStatus.textContent = "Brisanje dnevnika je uvrščeno v čakalno vrsto …";
   } catch (error) {
     elements.localMeasurementLogStatus.textContent = error.message;
-    elements.deleteLocalMeasurementLog.disabled = false;
+    elements.deleteLocalMeasurementLog.disabled = !isSDCardOperational();
   }
 }
 
 async function requestLoadCellTare() {
+  const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
+  if (!isComponentOperational("hx711", latestLoadCellTareStatus)) {
+    statusElement.textContent = "HX711 ni pripravljen; tariranje trenutno ni možno.";
+    return;
+  }
   if (!window.confirm("Odstrani panj in vse uteži s ploščadi. Trenutno stanje bo nastavljeno na 0,00 kg. Nadaljujem?")) return;
 
   const previousStatus = latestLoadCellTareStatus;
   const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
-  const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
   button.disabled = true;
   statusElement.textContent = isLocalDashboard
     ? "Tariranje pošiljam ESP32 …"
@@ -1295,6 +1352,9 @@ async function saveBme680Calibration(event) {
     ? elements.localBme680CalibrationStatus
     : elements.cloudBme680CalibrationStatus;
   try {
+    if (!isComponentOperational("bme680", latestBme680CalibrationStatus)) {
+      throw new Error("BME680 ni pripravljen; odmikov trenutno ni mogoče nastaviti.");
+    }
     const { temperatureOffset, humidityOffset } = readBme680CalibrationInputs();
     bme680CalibrationRequestedAt = Math.floor(Date.now() / 1000);
     bme680CalibrationPendingUntil = bme680CalibrationRequestedAt + BME680_CALIBRATION_TIMEOUT_SECONDS;
@@ -1339,6 +1399,12 @@ async function saveBme680Calibration(event) {
 }
 
 async function sendDeviceTimeCommand(action, timestamp) {
+  if (!isComponentOperational("ds3231", {
+    ready: latestTimeStatus?.rtc_present === true,
+    state: latestTimeStatus?.rtc_present === true ? "ok" : "error",
+  })) {
+    throw new Error("DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.");
+  }
   if (isLocalDashboard) {
     const body = new URLSearchParams({ action });
     if (timestamp !== undefined) body.set("timestamp", String(timestamp));
@@ -1431,6 +1497,7 @@ function renderSDStatus(status) {
   if (!isLocalDashboard) {
     renderCloudSynchronization(latestDeviceStatus?.history_sync,
       { station_connected: isDeviceOnline(latestDeviceStatus) }, status);
+    renderHistoryManagementStatus(latestHistoryManagementStatus);
   }
 }
 
@@ -1906,12 +1973,27 @@ function updateChartTooltip(chart, tooltip) {
   tooltip.element.style.top = `${Math.max(12, Math.min(desiredTop, maximumTop))}px`;
 }
 
+function updateClimateGridAxis(chart) {
+  const temperatureVisible = isChartSeriesVisible("climate", 1);
+  const humidityVisible = isChartSeriesVisible("climate", 2);
+
+  chart.axes[1].grid.show = temperatureVisible;
+  chart.axes[2].grid.show = !temperatureVisible && humidityVisible;
+}
+
 function initializeChartLegend(chart, chartType, legendItems, tooltip) {
   legendItems.forEach(({ element, seriesIndex }) => {
     element.addEventListener("click", () => {
       const isVisible = !isChartSeriesVisible(chartType, seriesIndex);
       chartSeriesVisibility[chartType][seriesIndex] = isVisible;
-      chart.setSeries(seriesIndex, { show: isVisible });
+      if (chartType === "climate") {
+        chart.batch(() => {
+          chart.setSeries(seriesIndex, { show: isVisible });
+          updateClimateGridAxis(chart);
+        });
+      } else {
+        chart.setSeries(seriesIndex, { show: isVisible });
+      }
       setChartLegendItemState(element, isVisible);
       updateChartTooltip(chart, tooltip);
     });
@@ -1980,6 +2062,8 @@ function createXZoomPlugin(chartType, resetZoomButton) {
 function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
   const colors = getChartTheme();
   const isClimate = type === "climate";
+  const temperatureVisible = isChartSeriesVisible("climate", 1);
+  const humidityVisible = isChartSeriesVisible("climate", 2);
   const size = getChartSize(chartHost);
   const xRange = getAppliedChartRange();
   const sharedOptions = {
@@ -2065,7 +2149,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
           values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value)),
           ticks: { stroke: colors.border },
           border: { stroke: colors.border },
-          grid: { stroke: colors.grid, width: 1 },
+          grid: { show: temperatureVisible, stroke: colors.grid, width: 1 },
         },
         {
           scale: "humidity",
@@ -2079,7 +2163,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
           values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value)),
           ticks: { stroke: colors.border },
           border: { stroke: colors.border },
-          grid: { show: false },
+          grid: { show: !temperatureVisible && humidityVisible, stroke: colors.grid, width: 1 },
         },
       ],
     };

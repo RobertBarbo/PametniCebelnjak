@@ -4,6 +4,27 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.17] - 2026-08-11
+
+### Changed
+
+- Pripravljena je cloud OTA izdaja preverjenega popravka začetnega zaznavanja komponent. Nepriklopljeni BME680, HX711, DS3231 in SD kartica so po prvem neuspelem preverjanju takoj označeni kot napaka, toleranca zaporednih napak pa ostaja samo za komponente, ki so v trenutnem zagonu že uspešno delovale.
+
+## [0.1.0-rc.16] - 2026-08-11
+
+### Fixed
+
+- Komponenta, ki po zagonu še ni bila niti enkrat uspešno zaznana, je že po prvem neuspelem preverjanju označena kot napaka. Prag treh oziroma petih zaporednih neuspehov ostaja namenjen samo kratkim motnjam komponente, ki je v trenutnem zagonu že delovala.
+- Lokalni in cloud prikaz pri `ready=false` ne more več prikazati stanja **Deluje normalno**, tudi če prejme prehodno ali starejše neskladno health stanje.
+
+## [0.1.0-rc.15] - 2026-08-11
+
+### Fixed
+
+- Horizontalni grid climate uPlot grafa dinamično uporablja temperaturno os, kadar je temperatura vidna, oziroma humidity os, kadar je vidna samo vlaga. Preklop legende ne izvede novega history fetcha in ohrani trenutni X zoom, izbrano obdobje ter stanje vidnosti serij.
+- Lokalni in cloud ukazi za tariranje, kalibracijo BME680, nastavitev časa, popolni izbris ter sinhronizacijo zgodovine so onemogočeni, kadar pripadajoča komponenta javlja napako; preverjanje se ponovi tudi v handlerju tik pred izvedbo. Cloud zgodovine ni mogoče izbrisati brez hkratnega brisanja zdrave SD kartice.
+- Onemogočeni gumbi in vnosna polja so jasno osivljeni ter uporabljajo kazalec `not-allowed` brez hover animacije.
+
 ## [0.1.0-rc.14] - 2026-08-11
 
 ### Changed

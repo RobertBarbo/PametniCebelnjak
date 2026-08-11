@@ -201,6 +201,7 @@ struct Uptime {
 struct ComponentStatus {
   uint8_t consecutiveFailures = 0;
   bool verified = false;
+  bool hasSucceeded = false;
 };
 
 struct HistoryBucket {
@@ -553,6 +554,9 @@ WiFiClient *otaDownloadStream = nullptr;
 ComponentHealth componentHealth(const ComponentStatus &status)
 {
   if (!status.verified) return ComponentHealth::Checking;
+  // Komponenta, ki v trenutnem zagonu še nikoli ni odgovorila, ni kratkotrajna
+  // motnja že delujoče strojne opreme in mora biti takoj označena kot napaka.
+  if (!status.hasSucceeded) return ComponentHealth::Error;
   if (status.consecutiveFailures >= COMPONENT_ERROR_FAILURES) return ComponentHealth::Error;
   if (status.consecutiveFailures >= COMPONENT_WARNING_FAILURES) return ComponentHealth::Warning;
   return ComponentHealth::Ok;
@@ -573,6 +577,7 @@ void reportComponentSuccess(ComponentStatus &status, const char *componentName)
 {
   const ComponentHealth previousHealth = componentHealth(status);
   status.verified = true;
+  status.hasSucceeded = true;
   status.consecutiveFailures = 0;
   if (previousHealth != ComponentHealth::Ok) {
     Serial.printf("[KOMPONENTA] %s: deluje normalno.\n", componentName);

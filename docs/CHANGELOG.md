@@ -4,6 +4,10 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+### Fixed
+
+- Cloud OTA preverjanje pravilno primerja tudi izdaje `rc.N` in upošteva vrstni red `beta < rc < stabilna izdaja`; zahteva za najnovejši GitHub Release ne uporablja predpomnjenega odgovora.
+
 ## [0.1.0-rc.17] - 2026-08-11
 
 ### Changed

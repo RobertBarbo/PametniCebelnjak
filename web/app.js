@@ -641,9 +641,11 @@ function formatDate(date, options) {
 
 function compareFirmwareVersions(candidateVersion, currentVersion) {
   const parseVersion = (version) => {
-    const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
+    const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?$/);
     if (!match) return null;
-    return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? Number.MAX_SAFE_INTEGER : Number(match[4])];
+    const releaseStage = match[4] === undefined ? 2 : match[4] === "rc" ? 1 : 0;
+    const prereleaseNumber = match[5] === undefined ? Number.MAX_SAFE_INTEGER : Number(match[5]);
+    return [Number(match[1]), Number(match[2]), Number(match[3]), releaseStage, prereleaseNumber];
   };
   const candidate = parseVersion(candidateVersion);
   const current = parseVersion(currentVersion);
@@ -1602,7 +1604,10 @@ function showOtaAvailability(release) {
 async function checkForFirmwareRelease() {
   if (!latestFirmwareVersion || isLocalDashboard) return;
   try {
-    const response = await fetch(GITHUB_LATEST_RELEASE_URL, { headers: { Accept: "application/vnd.github+json" } });
+    const response = await fetch(GITHUB_LATEST_RELEASE_URL, {
+      cache: "no-store",
+      headers: { Accept: "application/vnd.github+json" },
+    });
     if (response.status === 404) {
       elements.otaLabel.textContent = "OTA izdaja ni javno dosegljiva";
       elements.otaVersion.textContent = "—";

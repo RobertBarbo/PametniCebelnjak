@@ -59,8 +59,12 @@ constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;
 constexpr uint32_t FIREBASE_TASK_TIMEOUT_MS = 12 * 1000;
 constexpr size_t MAX_FIREBASE_ASYNC_TASKS = 1;
 constexpr uint32_t SYSTEM_DIAGNOSTIC_INTERVAL_MS = 15 * 1000;
-// Med začetnim prenosom lokalnih datotek Firebase ne sme tekmovati za TCP medpomnilnike.
-constexpr uint32_t LOCAL_ASSET_PRIORITY_WINDOW_MS = 10 * 1000;
+// Med lokalnim HTTP prenosom Firebase ne sme tekmovati za TCP medpomnilnike.
+// uPlotovi predpomnjeni datoteki sta bistveno manjši od prejšnje knjižnice grafov,
+// zato za običajne assete zadostuje krajše okno. Zgodovina s SD potrebuje ločeno,
+// daljšo zaščito, saj je njen JSON odziv lahko večji.
+constexpr uint32_t LOCAL_ASSET_PRIORITY_WINDOW_MS = 3 * 1000;
+constexpr uint32_t LOCAL_HISTORY_PRIORITY_WINDOW_MS = 10 * 1000;
 constexpr uint16_t LOCAL_HISTORY_LINES_PER_LOOP = 128;
 constexpr uint16_t LOCAL_HISTORY_BUCKETS_PER_LOOP = 128;
 constexpr uint32_t LOCAL_HISTORY_LOOP_BUDGET_MS = 8;
@@ -141,7 +145,7 @@ constexpr uint8_t HX711_TARE_SAMPLES = 20;
 constexpr uint8_t HX711_READ_SAMPLES = 20;
 constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;
 // Pri običajnem panju tako velik skok v desetih sekundah pomeni pretrgan ali lebdeč signal HX711.
-constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;
+constexpr float HX711_MAX_STEP_CHANGE_KG = 105.0F; //5 je org
 // Umerjeno 6. 8. 2026 z referenčnima utežema 1,464 kg in 2,470 kg na tej merilni konstrukciji.
 constexpr float HX711_CALIBRATION_FACTOR = 22500.0F;
 
@@ -389,6 +393,7 @@ uint32_t cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
 uint32_t lastCloudAggregateRefreshMillis = 0;
 uint32_t firebaseRequestsPausedUntilMillis = 0;
 volatile uint32_t localAssetsHavePriorityUntilMillis = 0;
+volatile uint32_t localHistoryHavePriorityUntilMillis = 0;
 uint32_t accessPointShutdownMillis = 0;
 uint32_t scheduledWiFiSettingsClearMillis = 0;
 uint32_t scheduledAccessPointStartMillis = 0;
@@ -692,7 +697,9 @@ bool firebaseRequestsArePaused()
                                     static_cast<int32_t>(currentMillis - firebaseRequestsPausedUntilMillis) < 0;
   const bool localAssetTransferActive = localAssetsHavePriorityUntilMillis != 0 &&
                                         static_cast<int32_t>(currentMillis - localAssetsHavePriorityUntilMillis) < 0;
-  return networkBackoffActive || localAssetTransferActive;
+  const bool localHistoryTransferActive = localHistoryHavePriorityUntilMillis != 0 &&
+                                          static_cast<int32_t>(currentMillis - localHistoryHavePriorityUntilMillis) < 0;
+  return networkBackoffActive || localAssetTransferActive || localHistoryTransferActive;
 }
 
 bool stationNetworkReady()
@@ -2062,8 +2069,11 @@ void printSystemDiagnostics()
   const IPAddress accessPointIp = WiFi.softAPIP();
   const size_t largestInternalBlock =
       heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  const bool httpPriorityActive = localAssetsHavePriorityUntilMillis != 0 &&
-                                  static_cast<int32_t>(currentMillis - localAssetsHavePriorityUntilMillis) < 0;
+  const bool localAssetPriorityActive = localAssetsHavePriorityUntilMillis != 0 &&
+                                        static_cast<int32_t>(currentMillis - localAssetsHavePriorityUntilMillis) < 0;
+  const bool localHistoryPriorityActive = localHistoryHavePriorityUntilMillis != 0 &&
+                                          static_cast<int32_t>(currentMillis - localHistoryHavePriorityUntilMillis) < 0;
+  const bool httpPriorityActive = localAssetPriorityActive || localHistoryPriorityActive;
 
   Serial.printf("[SYS] heap=%u min=%u largest=%u psram=%u sta=%s rssi=%d staIp=%u.%u.%u.%u "
                 "ap=%s apIp=%u.%u.%u.%u apClients=%u fbTasks=%u fbReady=%u httpPrio=%u\n",
@@ -4481,7 +4491,7 @@ void sendLocalHistory(AsyncWebServerRequest *request)
     return;
   }
 
-  localAssetsHavePriorityUntilMillis = millis() + LOCAL_ASSET_PRIORITY_WINDOW_MS;
+  localHistoryHavePriorityUntilMillis = millis() + LOCAL_HISTORY_PRIORITY_WINDOW_MS;
   AsyncWebServerResponse *response =
       request->beginResponse(SD, SD_HISTORY_RESPONSE_PATH, "application/json; charset=utf-8");
   if (response == nullptr) {

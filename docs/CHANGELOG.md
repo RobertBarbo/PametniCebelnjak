@@ -4,6 +4,93 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.12] - 2026-08-11
+
+### Changed
+
+- Objavljena je preverjena uPlot različica grafov z vidnim prosojnim območjem med vlečenjem, native X-zoomom in gumbom **Ponastavi zoom**.
+
+## [0.1.0-rc.11] - 2026-08-11
+
+### Fixed
+
+- X-zoom grafov uporablja preverjeni native uPlot tok iz uradnih primerov: knjižnica med vlečenjem sproti posodablja in prikazuje `.u-select`, ob spustu sama nastavi X merilo, aplikacijski hook pa samo prikaže gumb **Ponastavi zoom**. Odstranjena je lastna podvojena plast, ki je tekmovala z notranjimi uPlot dogodki. Dejansko nevidnost izbora je povzročala neobstoječa CSS spremenljivka `--accent`; izbor zdaj uporablja veljavno tematsko barvo `--primary` in je viden v svetli ter temni temi.
+
+## [0.1.0-rc.10] - 2026-08-11
+
+### Fixed
+
+- Vizualni pas za X-zoom se ne skrije več ob začetnem native uPlot `setSelect` dogodku. Dogodki za prikaz pasu se zajamejo pred notranjimi uPlot poslušalci, pas pa se med vsakim premikom izrecno ohrani viden do spusta gumba miške.
+
+## [0.1.0-rc.9] - 2026-08-11
+
+### Fixed
+
+- Grafa med povlekom za X-zoom zdaj prikažeta zanesljiv lasten prosojni izbor čez celotno višino risalne površine. Vizualni pas v realnem času sledi vlečenju v obe smeri, ne posega v native uPlot izračun zooma ter se varno odstrani ob spustu gumba, preklicu, izgubi fokusa ali ponovni izgradnji grafa.
+
+## [0.1.0-rc.8] - 2026-08-11
+
+### Fixed
+
+- Povlek za X-zoom zdaj uporablja izrecno native uPlot izbiro nad platnom (`select.over`) in zaključi zoom prek native `setSelect` hooka. Prosojno območje z robovoma se zato med vlečenjem ne počisti oziroma ne obdeluje predčasno, temveč se odstrani šele po branju izbranega območja ob spustu kazalca.
+
+## [0.1.0-rc.7] - 2026-08-11
+
+### Added
+
+- Klikabilna legenda uPlot grafov: temperaturo, vlago in težo je mogoče neodvisno skriti oziroma znova prikazati brez nove zahteve za zgodovino.
+
+### Changed
+
+- Skrita serija ima zatemnjen, dostopen gumb legende z večjo površino za klik ali dotik; stanje ostane ohranjeno tudi ob ponovni izgradnji grafov zaradi spremembe teme.
+
+### Fixed
+
+- Native uPlot izbor območja ima jasno prosojno poudarjanje z vidnima navpičnima robovoma med vlečenjem za zoom v svetli in temni temi.
+
+## [0.1.0-rc.6] - 2026-08-11
+
+### Added
+
+- Po ročnem približanju se v zgornjem desnem kotu posameznega grafa prikaže gumb **Ponastavi zoom**, ki vrne samo ta graf na območje iz časovnega izbirnika.
+
+### Changed
+
+- Oznake X osi uPlot grafov se prilagodijo trenutnemu vidnemu časovnemu razponu: za kratek razpon kažejo uro, nato datum z uro, datum, mesec ali leto. Gostota oznak se prilagodi tudi širini grafa.
+- Območje, izbrano s povlekom po grafu, med vlečenjem ostane jasno poudarjeno; približanje se izvede šele ob spustu kazalca oziroma prsta.
+
+## [0.1.0-rc.5] - 2026-08-11
+
+### Added
+
+- Po ročnem približanju se na vsakem grafu prikaže gumb **Resetiraj zoom**; dvojni klik po grafu ostaja hitra bližnjica za enako dejanje.
+
+### Changed
+
+- Časovne oznake uPlot grafov so dvo-vrstične (datum in ura) in imajo večji najmanjši razmik, zato ostanejo berljive tudi na telefonu.
+- Izbor območja pri približevanju ostane jasno viden do zaključka poteze, enako kot pri prejšnjem prikazu grafov.
+
+## [0.1.0-rc.4] - 2026-08-11
+
+### Added
+
+- Lokalni paket `uPlot` 1.6.32 z licenco MIT za lahke grafe brez internetne povezave.
+
+### Changed
+
+- Lokalni in cloud grafi uporabljajo uPlot s stolpčno podatkovno strukturo, dvema neodvisnima osema za temperaturo in vlago, lastnim tooltipom ter odzivnim `ResizeObserver` prilagajanjem.
+- Knjižnica grafov se prvič naloži šele ob odpiranju zavihka **Grafi**; brskalnik nato uporablja predpomnjeno različico z verzijskim imenom datoteke.
+- Povlek po grafu približa os časa, dvojni klik ponastavi zoom na izbrano obdobje, osvežitev meritev pa ohrani ročni zoom.
+- Za kratke LittleFS JS/CSS prenose velja 3-sekundna prednost pred novimi Firebase opravili, prenos zgodovine s SD kartice pa ima ločeno 10-sekundno prednost.
+
+### Fixed
+
+- Pri eni veljavni meritvi je na temperaturi, vlagi in teži prikazana jasna točka premera 10 px; pri več meritvah markerji ostanejo skriti.
+
+### Removed
+
+- Highcharts in njegovo prednalaganje v ozadju lokalne nadzorne plošče.
+
 ## [0.1.0-rc.3] - 2026-08-10
 
 ### Fixed

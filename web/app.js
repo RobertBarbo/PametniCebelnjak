@@ -8,6 +8,17 @@ const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
 const THEME_STORAGE_KEY = "pametni-cebelnjak-theme";
 const DEFAULT_VIEW = "overview";
 const SUPER_ADMIN_UID = "Uv2bGWlFt8h9YTsAFoxsNlNsRK72";
+const CHART_AXIS_HOUR_SECONDS = 60 * 60;
+const CHART_AXIS_DAY_SECONDS = 24 * CHART_AXIS_HOUR_SECONDS;
+const CHART_AXIS_FORMATTERS = new Map();
+const UI_TEXT = {
+  sl: { resetZoom: "Ponastavi zoom" },
+  en: { resetZoom: "Reset zoom" },
+};
+const chartSeriesVisibility = {
+  climate: { 1: true, 2: true },
+  weight: { 1: true },
+};
 
 const elements = {
   appFavicon: document.querySelector("#app-favicon"),
@@ -173,7 +184,9 @@ let availableOtaRelease;
 let otaCommandPending = false;
 let latestOtaState = "";
 let latestOtaStatus;
-let highchartsLoading;
+let uPlotLoading;
+let chartResizeObserver;
+let scheduledChartResize = 0;
 let latestHistoryReadings = [];
 let latestHistoryAlreadyAggregated = false;
 let cloudDevicePath = "";
@@ -238,30 +251,10 @@ function getChartTheme() {
 
 function updateChartTheme() {
   if (!climateChart && !weightChart) return;
-  const colors = getChartTheme();
-  const commonOptions = {
-    chart: { backgroundColor: "transparent" },
-    xAxis: {
-      lineColor: colors.border,
-      tickColor: colors.border,
-      labels: { style: { color: colors.textSoft } },
-    },
-    legend: { itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
-    tooltip: { backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
-  };
-
-  climateChart?.update({
-    ...commonOptions,
-    yAxis: [
-      { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
-      { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineWidth: 0, opposite: true },
-    ],
-  }, false);
-  weightChart?.update({
-    ...commonOptions,
-    yAxis: [{ title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid }],
-  }, false);
-  renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
+  const climateZoom = climateChartHasUserZoom ? getChartXRange(climateChart) : undefined;
+  const weightZoom = weightChartHasUserZoom ? getChartXRange(weightChart) : undefined;
+  destroyCharts();
+  createCharts({ climateZoom, weightZoom });
 }
 
 function applyTheme(theme, persist = true) {
@@ -330,7 +323,7 @@ async function ensureHistoryViewReady() {
 
   if (!historyViewLoading) {
     elements.historySummary.textContent = "Nalagam grafe in zgodovino meritev …";
-    historyViewLoading = loadHighcharts()
+    historyViewLoading = loadUPlot()
       .then(async () => {
         createCharts();
         await refreshHistory();
@@ -342,8 +335,7 @@ async function ensureHistoryViewReady() {
 
   await historyViewLoading;
   requestAnimationFrame(() => {
-    climateChart?.reflow();
-    weightChart?.reflow();
+    resizeCharts();
   });
 }
 
@@ -1668,139 +1660,622 @@ function aggregateReadings(readings, range) {
     .sort((first, second) => first.timestamp - second.timestamp);
 }
 
-function renderHistory(readings, alreadyAggregated = false) {
-  const chartReadings = alreadyAggregated ? readings : aggregateReadings(readings, appliedRange);
-  latestHistoryReadings = readings;
+function getAppliedChartRange() {
+  const from = Math.floor(appliedRange.from.getTime() / 1000);
+  const to = Math.floor(appliedRange.to.getTime() / 1000);
+  return { min: from, max: Math.max(from + 1, to) };
+}
+
+function getChartXRange(chart) {
+  const minimum = Number(chart?.scales?.x?.min);
+  const maximum = Number(chart?.scales?.x?.max);
+  return Number.isFinite(minimum) && Number.isFinite(maximum) && maximum > minimum
+    ? { min: minimum, max: maximum }
+    : undefined;
+}
+
+function formatChartAxisNumber(value, decimals = 1) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? numericValue.toLocaleString("sl-SI", { maximumFractionDigits: decimals })
+    : "";
+}
+
+function getDashboardLanguage() {
+  return document.documentElement.lang?.toLowerCase().startsWith("en") ? "en" : "sl";
+}
+
+function getChartAxisFormatters() {
+  const language = getDashboardLanguage();
+  const cached = CHART_AXIS_FORMATTERS.get(language);
+  if (cached) return cached;
+
+  const locale = language === "en" ? "en-GB" : "sl-SI";
+  const formatters = {
+    time: new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+    shortDateTime: new Intl.DateTimeFormat(locale, {
+      day: "numeric",
+      month: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }),
+    shortDate: new Intl.DateTimeFormat(locale, { day: "numeric", month: "numeric" }),
+    month: new Intl.DateTimeFormat(locale, { month: "short", year: "2-digit" }),
+    year: new Intl.DateTimeFormat(locale, { year: "numeric" }),
+  };
+  CHART_AXIS_FORMATTERS.set(language, formatters);
+  return formatters;
+}
+
+function getVisibleChartSpanSeconds(chart) {
+  const minimum = Number(chart?.scales?.x?.min);
+  const maximum = Number(chart?.scales?.x?.max);
+  return Number.isFinite(minimum) && Number.isFinite(maximum) && maximum > minimum
+    ? maximum - minimum
+    : CHART_AXIS_DAY_SECONDS;
+}
+
+function formatChartTimeAxis(chart, splits) {
+  const spanSeconds = getVisibleChartSpanSeconds(chart);
+  const formatters = getChartAxisFormatters();
+  const formatter = spanSeconds <= CHART_AXIS_DAY_SECONDS
+    ? formatters.time
+    : spanSeconds <= 7 * CHART_AXIS_DAY_SECONDS
+      ? formatters.shortDateTime
+      : spanSeconds <= 120 * CHART_AXIS_DAY_SECONDS
+        ? formatters.shortDate
+        : spanSeconds <= 2 * 365 * CHART_AXIS_DAY_SECONDS
+          ? formatters.month
+          : formatters.year;
+
+  return splits.map((timestamp) => formatter.format(new Date(timestamp * 1000)));
+}
+
+function getChartXAxisSpace(_chart, _axisIndex, minimum, maximum, plotWidth) {
+  const requestedSpan = Number(maximum) - Number(minimum);
+  const spanSeconds = Number.isFinite(requestedSpan) && requestedSpan > 0
+    ? requestedSpan
+    : getVisibleChartSpanSeconds(_chart);
+  const width = Math.max(1, Number(plotWidth) || 0);
+  const targetLabelCount = width < 460 ? 3 : width < 760 ? 5 : 7;
+  const labelWidth = spanSeconds <= CHART_AXIS_DAY_SECONDS
+    ? 62
+    : spanSeconds <= 7 * CHART_AXIS_DAY_SECONDS
+      ? 112
+      : spanSeconds <= 120 * CHART_AXIS_DAY_SECONDS
+        ? 66
+        : spanSeconds <= 2 * 365 * CHART_AXIS_DAY_SECONDS
+          ? 84
+          : 58;
+  return Math.max(labelWidth + 14, Math.floor(width / targetLabelCount));
+}
+
+function buildUPlotData(readings) {
+  const measurementsByTimestamp = new Map();
+
+  for (const reading of Array.isArray(readings) ? readings : []) {
+    const timestamp = Number(reading?.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+    measurementsByTimestamp.set(timestamp, {
+      temperature: Number.isFinite(Number(reading?.temperature_c)) ? Number(reading.temperature_c) : null,
+      humidity: Number.isFinite(Number(reading?.humidity_percent)) ? Number(reading.humidity_percent) : null,
+      weight: Number.isFinite(Number(reading?.weight_kg)) ? Number(reading.weight_kg) : null,
+    });
+  }
+
+  const timestamps = [...measurementsByTimestamp.keys()].sort((first, second) => first - second);
+  const temperatures = new Array(timestamps.length);
+  const humidities = new Array(timestamps.length);
+  const weights = new Array(timestamps.length);
+
+  timestamps.forEach((timestamp, index) => {
+    const measurement = measurementsByTimestamp.get(timestamp);
+    temperatures[index] = measurement.temperature;
+    humidities[index] = measurement.humidity;
+    weights[index] = measurement.weight;
+  });
+
+  return {
+    climate: [timestamps, temperatures, humidities],
+    weight: [timestamps, weights],
+  };
+}
+
+function countValidChartValues(values) {
+  return values.reduce((count, value) => count + (Number.isFinite(value) ? 1 : 0), 0);
+}
+
+function isChartSeriesVisible(chartType, seriesIndex) {
+  return chartSeriesVisibility[chartType]?.[seriesIndex] !== false;
+}
+
+function setChartLegendItemState(item, isVisible) {
+  item.classList.toggle("is-hidden", !isVisible);
+  item.setAttribute("aria-pressed", String(isVisible));
+}
+
+function createChartLegend(container, entries) {
+  const legend = document.createElement("div");
+  legend.className = "chart-legend";
+  const items = entries.map((entry) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "chart-legend-item";
+    item.dataset.seriesIndex = String(entry.seriesIndex);
+    item.setAttribute("aria-label", `${entry.label}: prikaži ali skrij serijo`);
+    setChartLegendItemState(item, isChartSeriesVisible(entry.chartType, entry.seriesIndex));
+    const marker = document.createElement("span");
+    marker.className = "chart-legend-marker";
+    marker.style.backgroundColor = entry.color;
+    const label = document.createElement("span");
+    label.textContent = entry.label;
+    item.append(marker, label);
+    legend.append(item);
+    return { element: item, seriesIndex: entry.seriesIndex };
+  });
+  container.append(legend);
+  return items;
+}
+
+function createChartTooltip(chartHost, entries) {
+  const tooltip = document.createElement("div");
+  tooltip.className = "chart-tooltip";
+  tooltip.hidden = true;
+  const timestamp = document.createElement("p");
+  timestamp.className = "chart-tooltip-time";
+  tooltip.append(timestamp);
+
+  const rows = entries.map((entry) => {
+    const row = document.createElement("p");
+    row.className = "chart-tooltip-row";
+    const marker = document.createElement("span");
+    marker.className = "chart-tooltip-marker";
+    marker.style.backgroundColor = entry.color;
+    const label = document.createElement("span");
+    label.textContent = `${entry.label}: `;
+    const value = document.createElement("strong");
+    row.append(marker, label, value);
+    tooltip.append(row);
+    return { row, value, seriesIndex: entry.seriesIndex };
+  });
+
+  chartHost.append(tooltip);
+  return { element: tooltip, timestamp, rows, chartHost };
+}
+
+function createChartPresentation(containerId, chartType, legendEntries, tooltipEntries) {
+  const container = document.querySelector(`#${containerId}`);
+  container.replaceChildren();
+  const legendItems = createChartLegend(
+    container,
+    legendEntries.map((entry) => ({ ...entry, chartType })),
+  );
+  const chartHost = document.createElement("div");
+  chartHost.className = "chart-plot";
+  container.append(chartHost);
+  const resetZoomButton = document.createElement("button");
+  resetZoomButton.type = "button";
+  resetZoomButton.className = "chart-reset-zoom";
+  resetZoomButton.textContent = UI_TEXT[getDashboardLanguage()].resetZoom;
+  resetZoomButton.hidden = true;
+  chartHost.append(resetZoomButton);
+  return {
+    chartHost,
+    tooltip: createChartTooltip(chartHost, tooltipEntries),
+    resetZoomButton,
+    legendItems,
+  };
+}
+
+function hideChartTooltip(tooltip) {
+  if (tooltip) tooltip.element.hidden = true;
+}
+
+function updateChartTooltip(chart, tooltip) {
+  const index = chart.cursor.idx;
+  const timestamp = Number.isInteger(index) ? Number(chart.data[0]?.[index]) : NaN;
+  if (!Number.isFinite(timestamp)) {
+    hideChartTooltip(tooltip);
+    return;
+  }
+
+  let hasValue = false;
+  tooltip.timestamp.textContent = formatDashboardDateTime(new Date(timestamp * 1000));
+  tooltip.rows.forEach(({ row, value, seriesIndex }) => {
+    const measurement = Number(chart.data[seriesIndex]?.[index]);
+    const isVisible = chart.series[seriesIndex]?.show !== false;
+    const isValid = Number.isFinite(measurement);
+    row.hidden = !isVisible || !isValid;
+    if (isValid) {
+      value.textContent = formatValue(measurement);
+      hasValue = true;
+    }
+  });
+  if (!hasValue) {
+    hideChartTooltip(tooltip);
+    return;
+  }
+
+  tooltip.element.hidden = false;
+  const desiredLeft = chart.bbox.left + chart.cursor.left + 16;
+  const desiredTop = chart.bbox.top + chart.cursor.top + 16;
+  const maximumLeft = Math.max(12, tooltip.chartHost.clientWidth - tooltip.element.offsetWidth - 12);
+  const maximumTop = Math.max(12, tooltip.chartHost.clientHeight - tooltip.element.offsetHeight - 12);
+  tooltip.element.style.left = `${Math.max(12, Math.min(desiredLeft, maximumLeft))}px`;
+  tooltip.element.style.top = `${Math.max(12, Math.min(desiredTop, maximumTop))}px`;
+}
+
+function initializeChartLegend(chart, chartType, legendItems, tooltip) {
+  legendItems.forEach(({ element, seriesIndex }) => {
+    element.addEventListener("click", () => {
+      const isVisible = !isChartSeriesVisible(chartType, seriesIndex);
+      chartSeriesVisibility[chartType][seriesIndex] = isVisible;
+      chart.setSeries(seriesIndex, { show: isVisible });
+      setChartLegendItemState(element, isVisible);
+      updateChartTooltip(chart, tooltip);
+    });
+  });
+}
+
+function getChartSize(chartHost) {
+  return {
+    width: Math.max(1, Math.floor(chartHost.clientWidth)),
+    height: Math.max(1, Math.floor(chartHost.clientHeight)),
+  };
+}
+
+function setChartZoomState(chartType, isZoomed, resetZoomButton) {
+  if (chartType === "climate") climateChartHasUserZoom = isZoomed;
+  else weightChartHasUserZoom = isZoomed;
+  if (resetZoomButton) resetZoomButton.hidden = !isZoomed;
+}
+
+function resetChartZoom(chartType, chart, resetZoomButton) {
+  setChartZoomState(chartType, false, resetZoomButton);
+  chart.setScale("x", getAppliedChartRange());
+}
+
+function createXZoomPlugin(chartType, resetZoomButton) {
+  let removeZoomListeners = null;
+
+  return {
+    hooks: {
+      setSelect: [(chart) => {
+        // Native uPlot med vlečenjem sproti riše `.u-select`, ob spustu pa
+        // sam nastavi X merilo. Hook samo vključi naš gumb za ponastavitev.
+        if (chart.select.width >= 5) {
+          setChartZoomState(chartType, true, resetZoomButton);
+        }
+      }],
+      ready: [(chart) => {
+        removeZoomListeners?.();
+        const reset = () => resetChartZoom(chartType, chart, resetZoomButton);
+        const handleDoubleClick = (event) => {
+          event.preventDefault();
+          reset();
+        };
+        const handleResetClick = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          reset();
+        };
+
+        chart.over.addEventListener("dblclick", handleDoubleClick);
+        resetZoomButton?.addEventListener("click", handleResetClick);
+
+        removeZoomListeners = () => {
+          chart.over.removeEventListener("dblclick", handleDoubleClick);
+          resetZoomButton?.removeEventListener("click", handleResetClick);
+        };
+      }],
+      destroy: [() => {
+        removeZoomListeners?.();
+        removeZoomListeners = null;
+      }],
+    },
+  };
+}
+
+function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
+  const colors = getChartTheme();
+  const isClimate = type === "climate";
+  const size = getChartSize(chartHost);
+  const xRange = getAppliedChartRange();
+  const sharedOptions = {
+    width: size.width,
+    height: size.height,
+    legend: { show: false },
+    select: {
+      show: true,
+      over: true,
+    },
+    cursor: {
+      x: true,
+      y: false,
+      points: { show: false },
+      drag: { x: true, y: false, setScale: true, dist: 5 },
+    },
+    scales: { x: { time: true, auto: false, min: xRange.min, max: xRange.max } },
+    axes: [
+      {
+        scale: "x",
+        side: 2,
+        size: 64,
+        gap: 8,
+        space: getChartXAxisSpace,
+        lineGap: 1.35,
+        stroke: colors.textSoft,
+        font: "600 12px Inter, system-ui, sans-serif",
+        values: formatChartTimeAxis,
+        ticks: { stroke: colors.border },
+        border: { stroke: colors.border },
+        grid: { show: false },
+      },
+    ],
+    plugins: [
+      createXZoomPlugin(type, resetZoomButton),
+      {
+        hooks: {
+          setCursor: [(chart) => updateChartTooltip(chart, tooltip)],
+          destroy: [() => hideChartTooltip(tooltip)],
+        },
+      },
+    ],
+  };
+
+  if (isClimate) {
+    return {
+      ...sharedOptions,
+      scales: {
+        ...sharedOptions.scales,
+        temperature: { auto: true },
+        humidity: { auto: true },
+      },
+      series: [
+        {},
+        {
+          label: "Temperatura (°C)",
+          scale: "temperature",
+          show: isChartSeriesVisible("climate", 1),
+          stroke: colors.temperature,
+          width: 2,
+          points: { show: (chart) => countValidChartValues(chart.data[1]) === 1, size: 10, fill: colors.temperature, stroke: colors.temperature },
+        },
+        {
+          label: "Vlaga (%)",
+          scale: "humidity",
+          show: isChartSeriesVisible("climate", 2),
+          stroke: colors.humidity,
+          width: 2,
+          points: { show: (chart) => countValidChartValues(chart.data[2]) === 1, size: 10, fill: colors.humidity, stroke: colors.humidity },
+        },
+      ],
+      axes: [
+        ...sharedOptions.axes,
+        {
+          scale: "temperature",
+          side: 3,
+          size: 56,
+          gap: 8,
+          label: "°C",
+          labelSize: 24,
+          stroke: colors.textSoft,
+          font: "600 12px Inter, system-ui, sans-serif",
+          values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value)),
+          ticks: { stroke: colors.border },
+          border: { stroke: colors.border },
+          grid: { stroke: colors.grid, width: 1 },
+        },
+        {
+          scale: "humidity",
+          side: 1,
+          size: 54,
+          gap: 8,
+          label: "%",
+          labelSize: 24,
+          stroke: colors.textSoft,
+          font: "600 12px Inter, system-ui, sans-serif",
+          values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value)),
+          ticks: { stroke: colors.border },
+          border: { stroke: colors.border },
+          grid: { show: false },
+        },
+      ],
+    };
+  }
+
+  return {
+    ...sharedOptions,
+    scales: { ...sharedOptions.scales, weight: { auto: true } },
+    series: [
+      {},
+      {
+        label: "Teža (kg)",
+        scale: "weight",
+        show: isChartSeriesVisible("weight", 1),
+        stroke: colors.weight,
+        width: 2,
+        points: { show: (chart) => countValidChartValues(chart.data[1]) === 1, size: 10, fill: colors.weight, stroke: colors.weight },
+      },
+    ],
+    axes: [
+      ...sharedOptions.axes,
+      {
+        scale: "weight",
+        side: 3,
+        size: 56,
+        gap: 8,
+        label: "kg",
+        labelSize: 28,
+        stroke: colors.textSoft,
+        font: "600 12px Inter, system-ui, sans-serif",
+        values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value)),
+        ticks: { stroke: colors.border },
+        border: { stroke: colors.border },
+        grid: { stroke: colors.grid, width: 1 },
+      },
+    ],
+  };
+}
+
+function resizeCharts() {
+  [climateChart, weightChart].forEach((chart) => {
+    if (!chart?.root?.parentElement) return;
+    const size = getChartSize(chart.root.parentElement);
+    if (chart.width !== size.width || chart.height !== size.height) chart.setSize(size);
+  });
+}
+
+function initializeChartResizeObserver() {
+  chartResizeObserver?.disconnect();
+  chartResizeObserver = new ResizeObserver(() => {
+    if (scheduledChartResize) return;
+    scheduledChartResize = requestAnimationFrame(() => {
+      scheduledChartResize = 0;
+      resizeCharts();
+    });
+  });
+  [climateChart, weightChart].forEach((chart) => {
+    if (chart?.root?.parentElement) chartResizeObserver.observe(chart.root.parentElement);
+  });
+}
+
+function destroyCharts() {
+  chartResizeObserver?.disconnect();
+  chartResizeObserver = undefined;
+  if (scheduledChartResize) cancelAnimationFrame(scheduledChartResize);
+  scheduledChartResize = 0;
+  climateChart?.destroy();
+  weightChart?.destroy();
+  climateChart = undefined;
+  weightChart = undefined;
+}
+
+function applyChartData(chart, data, chartType, shouldKeepZoom, zoomRange, resetZoomButton) {
+  const preservedRange = zoomRange ?? (shouldKeepZoom ? getChartXRange(chart) : undefined);
+  if (!preservedRange) setChartZoomState(chartType, false, resetZoomButton);
+  chart.setData(data, true);
+  chart.setScale("x", preservedRange ?? getAppliedChartRange());
+}
+
+function renderHistory(readings, alreadyAggregated = false, zoomRanges = {}) {
+  const sourceReadings = Array.isArray(readings) ? readings : [];
+  const chartReadings = alreadyAggregated ? sourceReadings : aggregateReadings(sourceReadings, appliedRange);
+  latestHistoryReadings = sourceReadings;
   latestHistoryAlreadyAggregated = alreadyAggregated;
   elements.historySummary.textContent = chartReadings.length
     ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po izbranem grafu.`
     : "Za izbrano obdobje še ni meritev.";
   if (!climateChart || !weightChart) return;
 
+  const chartData = buildUPlotData(chartReadings);
+  applyChartData(
+    climateChart,
+    chartData.climate,
+    "climate",
+    climateChartHasUserZoom,
+    zoomRanges.climateZoom,
+    climateChart.resetZoomButton,
+  );
+  applyChartData(
+    weightChart,
+    chartData.weight,
+    "weight",
+    weightChartHasUserZoom,
+    zoomRanges.weightZoom,
+    weightChart.resetZoomButton,
+  );
+}
+
+function createCharts(zoomRanges = {}) {
+  if (climateChart || weightChart || !window.uPlot) return;
   const colors = getChartTheme();
-  const climateSeries = [
-    {
-      name: "Temperatura (°C)",
-      data: chartReadings.map((item) => [item.timestamp * 1000, item.temperature_c]),
-      color: colors.temperature,
-      yAxis: 0,
-      marker: { enabled: chartReadings.length === 1, radius: 5 },
-      tooltip: { valueDecimals: 1 },
-    },
-    {
-      name: "Vlaga (%)",
-      data: chartReadings.map((item) => [item.timestamp * 1000, item.humidity_percent]),
-      color: colors.humidity,
-      yAxis: 1,
-      marker: { enabled: chartReadings.length === 1, radius: 5 },
-      tooltip: { valueDecimals: 1 },
-    },
-  ];
-  const weightSeries = [
-    {
-      name: "Teža (kg)",
-      data: chartReadings.map((item) => [item.timestamp * 1000, item.weight_kg]),
-      color: colors.weight,
-      yAxis: 0,
-      marker: { enabled: chartReadings.length === 1, radius: 5 },
-      tooltip: { valueDecimals: 1 },
-    },
-  ];
-
-  climateChart.update({ series: climateSeries }, false, true);
-  weightChart.update({ series: weightSeries }, false, true);
-  if (!climateChartHasUserZoom) {
-    climateChart.xAxis[0].setExtremes(appliedRange.from.getTime(), appliedRange.to.getTime(), false, false);
-  }
-  if (!weightChartHasUserZoom) {
-    weightChart.xAxis[0].setExtremes(appliedRange.from.getTime(), appliedRange.to.getTime(), false, false);
-  }
-  climateChart.redraw();
-  weightChart.redraw();
-}
-
-function createTimeAxis(colors, onSetExtremes) {
-  return {
-    type: "datetime",
-    lineColor: colors.border,
-    tickColor: colors.border,
-    labels: {
-      style: { color: colors.textSoft },
-      formatter() {
-        const date = new Date(this.value);
-        return `${formatDashboardDate(date)}<br>${formatDashboardTime(date)}`;
-      },
-    },
-    events: { setExtremes: onSetExtremes },
-  };
-}
-
-function createChartOptions(colors, onSetExtremes) {
-  return {
-    chart: {
-      backgroundColor: "transparent",
-      spacing: [16, 8, 8, 0],
-      zoomType: "x",
-      panning: { enabled: true, type: "x" },
-      panKey: "shift",
-    },
-    title: { text: null },
-    credits: { enabled: false },
-    time: { useUTC: false },
-    xAxis: createTimeAxis(colors, onSetExtremes),
-    tooltip: { shared: true, xDateFormat: "%e/%m/%Y %H:%M", backgroundColor: colors.surface, borderColor: colors.border, style: { color: colors.text } },
-    legend: { align: "left", verticalAlign: "top", itemStyle: { color: colors.text, fontWeight: "600" }, itemHoverStyle: { color: colors.text } },
-    plotOptions: { series: { marker: { enabled: false }, lineWidth: 2, states: { hover: { lineWidth: 3 } } } },
-    series: [],
-  };
-}
-
-function createCharts() {
-  if (climateChart || weightChart) return;
-  const colors = getChartTheme();
-  climateChart = Highcharts.chart("climate-chart", {
-    ...createChartOptions(colors, (event) => {
-      if (event.trigger === "zoom") climateChartHasUserZoom = event.min !== undefined;
-    }),
-    yAxis: [
-      { title: { text: "°C", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid },
-      { title: { text: "%", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, opposite: true, gridLineWidth: 0 },
+  const climatePresentation = createChartPresentation(
+    "climate-chart",
+    "climate",
+    [
+      { label: "Temperatura (°C)", color: colors.temperature, seriesIndex: 1 },
+      { label: "Vlaga (%)", color: colors.humidity, seriesIndex: 2 },
     ],
-  });
-
-  weightChart = Highcharts.chart("weight-chart", {
-    ...createChartOptions(colors, (event) => {
-      if (event.trigger === "zoom") weightChartHasUserZoom = event.min !== undefined;
-    }),
-    yAxis: [{ title: { text: "kg", style: { color: colors.textSoft } }, labels: { style: { color: colors.textSoft } }, gridLineColor: colors.grid }],
-  });
-  renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
+    [
+      { label: "Temperatura (°C)", color: colors.temperature, seriesIndex: 1 },
+      { label: "Vlaga (%)", color: colors.humidity, seriesIndex: 2 },
+    ],
+  );
+  const weightPresentation = createChartPresentation(
+    "weight-chart",
+    "weight",
+    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1 }],
+    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1 }],
+  );
+  climateChart = new window.uPlot(
+    createUPlotOptions("climate", climatePresentation.chartHost, climatePresentation.tooltip, climatePresentation.resetZoomButton),
+    [[], [], []],
+    climatePresentation.chartHost,
+  );
+  weightChart = new window.uPlot(
+    createUPlotOptions("weight", weightPresentation.chartHost, weightPresentation.tooltip, weightPresentation.resetZoomButton),
+    [[], []],
+    weightPresentation.chartHost,
+  );
+  climateChart.resetZoomButton = climatePresentation.resetZoomButton;
+  weightChart.resetZoomButton = weightPresentation.resetZoomButton;
+  initializeChartLegend(climateChart, "climate", climatePresentation.legendItems, climatePresentation.tooltip);
+  initializeChartLegend(weightChart, "weight", weightPresentation.legendItems, weightPresentation.tooltip);
+  initializeChartResizeObserver();
+  renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated, zoomRanges);
 }
 
-function loadHighcharts() {
-  if (window.Highcharts) return Promise.resolve();
-  if (highchartsLoading) return highchartsLoading;
-
-  highchartsLoading = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "vendor/highcharts.js";
-    script.onload = resolve;
-    script.onerror = () => reject(new Error("Highcharts ni dosegljiv."));
-    document.head.append(script);
-  });
-  return highchartsLoading;
-}
-
-function preloadLocalCharts() {
-  const loadChartsWhenIdle = () => {
-    loadHighcharts().catch((error) => console.warn("Prednalaganje lokalnih grafov ni uspelo.", error));
-  };
-
-  if ("requestIdleCallback" in window) {
-    window.requestIdleCallback(loadChartsWhenIdle, { timeout: 1500 });
-    return;
+function loadResource(resource, elementId, url, unavailableMessage) {
+  const existing = document.querySelector(`#${elementId}`);
+  if (existing?.dataset.loaded === "true" || existing?.sheet) return Promise.resolve();
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", () => {
+        existing.remove();
+        reject(new Error(unavailableMessage));
+      }, { once: true });
+    });
   }
-  window.setTimeout(loadChartsWhenIdle, 1000);
+
+  return new Promise((resolve, reject) => {
+    const element = document.createElement(resource === "style" ? "link" : "script");
+    element.id = elementId;
+    if (resource === "style") {
+      element.rel = "stylesheet";
+      element.href = url;
+    } else {
+      element.src = url;
+      element.async = true;
+    }
+    element.addEventListener("load", () => {
+      element.dataset.loaded = "true";
+      resolve();
+    }, { once: true });
+    element.addEventListener("error", () => {
+      element.remove();
+      reject(new Error(unavailableMessage));
+    }, { once: true });
+    document.head.append(element);
+  });
+}
+
+function loadUPlot() {
+  if (window.uPlot) return Promise.resolve();
+  if (uPlotLoading) return uPlotLoading;
+
+  uPlotLoading = Promise.all([
+    loadResource("style", "uplot-styles", "vendor/uPlot-1.6.32.min.css", "uPlot CSS ni dosegljiv."),
+    loadResource("script", "uplot-script", "vendor/uPlot-1.6.32.iife.min.js", "uPlot ni dosegljiv."),
+  ]).then(() => {
+    if (!window.uPlot) throw new Error("uPlot se ni pravilno naložil.");
+  }).catch((error) => {
+    uPlotLoading = undefined;
+    throw error;
+  });
+  return uPlotLoading;
 }
 
 function showDataError(error) {
@@ -2303,7 +2778,6 @@ async function useLocalDataSource() {
   };
 
   renderLocalStatus(initialStatus);
-  preloadLocalCharts();
   setInterval(() => refreshStatus().catch(showDataError), 5_000);
 }
 

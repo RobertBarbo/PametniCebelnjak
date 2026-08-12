@@ -743,7 +743,12 @@ select:disabled {
 }
 
 .chart-plot .u-over {
+  touch-action: pan-y;
   z-index: 2;
+}
+
+.chart-plot .u-over.is-panning {
+  cursor: grabbing !important;
 }
 
 .chart-plot .u-over .u-select {
@@ -759,10 +764,15 @@ select:disabled {
   z-index: 1;
 }
 
+.chart-plot .u-cursor-pt {
+  z-index: 2;
+}
+
 .chart-reset-zoom {
   position: absolute;
-  right: 550px;
+  left: 50%;
   top: 1px;
+  transform: translateX(-50%);
   z-index: 4;
   min-height: 36px;
   padding: 7px 12px;
@@ -2180,8 +2190,12 @@ body[data-dashboard-mode="cloud"][data-auth-state="signed-out"] .menu-toggle {
   }
 
   .chart-reset-zoom {
-    right: 10px;
-    top: 10px;
+    left: 50%;
+    top: 6px;
+    min-height: 30px;
+    padding: 5px 9px;
+    border-radius: 8px;
+    font-size: 0.72rem;
   }
 
   .chart-summary {

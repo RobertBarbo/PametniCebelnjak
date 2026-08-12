@@ -2037,7 +2037,69 @@ function createXZoomPlugin(chartType, resetZoomButton) {
       }],
       ready: [(chart) => {
         removeZoomListeners?.();
+        let panAnimationFrame = 0;
+        let panGesture = null;
+        let pendingPanClientX = null;
         const reset = () => resetChartZoom(chartType, chart, resetZoomButton);
+        const applyPendingPan = () => {
+          panAnimationFrame = 0;
+          if (!panGesture || pendingPanClientX === null) return;
+
+          const deltaPixels = pendingPanClientX - panGesture.startClientX;
+          const shiftedRange = -(deltaPixels / Math.max(1, panGesture.plotWidth)) * panGesture.range;
+          const applied = getAppliedChartRange();
+          let minimum = panGesture.minimum + shiftedRange;
+          let maximum = panGesture.maximum + shiftedRange;
+          if (minimum < applied.min) {
+            minimum = applied.min;
+            maximum = minimum + panGesture.range;
+          }
+          if (maximum > applied.max) {
+            maximum = applied.max;
+            minimum = maximum - panGesture.range;
+          }
+
+          chart.setScale("x", { min: minimum, max: maximum });
+          setChartZoomState(chartType, true, resetZoomButton);
+          pendingPanClientX = null;
+        };
+        const handlePanStart = (event) => {
+          if (event.button !== 0 || !event.shiftKey) return;
+
+          const minimum = Number(chart.scales.x.min);
+          const maximum = Number(chart.scales.x.max);
+          const applied = getAppliedChartRange();
+          const range = maximum - minimum;
+          const appliedRange = applied.max - applied.min;
+          if (!Number.isFinite(range) || range <= 0 || range >= appliedRange) return;
+
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          panGesture = {
+            startClientX: event.clientX,
+            minimum,
+            maximum,
+            range,
+            plotWidth: chart.over.getBoundingClientRect().width,
+          };
+          pendingPanClientX = event.clientX;
+          chart.over.classList.add("is-panning");
+        };
+        const handlePanMove = (event) => {
+          if (!panGesture) return;
+          event.preventDefault();
+          pendingPanClientX = event.clientX;
+          if (!panAnimationFrame) panAnimationFrame = requestAnimationFrame(applyPendingPan);
+        };
+        const stopPan = () => {
+          if (!panGesture) return;
+          if (panAnimationFrame && pendingPanClientX !== null) applyPendingPan();
+          else if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);
+          panAnimationFrame = 0;
+          panGesture = null;
+          pendingPanClientX = null;
+          chart.over.classList.remove("is-panning");
+        };
         const handleDoubleClick = (event) => {
           event.preventDefault();
           reset();
@@ -2048,17 +2110,210 @@ function createXZoomPlugin(chartType, resetZoomButton) {
           reset();
         };
 
+        chart.over.addEventListener("mousedown", handlePanStart, true);
+        document.addEventListener("mousemove", handlePanMove, { passive: false });
+        document.addEventListener("mouseup", stopPan);
+        window.addEventListener("blur", stopPan);
         chart.over.addEventListener("dblclick", handleDoubleClick);
         resetZoomButton?.addEventListener("click", handleResetClick);
 
         removeZoomListeners = () => {
+          chart.over.removeEventListener("mousedown", handlePanStart, true);
+          document.removeEventListener("mousemove", handlePanMove);
+          document.removeEventListener("mouseup", stopPan);
+          window.removeEventListener("blur", stopPan);
           chart.over.removeEventListener("dblclick", handleDoubleClick);
           resetZoomButton?.removeEventListener("click", handleResetClick);
+          stopPan();
         };
       }],
       destroy: [() => {
         removeZoomListeners?.();
         removeZoomListeners = null;
+      }],
+    },
+  };
+}
+
+function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
+  let removeTouchListeners = null;
+
+  return {
+    hooks: {
+      ready: [(chart) => {
+        removeTouchListeners?.();
+
+        let animationFrame = 0;
+        let gesture = null;
+        let pendingCursorTouch = null;
+        let pendingPinchTouches = null;
+
+        const copyTouch = (touch) => ({ clientX: touch.clientX, clientY: touch.clientY });
+        const copyTouches = (touches) => [copyTouch(touches[0]), copyTouch(touches[1])];
+        const clampToPlot = (value, maximum) => Math.max(0, Math.min(maximum, value));
+        const getPlotPoint = (touch, rect) => ({
+          left: clampToPlot(touch.clientX - rect.left, rect.width),
+          top: clampToPlot(touch.clientY - rect.top, rect.height),
+        });
+        const getPinchGeometry = (touches, rect) => {
+          const first = getPlotPoint(touches[0], rect);
+          const second = getPlotPoint(touches[1], rect);
+          const deltaX = second.left - first.left;
+          return {
+            midpointLeft: (first.left + second.left) / 2,
+            distance: Math.max(1, Math.abs(deltaX)),
+          };
+        };
+        const isZoomedFromAppliedRange = (minimum, maximum) => {
+          const applied = getAppliedChartRange();
+          const tolerance = Math.max(1, (applied.max - applied.min) * 0.0001);
+          return Math.abs(minimum - applied.min) > tolerance
+            || Math.abs(maximum - applied.max) > tolerance;
+        };
+        const applyPendingTouch = () => {
+          animationFrame = 0;
+
+          if (pendingPinchTouches && gesture?.mode === "pinch") {
+            const current = getPinchGeometry(pendingPinchTouches, gesture.rect);
+            const scaleFactor = gesture.distance / current.distance;
+            const applied = getAppliedChartRange();
+            const appliedRange = applied.max - applied.min;
+            const nextRange = Math.min(appliedRange, gesture.range * scaleFactor);
+            const midpointRatio = current.midpointLeft / Math.max(1, gesture.rect.width);
+            let minimum = gesture.anchorValue - midpointRatio * nextRange;
+            let maximum = minimum + nextRange;
+            if (minimum < applied.min) {
+              minimum = applied.min;
+              maximum = minimum + nextRange;
+            }
+            if (maximum > applied.max) {
+              maximum = applied.max;
+              minimum = maximum - nextRange;
+            }
+
+            if (Number.isFinite(minimum) && Number.isFinite(maximum) && maximum > minimum) {
+              chart.setScale("x", { min: minimum, max: maximum });
+              setChartZoomState(
+                chartType,
+                isZoomedFromAppliedRange(minimum, maximum),
+                resetZoomButton,
+              );
+            }
+            pendingPinchTouches = null;
+            return;
+          }
+
+          if (pendingCursorTouch && gesture?.mode === "cursor") {
+            const rect = chart.over.getBoundingClientRect();
+            const point = getPlotPoint(pendingCursorTouch, rect);
+            chart.setCursor(point);
+            pendingCursorTouch = null;
+          }
+        };
+        const scheduleTouchUpdate = () => {
+          if (!animationFrame) animationFrame = requestAnimationFrame(applyPendingTouch);
+        };
+        const beginCursorGesture = (touch) => {
+          gesture = {
+            mode: "cursor",
+            startClientX: touch.clientX,
+            startClientY: touch.clientY,
+            direction: "pending",
+          };
+          pendingPinchTouches = null;
+          pendingCursorTouch = copyTouch(touch);
+          scheduleTouchUpdate();
+        };
+        const beginPinchGesture = (event) => {
+          const rect = chart.over.getBoundingClientRect();
+          const geometry = getPinchGeometry(event.touches, rect);
+          const minimum = Number(chart.scales.x.min);
+          const maximum = Number(chart.scales.x.max);
+          if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return;
+
+          gesture = {
+            mode: "pinch",
+            rect,
+            distance: geometry.distance,
+            range: maximum - minimum,
+            anchorValue: chart.posToVal(geometry.midpointLeft, "x"),
+          };
+          pendingCursorTouch = null;
+          pendingPinchTouches = copyTouches(event.touches);
+          chart.setCursor({ left: -10, top: -10 });
+          hideChartTooltip(tooltip);
+          scheduleTouchUpdate();
+        };
+        const handleTouchStart = (event) => {
+          if (event.touches.length >= 2) {
+            event.preventDefault();
+            beginPinchGesture(event);
+          } else if (event.touches.length === 1) {
+            beginCursorGesture(event.touches[0]);
+          }
+        };
+        const handleTouchMove = (event) => {
+          if (!gesture) return;
+
+          if (event.touches.length >= 2) {
+            event.preventDefault();
+            if (gesture.mode !== "pinch") beginPinchGesture(event);
+            pendingPinchTouches = copyTouches(event.touches);
+            scheduleTouchUpdate();
+            return;
+          }
+
+          if (event.touches.length !== 1 || gesture.mode !== "cursor") return;
+          const touch = event.touches[0];
+          const deltaX = Math.abs(touch.clientX - gesture.startClientX);
+          const deltaY = Math.abs(touch.clientY - gesture.startClientY);
+          if (gesture.direction === "pending" && Math.max(deltaX, deltaY) >= 6) {
+            gesture.direction = deltaX >= deltaY ? "horizontal" : "vertical";
+          }
+          if (gesture.direction === "vertical") return;
+
+          event.preventDefault();
+          pendingCursorTouch = copyTouch(touch);
+          scheduleTouchUpdate();
+        };
+        const handleTouchEnd = (event) => {
+          if (event.touches.length >= 2) {
+            beginPinchGesture(event);
+            return;
+          }
+          if (event.touches.length === 1) {
+            beginCursorGesture(event.touches[0]);
+            return;
+          }
+
+          gesture = null;
+          pendingCursorTouch = null;
+          pendingPinchTouches = null;
+        };
+        const handleTouchCancel = () => {
+          gesture = null;
+          pendingCursorTouch = null;
+          pendingPinchTouches = null;
+          if (animationFrame) cancelAnimationFrame(animationFrame);
+          animationFrame = 0;
+        };
+
+        chart.over.addEventListener("touchstart", handleTouchStart, { passive: false });
+        document.addEventListener("touchmove", handleTouchMove, { passive: false });
+        document.addEventListener("touchend", handleTouchEnd, { passive: false });
+        document.addEventListener("touchcancel", handleTouchCancel, { passive: false });
+
+        removeTouchListeners = () => {
+          chart.over.removeEventListener("touchstart", handleTouchStart);
+          document.removeEventListener("touchmove", handleTouchMove);
+          document.removeEventListener("touchend", handleTouchEnd);
+          document.removeEventListener("touchcancel", handleTouchCancel);
+          handleTouchCancel();
+        };
+      }],
+      destroy: [() => {
+        removeTouchListeners?.();
+        removeTouchListeners = null;
       }],
     },
   };
@@ -2082,7 +2337,16 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
     cursor: {
       x: true,
       y: false,
-      points: { show: false },
+      points: {
+        show: () => document.createElement("span"),
+        size: 11,
+        width: 2,
+        fill: (_chart, seriesIndex) => {
+          if (!isClimate) return colors.weight;
+          return seriesIndex === 1 ? colors.temperature : colors.humidity;
+        },
+        stroke: colors.surface,
+      },
       drag: { x: true, y: false, setScale: true, dist: 5 },
     },
     scales: { x: { time: true, auto: false, min: xRange.min, max: xRange.max } },
@@ -2104,6 +2368,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
     ],
     plugins: [
       createXZoomPlugin(type, resetZoomButton),
+      createTouchChartPlugin(type, tooltip, resetZoomButton),
       {
         hooks: {
           setCursor: [(chart) => updateChartTooltip(chart, tooltip)],

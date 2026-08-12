@@ -4,8 +4,15 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+### Added
+
+- Navpični kurzor grafov na vsaki vidni seriji prikaže barvno točko dejanske meritve. Označevalci uporabljajo native uPlot cursor points, zato ostanejo poravnani med zoomom, premikanjem in uporabo na dotik.
+
+- Skupni lokalni in cloud uPlot graf na zaslonih na dotik podpira tekoče premikanje kurzorja in tooltipa z enim prstom ter X pinch-zoom in vodoravni premik z dvema prstoma. Na namizju `Shift` + povlek premika približano območje levo ali desno. Pan ohrani trenutni zoom, ostane znotraj izbranega časovnega obdobja in uporablja obstoječi gumb **Ponastavi zoom**.
+
 ### Fixed
 
+- Gumb **Ponastavi zoom** je na namiznem, pokončnem in ležečem mobilnem prikazu natančno centriran glede na graf; na telefonu je manjši, da prekrije manj podatkov.
 - Cloud OTA preverjanje pravilno primerja tudi izdaje `rc.N` in upošteva vrstni red `beta < rc < stabilna izdaja`; zahteva za najnovejši GitHub Release ne uporablja predpomnjenega odgovora.
 
 ## [0.1.0-rc.17] - 2026-08-11

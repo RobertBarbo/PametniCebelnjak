@@ -232,6 +232,8 @@ const OTA_ACTIVE_STATES = new Set([
   "restarting",
 ]);
 
+const OTA_TERMINAL_STATES = new Set(["installed", "ignored", "error"]);
+
 function getCssColor(variableName) {
   return getComputedStyle(document.documentElement).getPropertyValue(variableName).trim();
 }
@@ -1561,6 +1563,10 @@ function renderOtaDeviceStatus(status) {
     && targetVersion === latestFirmwareVersion;
   const staleInvalidCommand = reportedState === "error" && message === "Neveljaven OTA ukaz.";
   const state = installedAfterCloudRestart ? "installed" : (staleInvalidCommand ? "" : reportedState);
+  const requestedVersionAlreadyInstalled = state === "ignored"
+    && Boolean(targetVersion)
+    && targetVersion === latestFirmwareVersion
+    && message === "Zahtevana različica ni novejša.";
   latestOtaState = state;
   if (installedAfterCloudRestart) {
     const updatedAt = Number(status.updated_at);
@@ -1569,6 +1575,11 @@ function renderOtaDeviceStatus(status) {
       : "neznanem času";
     elements.otaDeviceStatus.textContent = `Zadnja cloud OTA posodobitev: ${installedAt}.`;
     renderOtaProgress(100);
+  } else if (requestedVersionAlreadyInstalled) {
+    elements.otaDeviceStatus.textContent = `Firmware v${targetVersion} je že nameščen.`;
+    renderOtaProgress(100);
+    availableOtaRelease = undefined;
+    elements.otaActions.hidden = true;
   } else if (staleInvalidCommand) {
     elements.otaDeviceStatus.textContent = "Zadnja cloud OTA posodobitev ni zabeležena.";
     resetOtaProgress();
@@ -1579,10 +1590,10 @@ function renderOtaDeviceStatus(status) {
     renderOtaProgress(status.progress_percent, state === "error");
   }
 
-  if (state === "error") {
+  if (OTA_TERMINAL_STATES.has(state)) {
     otaCommandPending = false;
-  } else if (state === "installed") {
-    otaCommandPending = false;
+  }
+  if (state === "installed") {
     elements.otaActions.hidden = true;
   }
   if (state === "error" && availableOtaRelease) elements.otaActions.hidden = false;

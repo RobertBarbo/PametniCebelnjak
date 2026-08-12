@@ -2278,26 +2278,63 @@ bool parseFirmwareManifest(const String &json, FirmwareManifest &manifest)
   return true;
 }
 
+enum class FirmwareReleaseStage : uint8_t {
+  Beta = 0,
+  ReleaseCandidate = 1,
+  Stable = 2,
+};
+
+struct ParsedFirmwareVersion {
+  int major = 0;
+  int minor = 0;
+  int patch = 0;
+  FirmwareReleaseStage stage = FirmwareReleaseStage::Stable;
+  int stageNumber = 0;
+};
+
+bool parseFirmwareVersion(const char *version, ParsedFirmwareVersion &parsed)
+{
+  if (version == nullptr || version[0] == '\0') return false;
+  const char *normalizedVersion = version[0] == 'v' ? version + 1 : version;
+
+  int consumedCharacters = -1;
+  if (sscanf(normalizedVersion, "%d.%d.%d-beta.%d%n", &parsed.major, &parsed.minor, &parsed.patch,
+             &parsed.stageNumber, &consumedCharacters) == 4 && normalizedVersion[consumedCharacters] == '\0') {
+    parsed.stage = FirmwareReleaseStage::Beta;
+  } else {
+    consumedCharacters = -1;
+    if (sscanf(normalizedVersion, "%d.%d.%d-rc.%d%n", &parsed.major, &parsed.minor, &parsed.patch,
+               &parsed.stageNumber, &consumedCharacters) == 4 && normalizedVersion[consumedCharacters] == '\0') {
+      parsed.stage = FirmwareReleaseStage::ReleaseCandidate;
+    } else {
+      consumedCharacters = -1;
+      parsed.stageNumber = 0;
+      if (sscanf(normalizedVersion, "%d.%d.%d%n", &parsed.major, &parsed.minor, &parsed.patch,
+                 &consumedCharacters) != 3 || normalizedVersion[consumedCharacters] != '\0') {
+        return false;
+      }
+      parsed.stage = FirmwareReleaseStage::Stable;
+    }
+  }
+
+  return parsed.major >= 0 && parsed.minor >= 0 && parsed.patch >= 0 && parsed.stageNumber >= 0;
+}
+
 bool isNewerFirmwareVersion(const char *candidateVersion, const char *currentVersion)
 {
-  int candidateMajor;
-  int candidateMinor;
-  int candidatePatch;
-  int candidateBeta;
-  int currentMajor;
-  int currentMinor;
-  int currentPatch;
-  int currentBeta;
-  const int candidateParts = sscanf(candidateVersion, "%d.%d.%d-beta.%d", &candidateMajor, &candidateMinor,
-                                    &candidatePatch, &candidateBeta);
-  const int currentParts = sscanf(currentVersion, "%d.%d.%d-beta.%d", &currentMajor, &currentMinor,
-                                  &currentPatch, &currentBeta);
-  if (candidateParts != 4 || currentParts != 4) return false;
+  ParsedFirmwareVersion candidate;
+  ParsedFirmwareVersion current;
+  if (!parseFirmwareVersion(candidateVersion, candidate) || !parseFirmwareVersion(currentVersion, current)) {
+    return false;
+  }
 
-  if (candidateMajor != currentMajor) return candidateMajor > currentMajor;
-  if (candidateMinor != currentMinor) return candidateMinor > currentMinor;
-  if (candidatePatch != currentPatch) return candidatePatch > currentPatch;
-  return candidateBeta > currentBeta;
+  if (candidate.major != current.major) return candidate.major > current.major;
+  if (candidate.minor != current.minor) return candidate.minor > current.minor;
+  if (candidate.patch != current.patch) return candidate.patch > current.patch;
+  if (candidate.stage != current.stage) {
+    return static_cast<uint8_t>(candidate.stage) > static_cast<uint8_t>(current.stage);
+  }
+  return candidate.stage != FirmwareReleaseStage::Stable && candidate.stageNumber > current.stageNumber;
 }
 
 void reportOtaStatus(const char *state, const char *targetVersion, const char *message, int progressPercent = -1)

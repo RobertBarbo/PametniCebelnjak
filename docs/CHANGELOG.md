@@ -4,6 +4,13 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.19] - 2026-08-12
+
+### Fixed
+
+- Firmware OTA primerjava zdaj pravilno razvršča izdaje `beta`, `rc` in stabilne izdaje, zato zaporedna RC posodobitev ni več napačno zavrnjena kot starejša.
+- Cloud OTA kartica po terminalnem stanju `ignored` sprosti lokalno stanje čakajočega ukaza in odstrani napis **Posodobitev poteka**. Če naprava javi, da ciljna različica ni novejša, ker je ista različica že nameščena, kartica to prikaže kot uspešno nameščeno stanje in skrije nepotrebne akcije.
+
 ## [0.1.0-rc.18] - 2026-08-12
 
 ### Added

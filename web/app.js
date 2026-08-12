@@ -1568,17 +1568,20 @@ function renderOtaDeviceStatus(status) {
     && targetVersion === latestFirmwareVersion;
   const staleInvalidCommand = reportedState === "error" && message === "Neveljaven OTA ukaz.";
   const state = installedAfterCloudRestart ? "installed" : (staleInvalidCommand ? "" : reportedState);
+  const currentVersionInstalled = state === "installed"
+    && Boolean(targetVersion)
+    && targetVersion === latestFirmwareVersion;
   const requestedVersionAlreadyInstalled = state === "ignored"
     && Boolean(targetVersion)
     && targetVersion === latestFirmwareVersion
     && message === "Zahtevana različica ni novejša.";
   latestOtaState = state;
-  if (installedAfterCloudRestart) {
+  if (currentVersionInstalled) {
     const updatedAt = Number(status.updated_at);
     const installedAt = Number.isFinite(updatedAt) && updatedAt > 0
       ? formatDashboardDateTime(new Date(updatedAt * 1000))
       : "neznanem času";
-    elements.otaDeviceStatus.textContent = `Zadnja cloud OTA posodobitev: ${installedAt}.`;
+    elements.otaDeviceStatus.textContent = `Zadnja uspešna OTA posodobitev: ${installedAt}.`;
     renderOtaProgress(100);
   } else if (requestedVersionAlreadyInstalled) {
     elements.otaDeviceStatus.textContent = `Različica v${targetVersion} je že nameščena.`;

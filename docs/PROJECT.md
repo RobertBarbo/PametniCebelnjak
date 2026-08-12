@@ -105,7 +105,7 @@ Cloud nadzorna plošča v pogledu **Posodobitev naprave** vedno prikaže trenutn
 
 Če uporabnik ni prijavljen ali ne izbere panja, cloud OTA kartica ostane skrita brez dodatnega praznega obvestila.
 
-Po kliku gumba **Posodobi napravo** cloud vmesnik oba OTA gumba zaklene do uspeha ali napake. Zaklep ostane aktiven tudi po osvežitvi strani, ker se določi iz stanja OTA v Firebase. Besedilo kartice prikazuje trenutno fazo in njen delež, oznaka ob vrstici napredka pa vedno pomeni skupni napredek celotne OTA posodobitve. Ko se po cloud OTA naprava znova zažene z zahtevano verzijo, kartica prikaže datum in uro zadnje uspešne cloud OTA posodobitve. Lokalna ElegantOTA in razvojna ArduinoOTA tega podatka namenoma ne spreminjata.
+Po kliku gumba **Posodobi napravo** cloud vmesnik oba OTA gumba zaklene do uspeha ali napake. Zaklep ostane aktiven tudi po osvežitvi strani, ker se določi iz stanja OTA v Firebase. Besedilo kartice prikazuje trenutno fazo in njen delež, oznaka ob vrstici napredka pa vedno pomeni skupni napredek celotne OTA posodobitve. Ko se po cloud OTA naprava znova zažene z zahtevano verzijo, kartica pri končnem stanju `installed` prikaže datum in uro zadnje uspešne cloud OTA posodobitve iz polja `updated_at`. Lokalna ElegantOTA in razvojna ArduinoOTA tega podatka namenoma ne spreminjata.
 
 Pot `commands/firmware_update` je v beta različici skupna tudi za druge cloud ukaze. Neveljaven ali nepodprt ukaz se samo odstrani in izpiše v serijski monitor, brez prepisa zadnjega OTA statusa.
 

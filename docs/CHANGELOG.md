@@ -2,7 +2,11 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
-## Unreleased
+## [0.1.0-rc.21] - 2026-08-12
+
+### Fixed
+
+- Cloud OTA kartica pri končnem stanju `installed` ponovno prikaže datum in uro zadnje uspešne cloud OTA posodobitve iz polja `updated_at`.
 
 ## [0.1.0-rc.20] - 2026-08-12
 

@@ -4,6 +4,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.18] - 2026-08-12
+
 ### Added
 
 - Navpični kurzor grafov na vsaki vidni seriji prikaže barvno točko dejanske meritve. Označevalci uporabljajo native uPlot cursor points, zato ostanejo poravnani med zoomom, premikanjem in uporabo na dotik.
@@ -12,6 +14,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Enominutni SD zapis uporablja čas začetka 10-sekundnega merilnega cikla namesto časa po različno dolgem branju BME680 in HX711. Prag 60 sekund zato ne zgreši za nekaj milisekund in ne prestavi zapisa na naslednji cikel po 70 sekundah.
 - Gumb **Ponastavi zoom** je na namiznem, pokončnem in ležečem mobilnem prikazu natančno centriran glede na graf; na telefonu je manjši, da prekrije manj podatkov.
 - Cloud OTA preverjanje pravilno primerja tudi izdaje `rc.N` in upošteva vrstni red `beta < rc < stabilna izdaja`; zahteva za najnovejši GitHub Release ne uporablja predpomnjenega odgovora.
 

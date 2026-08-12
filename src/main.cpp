@@ -5794,7 +5794,7 @@ void updateDeviceStatus()
                "updateDeviceStatus");
 }
 
-void sendMeasurements()
+void sendMeasurements(uint32_t measurementCycleMillis)
 {
   Measurement measurement;
   if (!createMeasurement(measurement)) {
@@ -5819,12 +5819,12 @@ void sendMeasurements()
            measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
   object_t measurements(jsonPayload);
 
-  const uint32_t currentMillis = millis();
   const bool shouldArchiveMeasurement = lastSDMeasurementMillis == 0 ||
-                                        currentMillis - lastSDMeasurementMillis >= SD_MEASUREMENT_INTERVAL_MS;
+                                         measurementCycleMillis - lastSDMeasurementMillis >=
+                                             SD_MEASUREMENT_INTERVAL_MS;
   bool savedToSDCard = false;
   if (shouldArchiveMeasurement) {
-    lastSDMeasurementMillis = currentMillis;
+    lastSDMeasurementMillis = measurementCycleMillis;
     savedToSDCard = appendToSDCard(measurement);
     if (savedToSDCard) {
       cloudSyncCaughtUp = false;
@@ -5948,7 +5948,7 @@ void loop()
     // Firebase kanal ne more preskoÄiti 10-sekundne cloud posodobitve.
     if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {
       lastMeasurementMillis = currentMillis;
-      sendMeasurements();
+      sendMeasurements(currentMillis);
     }
     processPendingLatestMeasurement();
 

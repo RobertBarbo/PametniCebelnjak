@@ -4,6 +4,16 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## Unreleased
 
+## [0.1.0-rc.20] - 2026-08-12
+
+### Changed
+
+- Cloud in lokalni zavihek **Posodobitve** prikazujeta trenutno različico naprave ter uporabljata uporabniku prijazne izraze **Posodobitev naprave**, **Orodje za posodobitev**, **programska oprema** in **lokalni spletni vmesnik**. Ime uporabljene knjižnice in oznaka razvojne ploščice ostajata samo v tehnični dokumentaciji.
+
+### Fixed
+
+- Mobilna gesta z dvema prstoma po prvem jasnem premiku zaklene namen na vodoravni premik ali pinch-zoom do dviga prstov. Enakomeren premik prstov zato ne spreminja več povečave zaradi majhnih nenamernih sprememb njune razdalje.
+
 ## [0.1.0-rc.19] - 2026-08-12
 
 ### Fixed

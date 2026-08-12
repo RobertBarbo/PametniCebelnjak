@@ -118,6 +118,7 @@ const elements = {
   otaSection: document.querySelector("#ota-section"),
   otaCard: document.querySelector("#ota-card"),
   otaLabel: document.querySelector("#ota-label"),
+  otaCurrentVersion: document.querySelector("#ota-current-version"),
   otaVersion: document.querySelector("#ota-version"),
   otaDetail: document.querySelector("#ota-detail"),
   otaDeviceStatus: document.querySelector("#ota-device-status"),
@@ -130,6 +131,7 @@ const elements = {
   otaIgnore: document.querySelector("#ota-ignore"),
   otaSafetyNotice: document.querySelector("#ota-safety-notice"),
   localManualUpdateSection: document.querySelector("#local-manual-update-section"),
+  localCurrentVersion: document.querySelector("#local-current-version"),
   localElegantOtaLink: document.querySelector("#local-elegantota-link"),
   localOtaWarningDialog: document.querySelector("#local-ota-warning-dialog"),
   localOtaWarningCancel: document.querySelector("#local-ota-warning-cancel"),
@@ -215,8 +217,8 @@ const OTA_STATE_LABELS = {
   installing: "Namestitev posodobitve",
   downloading_filesystem: "Prenašanje lokalne strani",
   installing_filesystem: "Nameščanje lokalne strani",
-  downloading: "Prenašanje firmware-a",
-  verifying: "Preverjanje firmware-a",
+  downloading: "Prenašanje programske opreme",
+  verifying: "Preverjanje programske opreme",
   restarting: "Ponovni zagon naprave",
   installed: "Posodobitev je uspešna",
   ignored: "Posodobitev je prezrta",
@@ -964,7 +966,7 @@ function renderProvisioning(network) {
   elements.connectedWifiSsid.textContent = isConnected && network?.station_ssid ? network.station_ssid : "—";
 
   if (isConnecting) {
-    elements.provisioningDescription.textContent = `ESP32 preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
+    elements.provisioningDescription.textContent = `Naprava preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
   } else if (isConnected) {
     elements.provisioningDescription.textContent = network?.station_ssid
       ? `Naprava je povezana v Wi‑Fi omrežje ${network.station_ssid}. Nastavitve lahko po potrebi spremeniš ali izbrišeš.`
@@ -974,7 +976,7 @@ function renderProvisioning(network) {
   } else if (connectionState === "failed") {
     elements.provisioningDescription.textContent = `Povezava z Wi‑Fi ni uspela. AP${accessPointName} ostaja na voljo za ponoven poskus.`;
   } else if (isUsingAccessPoint) {
-    elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko ESP32${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
+    elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko naprave${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
   }
 
   elements.wifiScan.disabled = isConnecting;
@@ -1097,8 +1099,8 @@ function renderHistoryManagementStatus(status) {
   }
 
   const messages = {
-    queued: "Ukaz za brisanje čaka, da ga ESP32 prevzame.",
-    deleting: "ESP32 briše SD dnevnik in cloud zgodovino …",
+    queued: "Ukaz za brisanje čaka, da ga naprava prevzame.",
+    deleting: "Naprava briše SD dnevnik in cloud zgodovino …",
     completed: Number.isFinite(updatedAt) && updatedAt > 0
       ? `Zadnji ukaz za brisanje je bil uspešno zaključen: ${formatDashboardDateTime(new Date(updatedAt * 1000))}.`
       : "Zadnji ukaz za brisanje je bil uspešno zaključen.",
@@ -1116,7 +1118,7 @@ function confirmPermanentHistoryDeletion(message) {
 async function deleteDeviceHistory() {
   if (!cloudDevicePath || !firebaseDatabase) return;
   if (!isDeviceOnline(latestDeviceStatus)) {
-    elements.historyManagementStatus.textContent = "Za popoln izbris mora biti ESP32 online.";
+    elements.historyManagementStatus.textContent = "Za popoln izbris mora biti naprava online.";
     return;
   }
   if (!isSDCardOperational()) {
@@ -1127,14 +1129,14 @@ async function deleteDeviceHistory() {
   if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
 
   elements.deleteDeviceHistory.disabled = true;
-  elements.historyManagementStatus.textContent = "Ukaz za popoln izbris pošiljam ESP32 napravi …";
+  elements.historyManagementStatus.textContent = "Ukaz za popoln izbris pošiljam napravi …";
   try {
     const { database, ref, set } = firebaseDatabase;
     await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
       action: "delete_history",
       requested_at: Math.floor(Date.now() / 1000),
     });
-    elements.historyManagementStatus.textContent = "Ukaz je poslan. ESP32 ga preveri v največ 30 sekundah.";
+    elements.historyManagementStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
   } catch (error) {
     console.error(error);
     elements.historyManagementStatus.textContent = "Pošiljanje ukaza za brisanje ni uspelo.";
@@ -1163,7 +1165,7 @@ async function saveWiFiConfiguration(event) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Nastavitev Wi‑Fi ni uspela");
 
-    elements.wifiFormStatus.textContent = "ESP32 preverja povezavo. Nastavitve shrani šele po uspehu …";
+    elements.wifiFormStatus.textContent = "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …";
   } catch (error) {
     elements.wifiFormStatus.textContent = error.message;
     submitButton.disabled = false;
@@ -1228,10 +1230,10 @@ async function scanWiFiNetworks() {
 }
 
 async function forgetWiFiConfiguration() {
-  if (!window.confirm("Izbrišem shranjeni Wi‑Fi? ESP32 bo nato odprl svojo dostopno točko.")) return;
+  if (!window.confirm("Izbrišem shranjeni Wi‑Fi? Naprava bo nato odprla svojo dostopno točko.")) return;
 
   elements.wifiForget.disabled = true;
-  elements.wifiFormStatus.textContent = "Odstranjujem shranjeni Wi‑Fi. Nato se poveži na AP ESP32 …";
+  elements.wifiFormStatus.textContent = "Odstranjujem shranjeni Wi‑Fi. Nato se poveži na dostopno točko naprave …";
   try {
     const response = await fetch("/api/wifi", { method: "DELETE" });
     const result = await response.json();
@@ -1267,7 +1269,7 @@ async function resetCloudHistorySynchronization() {
         action: "sync_history",
         requested_at: Math.floor(Date.now() / 1000),
       });
-      elements.cloudSyncStatus.textContent = "Ukaz je poslan. ESP32 ga preveri v največ 30 sekundah.";
+      elements.cloudSyncStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
     }
   } catch (error) {
     elements.cloudSyncStatus.textContent = error.message;
@@ -1311,7 +1313,7 @@ async function requestLoadCellTare() {
   const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
   button.disabled = true;
   statusElement.textContent = isLocalDashboard
-    ? "Tariranje pošiljam ESP32 …"
+    ? "Tariranje pošiljam napravi …"
     : "Ukaz za tariranje pošiljam napravi …";
   try {
     if (isLocalDashboard) {
@@ -1320,7 +1322,7 @@ async function requestLoadCellTare() {
       if (!response.ok) throw new Error(result.error ?? "Tariranja ni bilo mogoče začeti");
     } else {
       if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
-        throw new Error("Za tariranje mora biti izbrani ESP32 online");
+        throw new Error("Za tariranje mora biti izbrana naprava online");
       }
       const { database, ref, set } = firebaseDatabase;
       await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
@@ -1363,7 +1365,7 @@ async function saveBme680Calibration(event) {
     bme680CalibrationRequestedAt = Math.floor(Date.now() / 1000);
     bme680CalibrationPendingUntil = bme680CalibrationRequestedAt + BME680_CALIBRATION_TIMEOUT_SECONDS;
     statusElement.textContent = isLocalDashboard
-      ? "Kalibracijo pošiljam ESP32 …"
+      ? "Kalibracijo pošiljam napravi …"
       : "Ukaz za kalibracijo pošiljam napravi …";
     if (isLocalDashboard) {
       const body = new URLSearchParams({
@@ -1379,7 +1381,7 @@ async function saveBme680Calibration(event) {
       if (!response.ok) throw new Error(result.error ?? "Kalibracije BME680 ni bilo mogoče začeti");
     } else {
       if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
-        throw new Error("Za kalibracijo mora biti izbrani ESP32 online");
+        throw new Error("Za kalibracijo mora biti izbrana naprava online");
       }
       const { database, ref, set } = firebaseDatabase;
       await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
@@ -1448,7 +1450,7 @@ async function setDeviceTime(event) {
   try {
     await sendDeviceTimeCommand("set", timestamp);
     elements.deviceTimeStatus.textContent = isLocalDashboard
-      ? "Nastavitev je sprejeta. ESP32 bo posodobil sistemsko uro in DS3231."
+      ? "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231."
       : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.";
   } catch (error) {
     elements.deviceTimeStatus.textContent = error.message;
@@ -1507,6 +1509,9 @@ function renderSDStatus(status) {
 
 function renderFirmwareVersion(status) {
   latestFirmwareVersion = status?.version ?? "";
+  const displayedVersion = latestFirmwareVersion ? `v${latestFirmwareVersion}` : "—";
+  elements.otaCurrentVersion.textContent = displayedVersion;
+  elements.localCurrentVersion.textContent = displayedVersion;
   if (!isLocalDashboard && latestOtaStatus) renderOtaDeviceStatus(latestOtaStatus);
   elements.firmwareVersion.textContent = latestFirmwareVersion || "—";
   if (!isLocalDashboard && latestFirmwareVersion) checkForFirmwareRelease();
@@ -1576,7 +1581,7 @@ function renderOtaDeviceStatus(status) {
     elements.otaDeviceStatus.textContent = `Zadnja cloud OTA posodobitev: ${installedAt}.`;
     renderOtaProgress(100);
   } else if (requestedVersionAlreadyInstalled) {
-    elements.otaDeviceStatus.textContent = `Firmware v${targetVersion} je že nameščen.`;
+    elements.otaDeviceStatus.textContent = `Različica v${targetVersion} je že nameščena.`;
     renderOtaProgress(100);
     availableOtaRelease = undefined;
     elements.otaActions.hidden = true;
@@ -1606,7 +1611,7 @@ function showOtaAvailability(release) {
   const isIgnored = ignoredVersion === release.version;
   elements.otaLabel.textContent = isIgnored ? "Posodobitev prezrta" : "Na voljo je nova različica";
   elements.otaVersion.textContent = `v${release.version}`;
-  elements.otaDetail.textContent = release.name || "Nova firmware izdaja je pripravljena na GitHub Releases.";
+  elements.otaDetail.textContent = release.name || "Nova različica naprave je pripravljena na GitHub Releases.";
   elements.otaActions.hidden = isIgnored;
   if (isIgnored) elements.otaDeviceStatus.textContent = "Prezrto v tem brskalniku.";
   updateOtaActionState();
@@ -1634,7 +1639,7 @@ async function checkForFirmwareRelease() {
       showOtaAvailability({ version: releaseVersion, name: release.name });
     } else {
       availableOtaRelease = undefined;
-      elements.otaLabel.textContent = "Firmware je posodobljen";
+      elements.otaLabel.textContent = "Naprava je posodobljena";
       elements.otaVersion.textContent = `v${latestFirmwareVersion}`;
       elements.otaDetail.textContent = "Ni navoljo novejše različice.";
       elements.otaActions.hidden = true;
@@ -1663,7 +1668,7 @@ async function requestFirmwareUpdate() {
       target_version: availableOtaRelease.version,
       requested_at: Math.floor(Date.now() / 1000),
     });
-    elements.otaDeviceStatus.textContent = "Ukaz je poslan. ESP32 ga preveri v največ 30 sekundah.";
+    elements.otaDeviceStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
   } catch (error) {
     console.error(error);
     elements.otaDeviceStatus.textContent = "Pošiljanje OTA ukaza ni uspelo.";
@@ -2157,7 +2162,7 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
         let animationFrame = 0;
         let gesture = null;
         let pendingCursorTouch = null;
-        let pendingPinchTouches = null;
+        let pendingTwoFingerTouches = null;
 
         const copyTouch = (touch) => ({ clientX: touch.clientX, clientY: touch.clientY });
         const copyTouches = (touches) => [copyTouch(touches[0]), copyTouch(touches[1])];
@@ -2166,7 +2171,7 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
           left: clampToPlot(touch.clientX - rect.left, rect.width),
           top: clampToPlot(touch.clientY - rect.top, rect.height),
         });
-        const getPinchGeometry = (touches, rect) => {
+        const getTwoFingerGeometry = (touches, rect) => {
           const first = getPlotPoint(touches[0], rect);
           const second = getPlotPoint(touches[1], rect);
           const deltaX = second.left - first.left;
@@ -2184,11 +2189,30 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
         const applyPendingTouch = () => {
           animationFrame = 0;
 
-          if (pendingPinchTouches && gesture?.mode === "pinch") {
-            const current = getPinchGeometry(pendingPinchTouches, gesture.rect);
-            const scaleFactor = gesture.distance / current.distance;
+          if (pendingTwoFingerTouches && gesture?.mode === "two-finger") {
+            const current = getTwoFingerGeometry(pendingTwoFingerTouches, gesture.rect);
+            const distanceDelta = current.distance - gesture.distance;
+            const midpointDelta = current.midpointLeft - gesture.midpointLeft;
+            const zoomThreshold = Math.max(10, gesture.distance * 0.06);
+            const panThreshold = 8;
+
+            if (gesture.intent === "pending") {
+              const isPinch = Math.abs(distanceDelta) >= zoomThreshold
+                && Math.abs(distanceDelta) > Math.abs(midpointDelta) * 1.2;
+              const isPan = Math.abs(midpointDelta) >= panThreshold
+                && Math.abs(distanceDelta) < Math.max(zoomThreshold, Math.abs(midpointDelta) * 0.35);
+              if (isPinch) gesture.intent = "pinch";
+              else if (isPan) gesture.intent = "pan";
+            }
+
+            if (gesture.intent === "pending") {
+              pendingTwoFingerTouches = null;
+              return;
+            }
+
             const applied = getAppliedChartRange();
             const appliedRange = applied.max - applied.min;
+            const scaleFactor = gesture.intent === "pinch" ? gesture.distance / current.distance : 1;
             const nextRange = Math.min(appliedRange, gesture.range * scaleFactor);
             const midpointRatio = current.midpointLeft / Math.max(1, gesture.rect.width);
             let minimum = gesture.anchorValue - midpointRatio * nextRange;
@@ -2210,7 +2234,7 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
                 resetZoomButton,
               );
             }
-            pendingPinchTouches = null;
+            pendingTwoFingerTouches = null;
             return;
           }
 
@@ -2231,26 +2255,28 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
             startClientY: touch.clientY,
             direction: "pending",
           };
-          pendingPinchTouches = null;
+          pendingTwoFingerTouches = null;
           pendingCursorTouch = copyTouch(touch);
           scheduleTouchUpdate();
         };
-        const beginPinchGesture = (event) => {
+        const beginTwoFingerGesture = (event) => {
           const rect = chart.over.getBoundingClientRect();
-          const geometry = getPinchGeometry(event.touches, rect);
+          const geometry = getTwoFingerGeometry(event.touches, rect);
           const minimum = Number(chart.scales.x.min);
           const maximum = Number(chart.scales.x.max);
           if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return;
 
           gesture = {
-            mode: "pinch",
+            mode: "two-finger",
+            intent: "pending",
             rect,
             distance: geometry.distance,
+            midpointLeft: geometry.midpointLeft,
             range: maximum - minimum,
             anchorValue: chart.posToVal(geometry.midpointLeft, "x"),
           };
           pendingCursorTouch = null;
-          pendingPinchTouches = copyTouches(event.touches);
+          pendingTwoFingerTouches = copyTouches(event.touches);
           chart.setCursor({ left: -10, top: -10 });
           hideChartTooltip(tooltip);
           scheduleTouchUpdate();
@@ -2258,7 +2284,7 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
         const handleTouchStart = (event) => {
           if (event.touches.length >= 2) {
             event.preventDefault();
-            beginPinchGesture(event);
+            beginTwoFingerGesture(event);
           } else if (event.touches.length === 1) {
             beginCursorGesture(event.touches[0]);
           }
@@ -2268,8 +2294,8 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
 
           if (event.touches.length >= 2) {
             event.preventDefault();
-            if (gesture.mode !== "pinch") beginPinchGesture(event);
-            pendingPinchTouches = copyTouches(event.touches);
+            if (gesture.mode !== "two-finger") beginTwoFingerGesture(event);
+            pendingTwoFingerTouches = copyTouches(event.touches);
             scheduleTouchUpdate();
             return;
           }
@@ -2289,7 +2315,12 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
         };
         const handleTouchEnd = (event) => {
           if (event.touches.length >= 2) {
-            beginPinchGesture(event);
+            if (gesture?.mode !== "two-finger") beginTwoFingerGesture(event);
+            return;
+          }
+          if (gesture?.mode === "two-finger" && event.touches.length === 1) {
+            gesture = { mode: "wait-for-release" };
+            pendingTwoFingerTouches = null;
             return;
           }
           if (event.touches.length === 1) {
@@ -2299,12 +2330,12 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
 
           gesture = null;
           pendingCursorTouch = null;
-          pendingPinchTouches = null;
+          pendingTwoFingerTouches = null;
         };
         const handleTouchCancel = () => {
           gesture = null;
           pendingCursorTouch = null;
-          pendingPinchTouches = null;
+          pendingTwoFingerTouches = null;
           if (animationFrame) cancelAnimationFrame(animationFrame);
           animationFrame = 0;
         };
@@ -2968,7 +2999,7 @@ async function claimDevice(event) {
     try {
       await remove(ref(database, claimPath));
     } catch {}
-    elements.claimDeviceStatus.textContent = "Registracija ni uspela. Preveri ID, kodo in ali je ESP32 že povezan v Firebase.";
+    elements.claimDeviceStatus.textContent = "Registracija ni uspela. Preveri ID, kodo in ali je naprava že povezana v Firebase.";
   }
 }
 
@@ -3075,8 +3106,8 @@ async function useLocalDataSource() {
   applyBrandAssets(true);
   document.body.dataset.dashboardMode = "local";
   delete document.body.dataset.authState;
-  elements.updatesHeading.textContent = "Lokalna posodobitev";
-  elements.updatesSubtitle.textContent = "Odpri ElegantOTA za lokalno posodobitev firmware-a ali LittleFS.";
+  elements.updatesHeading.textContent = "Ročna posodobitev naprave";
+  elements.updatesSubtitle.textContent = "Brez interneta namesti programsko opremo ali lokalni spletni vmesnik.";
   elements.otaSection.hidden = true;
   elements.localManualUpdateSection.hidden = false;
   elements.localElegantOtaLink.href = "/update";
@@ -3138,7 +3169,7 @@ async function useLocalDataSource() {
     } catch (error) {
       console.error(error);
       renderHistory([], true);
-      elements.historySummary.textContent = "Lokalne zgodovine ni bilo mogoče prebrati; povezava z ESP32 ostaja aktivna.";
+      elements.historySummary.textContent = "Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.";
     }
   };
 
@@ -3151,7 +3182,7 @@ async function useFirebaseDataSource() {
   applyBrandAssets(false);
   document.body.dataset.dashboardMode = "cloud";
   document.body.dataset.authState = "loading";
-  elements.updatesHeading.textContent = "Firmware OTA";
+  elements.updatesHeading.textContent = "Posodobitev naprave";
   elements.updatesSubtitle.textContent = "Varna namestitev nove različice na izbrano napravo.";
   elements.updatesNavigationItem.hidden = false;
   elements.localManualUpdateSection.hidden = true;

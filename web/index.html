@@ -102,8 +102,8 @@
 
         <div class="overview-links">
           <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Podrobnosti naprave</strong></button>
-          <button class="quick-link cloud-only-link" type="button" data-view-target="updates"><span>Firmware</span><strong>Preveri OTA posodobitve</strong></button>
-          <button class="quick-link local-only-link" type="button" data-view-target="updates" hidden><span>Firmware</span><strong>Ročna lokalna posodobitev</strong></button>
+          <button class="quick-link cloud-only-link" type="button" data-view-target="updates"><span>Različica</span><strong>Preveri posodobitve</strong></button>
+          <button class="quick-link local-only-link" type="button" data-view-target="updates" hidden><span>Različica</span><strong>Ročna posodobitev naprave</strong></button>
         </div>
       </section>
 
@@ -190,7 +190,7 @@
             <div>
               <p class="eyebrow">Nastavitev omrežja</p>
               <h2 id="provisioning-heading">Poveži panj z Wi‑Fi</h2>
-              <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko ESP32.</p>
+              <p id="provisioning-description" class="subtitle">Povezan si neposredno na dostopno točko naprave.</p>
               <div class="provisioning-details">
                 <section class="connected-network-details" aria-labelledby="connected-network-heading">
                   <p id="connected-network-heading">Povezano Wi‑Fi omrežje</p>
@@ -222,7 +222,7 @@
             <article class="status-card"><p>Wi‑Fi signal</p><strong id="wifi-signal">—</strong></article>
             <article class="status-card"><p>Uptime</p><strong id="uptime">—</strong></article>
             <article class="status-card device-state-card" id="device-state-card"><p>Stanje naprave</p><strong class="device-status-label"><span class="device-status-dot" id="device-status-dot" aria-hidden="true"></span><span id="device-online-status" aria-live="polite">Čakam na stanje …</span></strong><small id="device-last-seen">—</small></article>
-            <article class="status-card"><p>Firmware</p><strong id="firmware-version">—</strong></article>
+            <article class="status-card"><p>Različica naprave</p><strong id="firmware-version">—</strong></article>
             <article class="status-card"><p>ID naprave</p><strong id="device-id">—</strong></article>
             <article class="status-card" id="local-activation-card" hidden><p>Aktivacijska koda</p><strong id="local-activation-code">—</strong><small>Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.</small></article>
             <article class="status-card sd-card"><p>SD kartica</p><strong id="sd-status">—</strong><small id="sd-status-detail">Čakam na stanje …</small></article>
@@ -257,7 +257,7 @@
           <section class="load-cell-tare-control" data-cloud-device-management aria-labelledby="cloud-load-cell-tare-heading" hidden>
             <p class="eyebrow">Tehtnica</p>
             <h3 id="cloud-load-cell-tare-heading">Tariranje tehtnice</h3>
-            <p class="muted">Odstrani panj in vse uteži s ploščadi. ESP32 bo prazno stanje shranil kot 0,00 kg.</p>
+            <p class="muted">Odstrani panj in vse uteži s ploščadi. Naprava bo prazno stanje shranila kot 0,00 kg.</p>
             <button class="secondary-button" id="cloud-load-cell-tare" type="button" disabled>Tariraj tehtnico</button>
             <p class="form-status" id="cloud-load-cell-tare-status" aria-live="polite">Izberi online panj za tariranje.</p>
           </section>
@@ -320,13 +320,14 @@
 
       <section class="app-view" data-view-panel="updates" aria-labelledby="updates-heading" hidden>
         <div class="page-heading">
-          <div><p class="eyebrow">Posodobitve</p><h1 id="updates-heading">Firmware OTA</h1><p class="subtitle" id="updates-subtitle">Varna namestitev nove različice na izbrano napravo.</p></div>
+          <div><p class="eyebrow">Posodobitve</p><h1 id="updates-heading">Posodobitev naprave</h1><p class="subtitle" id="updates-subtitle">Varna namestitev nove različice na izbrano napravo.</p></div>
         </div>
         <section class="ota-section" id="ota-section" aria-labelledby="ota-heading" hidden>
           <h2 class="sr-only" id="ota-heading">Razpoložljiva OTA posodobitev</h2>
           <article class="ota-card surface" id="ota-card">
             <div>
-              <p class="ota-label" id="ota-label">Preverjam izdaje firmware-a …</p>
+              <p class="ota-current-version">Trenutna različica naprave: <strong id="ota-current-version">—</strong></p>
+              <p class="ota-label" id="ota-label">Preverjam razpoložljive različice …</p>
               <strong id="ota-version">—</strong>
               <p class="ota-detail" id="ota-detail">GitHub Release bo prikazan, ko je na voljo.</p>
               <small id="ota-device-status">Naprava še ni prejela OTA ukaza.</small>
@@ -346,12 +347,13 @@
           <article class="surface local-manual-update-card">
             <div>
               <p class="ota-label">Brez interneta</p>
-              <h2 id="local-manual-update-heading">ElegantOTA</h2>
-              <p class="muted">Na ločeni strani izberi <strong>Firmware</strong> za <code>firmware.bin</code> ali <strong>Filesystem</strong> za <code>littlefs.bin</code>. Po uspešni posodobitvi se naprava znova zažene.</p>
+              <h2 id="local-manual-update-heading">Orodje za posodobitev</h2>
+              <p class="ota-current-version">Trenutna različica naprave: <strong id="local-current-version">—</strong></p>
+              <p class="muted">Na ločeni strani izberi <strong>programsko opremo</strong> za <code>firmware.bin</code> ali <strong>lokalni spletni vmesnik</strong> za <code>littlefs.bin</code>. Po uspešni posodobitvi se naprava znova zažene.</p>
             </div>
             <div class="local-elegantota-actions">
-              <a class="primary-button" id="local-elegantota-link" href="/update">Odpri ElegantOTA</a>
-              <small>Uporabi samo datoteke iz zaupanja vredne izdaje za ta ESP32-S3. Firmware in LittleFS namesti ločeno.</small>
+              <a class="primary-button" id="local-elegantota-link" href="/update">Odpri orodje za posodobitev</a>
+              <small>Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.</small>
             </div>
           </article>
         </section>
@@ -405,11 +407,11 @@
       <section class="ota-warning-dialog-content">
         <p class="eyebrow">Pred lokalno posodobitvijo</p>
         <h2 id="local-ota-warning-title">Naprave med posodobitvijo ne izklapljaj</h2>
-        <p class="muted">Odprl se bo portal ElegantOTA. Izberi samo zaupanja vredno datoteko <code>firmware.bin</code> ali <code>littlefs.bin</code> za ta ESP32-S3.</p>
+        <p class="muted">Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko <code>firmware.bin</code> ali <code>littlefs.bin</code> za to napravo.</p>
         <p class="ota-warning-callout"><strong>Pomembno:</strong> med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.</p>
         <div class="ota-warning-dialog-actions">
           <button class="secondary-button" id="local-ota-warning-cancel" type="button">Prekliči</button>
-          <button class="primary-button" id="local-ota-warning-proceed" type="button">Nadaljuj v ElegantOTA</button>
+          <button class="primary-button" id="local-ota-warning-proceed" type="button">Nadaljuj na posodobitev</button>
         </div>
       </section>
     </dialog>

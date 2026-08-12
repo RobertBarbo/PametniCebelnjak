@@ -1614,6 +1614,16 @@ select:focus {
   text-transform: uppercase;
 }
 
+.ota-current-version {
+  margin: 0 0 18px;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.ota-current-version strong {
+  color: var(--text);
+}
+
 #ota-version {
   display: block;
   margin-bottom: 8px;

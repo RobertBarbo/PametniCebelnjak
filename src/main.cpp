@@ -71,11 +71,13 @@ constexpr uint32_t LOCAL_HISTORY_LOOP_BUDGET_MS = 8;
 constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000;
+constexpr uint32_t WIFI_RECONNECT_ATTEMPT_TIMEOUT_MS = 8000;
 constexpr uint32_t NETWORK_SERVICE_STABILIZATION_MS = 2000;
 constexpr uint32_t NTP_FIREBASE_GUARD_MS = 3000;
 constexpr uint32_t NTP_SYNC_TIMEOUT_MS = 30000;
 constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 10000;
 constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;
+constexpr uint32_t WIFI_CONNECTION_REQUEST_DELAY_MS = 500;
 constexpr uint32_t WIFI_RADIO_RESTART_DELAY_MS = 1000;
 constexpr uint32_t ACCESS_POINT_START_RETRY_MS = 5000;
 constexpr uint32_t ACCESS_POINT_HEALTH_CHECK_INTERVAL_MS = 30000;
@@ -398,11 +400,13 @@ volatile uint32_t localAssetsHavePriorityUntilMillis = 0;
 volatile uint32_t localHistoryHavePriorityUntilMillis = 0;
 uint32_t accessPointShutdownMillis = 0;
 uint32_t scheduledWiFiSettingsClearMillis = 0;
+uint32_t queuedWiFiConnectionStartMillis = 0;
 uint32_t scheduledAccessPointStartMillis = 0;
 uint32_t lastAccessPointHealthCheckMillis = 0;
 uint32_t wifiConnectionStartedMillis = 0;
 uint32_t lastWiFiReconnectAttemptMillis = 0;
 uint32_t wifiConnectionLostMillis = 0;
+uint32_t savedWiFiReconnectStartedMillis = 0;
 uint32_t cloudSyncFileOffset = 0;
 uint32_t cloudSyncPendingFileOffset = 0;
 uint8_t cloudSyncWritesSincePersist = 0;
@@ -473,9 +477,13 @@ ComponentStatus loadCellStatus;
 ComponentStatus rtcStatus;
 ComponentStatus sdCardStatus;
 uint8_t wifiReconnectAttempts = 0;
+bool savedWiFiReconnectAttemptActive = false;
 WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
 String pendingWiFiSsid;
 String pendingWiFiPassword;
+volatile bool wifiConnectionRequestQueued = false;
+char queuedWiFiSsid[33] = {};
+char queuedWiFiPassword[64] = {};
 time_t lastCloudSyncedTimestamp = 0;
 Measurement latestMeasurement{};
 Measurement cloudSyncPendingMeasurement{};
@@ -628,6 +636,7 @@ time_t pendingTimeCommandTimestamp = 0;
 time_t lastTimeSynchronizationTimestamp = 0;
 portMUX_TYPE timeCommandMux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE bme680CalibrationMux = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE wifiProvisioningRequestMux = portMUX_INITIALIZER_UNLOCKED;
 float bme680TemperatureOffsetC = 0.0F;
 float bme680HumidityOffsetPercent = 0.0F;
 float pendingBme680TemperatureOffsetC = 0.0F;
@@ -1559,7 +1568,14 @@ void initializeWiFiEventHandlers()
         stationGotIpAddress = false;
         stationGotIpMillis = 0;
         if (wifiConnectionLostMillis == 0) wifiConnectionLostMillis = millis();
-        Serial.println("Wi-Fi station disconnected.");
+        Serial.printf("Wi-Fi station disconnected (reason %u).\n",
+                      static_cast<unsigned>(info.wifi_sta_disconnected.reason));
+        break;
+      case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+        stationGotIpAddress = false;
+        stationGotIpMillis = 0;
+        if (wifiConnectionLostMillis == 0) wifiConnectionLostMillis = millis();
+        Serial.println("Wi-Fi station lost its IP address.");
         break;
       case ARDUINO_EVENT_WIFI_AP_START:
         accessPointActive = true;
@@ -1678,6 +1694,8 @@ bool startProvisioningAccessPoint(bool keepStationEnabled);
 
 const char *wifiProvisioningStateName()
 {
+  if (wifiConnectionRequestQueued) return "connecting";
+
   switch (wifiProvisioningState) {
     case WiFiProvisioningState::Connecting:
       return "connecting";
@@ -1693,6 +1711,8 @@ const char *wifiProvisioningStateName()
 
 const char *wifiProvisioningMessage()
 {
+  if (wifiConnectionRequestQueued) return "Povezovanje z izbranim Wi-Fi omrežjem ...";
+
   switch (wifiProvisioningState) {
     case WiFiProvisioningState::Connecting:
       return "Povezovanje z izbranim Wi-Fi omrežjem ...";
@@ -1719,33 +1739,101 @@ bool storeWiFiCredentials(const String &ssid, const String &password)
   return storedSsidLength == ssid.length() && storedPasswordLength == password.length();
 }
 
+bool wifiConnectionAttemptBusy()
+{
+  bool requestQueued = false;
+  portENTER_CRITICAL(&wifiProvisioningRequestMux);
+  requestQueued = wifiConnectionRequestQueued;
+  portEXIT_CRITICAL(&wifiProvisioningRequestMux);
+  return requestQueued || wifiProvisioningState == WiFiProvisioningState::Connecting;
+}
+
+bool queueWiFiConnectionAttempt(const String &ssid, const String &password)
+{
+  char ssidCopy[sizeof(queuedWiFiSsid)] = {};
+  char passwordCopy[sizeof(queuedWiFiPassword)] = {};
+  ssid.toCharArray(ssidCopy, sizeof(ssidCopy));
+  password.toCharArray(passwordCopy, sizeof(passwordCopy));
+
+  bool requestQueued = false;
+  portENTER_CRITICAL(&wifiProvisioningRequestMux);
+  if (!wifiConnectionRequestQueued) {
+    memcpy(queuedWiFiSsid, ssidCopy, sizeof(queuedWiFiSsid));
+    memcpy(queuedWiFiPassword, passwordCopy, sizeof(queuedWiFiPassword));
+    queuedWiFiConnectionStartMillis = millis() + WIFI_CONNECTION_REQUEST_DELAY_MS;
+    wifiConnectionRequestQueued = true;
+    requestQueued = true;
+  }
+  portEXIT_CRITICAL(&wifiProvisioningRequestMux);
+  return requestQueued;
+}
+
 void startWiFiConnectionAttempt(const String &ssid, const String &password)
 {
+  if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 63) {
+    wifiProvisioningState = WiFiProvisioningState::Failed;
+    Serial.println("Wi-Fi connection attempt rejected because the credentials are invalid.");
+    return;
+  }
+
   pendingWiFiSsid = ssid;
   pendingWiFiPassword = password;
   wifiProvisioningState = WiFiProvisioningState::Connecting;
-  wifiConnectionStartedMillis = millis();
   accessPointShutdownMillis = 0;
 
-  // AP ostane aktiven, zato telefon med preverjanjem ne izgubi lokalne strani.
+  // Fallback AP ostane na voljo tudi, ko preklop iz trenutnega LAN omrežja prekine stari IP.
+  if (!accessPointExpected) startProvisioningAccessPoint(true);
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
+  stationConnected = false;
   stationGotIpAddress = false;
   stationGotIpMillis = 0;
+  wifiConnectionLostMillis = 0;
   wifiReconnectAttempts = 0;
-  WiFi.begin(pendingWiFiSsid.c_str(), pendingWiFiPassword.c_str());
+  savedWiFiReconnectAttemptActive = false;
+  savedWiFiReconnectStartedMillis = 0;
+  wifiConnectionStartedMillis = millis();
+  WiFi.begin(ssid.c_str(), password.c_str());
   Serial.printf("Testing Wi-Fi '%s' without restarting.\n", pendingWiFiSsid.c_str());
+}
+
+void processQueuedWiFiConnectionAttempt()
+{
+  char ssid[sizeof(queuedWiFiSsid)] = {};
+  char password[sizeof(queuedWiFiPassword)] = {};
+  bool startAttempt = false;
+  const uint32_t currentMillis = millis();
+
+  portENTER_CRITICAL(&wifiProvisioningRequestMux);
+  if (wifiConnectionRequestQueued &&
+      static_cast<int32_t>(currentMillis - queuedWiFiConnectionStartMillis) >= 0) {
+    memcpy(ssid, queuedWiFiSsid, sizeof(ssid));
+    memcpy(password, queuedWiFiPassword, sizeof(password));
+    memset(queuedWiFiSsid, 0, sizeof(queuedWiFiSsid));
+    memset(queuedWiFiPassword, 0, sizeof(queuedWiFiPassword));
+    queuedWiFiConnectionStartMillis = 0;
+    wifiConnectionRequestQueued = false;
+    startAttempt = true;
+  }
+  portEXIT_CRITICAL(&wifiProvisioningRequestMux);
+
+  if (startAttempt) startWiFiConnectionAttempt(String(ssid), String(password));
 }
 
 void updateWiFiConnectionAttempt()
 {
   if (wifiProvisioningState != WiFiProvisioningState::Connecting) return;
 
-  if (stationGotIpAddress) {
+  const bool requestedNetworkConnected =
+      stationGotIpAddress && WiFi.status() == WL_CONNECTED && pendingWiFiSsid.length() > 0 &&
+      WiFi.SSID() == pendingWiFiSsid;
+  if (requestedNetworkConnected) {
     stationConnected = true;
-    WiFi.setAutoReconnect(true);
+    // Povezavo po morebitnem poznejšem izpadu upravlja naš časovno omejeni watchdog.
+    // Sistemskemu samodejnemu reconnectu ne dovolimo, da med aktivnim AP-jem zasiči radio.
+    WiFi.setAutoReconnect(false);
     wifiReconnectAttempts = 0;
     if (storeWiFiCredentials(pendingWiFiSsid, pendingWiFiPassword)) {
       savedWiFiCredentialsAvailable = true;
@@ -1792,6 +1880,8 @@ void clearStoredWiFiCredentials()
   stationGotIpMillis = 0;
   savedWiFiCredentialsAvailable = false;
   wifiReconnectAttempts = 0;
+  savedWiFiReconnectAttemptActive = false;
+  savedWiFiReconnectStartedMillis = 0;
   lastWiFiReconnectAttemptMillis = 0;
   wifiProvisioningState = WiFiProvisioningState::Idle;
   accessPointShutdownMillis = 0;
@@ -1921,10 +2011,12 @@ bool connectToStoredWiFi()
   // Lokalni spletni strežnik potrebuje nizko zakasnitev; varčevanje z energijo upočasni HTTP prenose.
   WiFi.setSleep(false);
   WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
   stationGotIpAddress = false;
   stationGotIpMillis = 0;
   wifiReconnectAttempts = 0;
+  savedWiFiReconnectAttemptActive = false;
+  savedWiFiReconnectStartedMillis = 0;
   WiFi.begin(ssid.c_str(), password.c_str());
   Serial.printf("Connecting to saved Wi-Fi '%s'", ssid.c_str());
 
@@ -1938,12 +2030,18 @@ bool connectToStoredWiFi()
   if (stationConnected) {
     Serial.printf("\nConnected. IP address: %s\n", WiFi.localIP().toString().c_str());
   } else {
+    // WiFi.begin() lahko tudi po izteku začetnega čakanja nadaljuje povezovalni cikel.
+    // Pred vklopom fallback AP-ja ga izrecno ustavimo, da lokalni portal dobi miren radio.
+    WiFi.disconnect(false, false);
+    stationGotIpAddress = false;
+    stationGotIpMillis = 0;
+    lastWiFiReconnectAttemptMillis = millis();
     Serial.println("\nSaved Wi-Fi is unavailable.");
   }
   return stationConnected;
 }
 
-bool restartSavedWiFiConnection()
+bool startSavedWiFiReconnectAttempt()
 {
   String ssid;
   String password;
@@ -1956,12 +2054,15 @@ bool restartSavedWiFiConnection()
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
   stationGotIpAddress = false;
   stationGotIpMillis = 0;
   WiFi.disconnect(false, false);
   WiFi.begin(ssid.c_str(), password.c_str());
-  Serial.printf("Wi-Fi watchdog: restarting saved connection to '%s'.\n", ssid.c_str());
+  savedWiFiReconnectAttemptActive = true;
+  savedWiFiReconnectStartedMillis = millis();
+  Serial.printf("Wi-Fi watchdog: controlled connection attempt %u/%u to '%s'.\n",
+                wifiReconnectAttempts, WIFI_RECONNECTS_BEFORE_RESTART, ssid.c_str());
   return true;
 }
 
@@ -1975,23 +2076,49 @@ void connectToWiFi()
 
 void maintainNetworkConnection()
 {
-  if (stationConnected && !stationGotIpAddress) {
-    // Kratek prehodni odklop (roaming ali obnova DHCP) še ni razlog za ponovni zagon radia.
+  // Med provisioning preklopom je lastnik STA stanja izključno updateWiFiConnectionAttempt().
+  // Watchdog sicer lahko staro povezavo pomotoma razglasi za uspeh novega omrežja.
+  if (wifiProvisioningState == WiFiProvisioningState::Connecting) return;
+
+  const bool actualStationReady = WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress();
+
+  // Dogodek odklopa ali izgube IP-ja se lahko ob obremenjenem omrežnem skladu izgubi.
+  // Dejanski status radia in IP zato ostajata končni vir resnice za watchdog.
+  if (actualStationReady && !stationGotIpAddress) {
+    stationGotIpAddress = true;
+    stationGotIpMillis = millis();
+    Serial.printf("Wi-Fi watchdog recovered the station state at %s.\n",
+                  WiFi.localIP().toString().c_str());
+  } else if (!actualStationReady) {
+    stationGotIpAddress = false;
+    stationGotIpMillis = 0;
     if (wifiConnectionLostMillis == 0) wifiConnectionLostMillis = millis();
+  }
+
+  if (stationConnected && !actualStationReady) {
+    // Kratek prehodni odklop (roaming ali obnova DHCP) še ni razlog za ponovni zagon radia.
     if (millis() - wifiConnectionLostMillis < 3000) return;
 
     stationConnected = false;
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);
     wifiReconnectAttempts = 0;
+    savedWiFiReconnectAttemptActive = false;
+    savedWiFiReconnectStartedMillis = 0;
     lastWiFiReconnectAttemptMillis = millis();
+    accessPointShutdownMillis = 0;
     Serial.println("Wi-Fi connection was lost; enabling provisioning access point.");
     if (!accessPointExpected) startProvisioningAccessPoint(true);
     return;
   }
 
   if (!stationConnected && savedWiFiCredentialsAvailable &&
-      wifiProvisioningState != WiFiProvisioningState::Connecting && stationGotIpAddress) {
+      wifiProvisioningState != WiFiProvisioningState::Connecting && actualStationReady) {
     stationConnected = true;
     wifiConnectionLostMillis = 0;
+    savedWiFiReconnectAttemptActive = false;
+    savedWiFiReconnectStartedMillis = 0;
+    WiFi.setAutoReconnect(false);
     if (accessPointExpected || accessPointActive) {
       accessPointExpected = false;
       WiFi.softAPdisconnect(true);
@@ -2003,26 +2130,53 @@ void maintainNetworkConnection()
     return;
   }
 
-  if (!stationConnected && savedWiFiCredentialsAvailable &&
-      wifiProvisioningState != WiFiProvisioningState::Connecting && !stationGotIpAddress &&
-      millis() - lastWiFiReconnectAttemptMillis >= WIFI_RECONNECT_INTERVAL_MS) {
-    lastWiFiReconnectAttemptMillis = millis();
-    ++wifiReconnectAttempts;
-    if (!accessPointExpected) startProvisioningAccessPoint(true);
+  if (stationConnected || !savedWiFiCredentialsAvailable || actualStationReady) return;
 
-    if (wifiReconnectAttempts >= WIFI_RECONNECTS_BEFORE_RESTART) {
-      wifiReconnectAttempts = 0;
-      if (!restartSavedWiFiConnection() && !accessPointExpected) {
-        startProvisioningAccessPoint(false);
-      }
+  if (!accessPointExpected) startProvisioningAccessPoint(true);
+
+  const uint8_t accessPointClients = accessPointExpected ? WiFi.softAPgetStationNum() : 0;
+  if (savedWiFiReconnectAttemptActive) {
+    // Tako kot konfiguracijski portal WiFiManagerja tudi naš portal med priključenim
+    // odjemalcem ne sme izgubljati radijskega časa zaradi STA povezovalnega cikla.
+    if (accessPointClients > 0) {
+      WiFi.setAutoReconnect(false);
+      WiFi.disconnect(false, false);
+      savedWiFiReconnectAttemptActive = false;
+      savedWiFiReconnectStartedMillis = 0;
+      if (wifiReconnectAttempts >= WIFI_RECONNECTS_BEFORE_RESTART) wifiReconnectAttempts = 0;
+      Serial.println("Wi-Fi watchdog: STA attempt paused while a client uses the provisioning AP.");
       return;
     }
 
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.setAutoReconnect(true);
-    WiFi.reconnect();
-    Serial.printf("Wi-Fi watchdog: reconnect attempt %u/%u.\n", wifiReconnectAttempts,
+    if (millis() - savedWiFiReconnectStartedMillis < WIFI_RECONNECT_ATTEMPT_TIMEOUT_MS) return;
+
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);
+    savedWiFiReconnectAttemptActive = false;
+    savedWiFiReconnectStartedMillis = 0;
+    Serial.printf("Wi-Fi watchdog: controlled attempt %u/%u timed out.\n", wifiReconnectAttempts,
                   WIFI_RECONNECTS_BEFORE_RESTART);
+    if (wifiReconnectAttempts >= WIFI_RECONNECTS_BEFORE_RESTART) {
+      wifiReconnectAttempts = 0;
+      Serial.println("Wi-Fi watchdog: retry cycle finished; provisioning AP remains available.");
+    }
+    return;
+  }
+
+  // Dokler telefon ali računalnik uporablja fallback AP, lokalni HTTP in DHCP dobita
+  // popolno prednost. Nov STA poskus se začne šele po odhodu zadnjega odjemalca.
+  if (accessPointClients > 0 ||
+      millis() - lastWiFiReconnectAttemptMillis < WIFI_RECONNECT_INTERVAL_MS) {
+    return;
+  }
+
+  lastWiFiReconnectAttemptMillis = millis();
+  ++wifiReconnectAttempts;
+  if (!startSavedWiFiReconnectAttempt()) {
+    wifiReconnectAttempts = 0;
+    savedWiFiReconnectAttemptActive = false;
+    savedWiFiReconnectStartedMillis = 0;
+    if (!accessPointExpected) startProvisioningAccessPoint(false);
   }
 }
 
@@ -4213,7 +4367,7 @@ void appendJsonEscaped(String &json, const String &value)
 
 void sendAvailableWiFiNetworks(AsyncWebServerRequest *request)
 {
-  if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
+  if (wifiConnectionAttemptBusy()) {
     sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
@@ -4258,18 +4412,21 @@ void saveWiFiConfiguration(AsyncWebServerRequest *request)
     sendLocalJsonResponse(request, 400, "{\"error\":\"Invalid Wi-Fi configuration\"}");
     return;
   }
-  if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
+  if (wifiConnectionAttemptBusy()) {
     sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
 
-  startWiFiConnectionAttempt(ssid, password);
+  if (!queueWiFiConnectionAttempt(ssid, password)) {
+    sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
+    return;
+  }
   sendLocalJsonResponse(request, 202, "{\"state\":\"connecting\"}");
 }
 
 void deleteWiFiConfiguration(AsyncWebServerRequest *request)
 {
-  if (wifiProvisioningState == WiFiProvisioningState::Connecting) {
+  if (wifiConnectionAttemptBusy()) {
     sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
@@ -5940,6 +6097,7 @@ void setup()
 
 void loop()
 {
+  processQueuedWiFiConnectionAttempt();
   updateWiFiConnectionAttempt();
   maintainProvisioningAccessPoint();
   maintainNetworkConnection();

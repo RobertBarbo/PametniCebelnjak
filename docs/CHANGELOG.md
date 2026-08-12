@@ -2,6 +2,22 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-rc.23] - 2026-08-12
+
+### Fixed
+
+- Fallback AP in lokalni strežnik nista več obremenjena z neomejenim sistemskim STA reconnect ciklom. Watchdog vsakih 30 sekund začne največ osemsekundni nadzorovani poskus, nato STA radio do naslednjega poskusa umiri.
+- Ko je na provisioning AP povezan telefon ali računalnik, se aktivni STA poskus prekine, novi samodejni poskusi pa počakajo do odhoda odjemalca. Lokalni DHCP in spletna stran tako ostaneta odzivna tudi ob nedosegljivem shranjenem omrežju.
+- Neuspešen začetni `WiFi.begin()` se pred vklopom fallback AP-ja izrecno ustavi, zato ne nadaljuje skritega povezovalnega cikla v ozadju.
+
+## [0.1.0-rc.22] - 2026-08-12
+
+### Fixed
+
+- Wi-Fi watchdog poleg asinhronih dogodkov preverja tudi dejanski `WiFi.status()` in dodeljeni IP. Če se dogodek odklopa izgubi, naprava po treh sekundah vseeno odpre fallback AP ter nadaljuje 30-sekundne poskuse povezave.
+- Dogodek izgube STA IP-ja takoj ponastavi interno stanje povezave, ob izpadu pa se prekliče morebiten star časovnik za zapiranje provisioning AP-ja.
+- Menjava Wi-Fi omrežja iz lokalnega obrazca se po HTTP odgovoru izvede iz glavne zanke. AsyncWebServer opravilo zato ne more več izprazniti čakajočega SSID-ja med `WiFi.begin()`, uspeh pa se prizna samo, ko je naprava dejansko povezana s pravkar zahtevanim omrežjem.
+
 ## [0.1.0-rc.21] - 2026-08-12
 
 ### Fixed

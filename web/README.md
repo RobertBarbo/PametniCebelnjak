@@ -13,7 +13,7 @@ Vmesnik je razdeljen na poglede **Pregled**, **Grafi**, **Naprava** in **Posodob
 2. Naloži to mapo v LittleFS z `pio run -t uploadfs`.
 3. Brez nastavljenega Wi-Fi-ja se na telefonu poveži na odprti AP `Cebelnjak-XXXXXX`; podatki AP-ja so v serijskem monitorju. Odprt AP je začasen samo za beta testiranje.
 4. Odpri `http://192.168.4.1/`, izberi najdeno Wi-Fi omrežje ali ga vpiši ročno. ESP32 povezavo preveri brez ponovnega zagona in podatke shrani šele po uspehu.
-5. V lokalnem zavihku **Posodobitve** odpri ElegantOTA na portu `8080`. Izberi **Firmware** za `firmware.bin` ali **Filesystem** za `littlefs.bin`; datoteki namesti ločeno in uporabi samo zaupanja vredne datoteke za ESP32-S3.
+5. V lokalnem zavihku **Posodobitve** odpri **Orodje za posodobitev** na istem lokalnem naslovu. Izberi **Firmware** za `firmware.bin` ali **Filesystem** za `littlefs.bin`; datoteki namesti ločeno in uporabi samo zaupanja vredne datoteke za ciljno napravo.
 
 Lokalni obrazec ima tudi gumb za brisanje shranjenega Wi-Fi-ja. Po potrditvi se ESP32 odklopi od domačega omrežja in znova odpre svoj AP.
 

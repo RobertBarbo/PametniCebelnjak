@@ -87,13 +87,14 @@ Lokalni strežnik med kratkim prenosom statičnega asseta za 3 sekunde odloži z
 - Datumi v karticah, tabeli, izbirniku obdobja in grafu so prikazani v obliki `d/m/y`; ura uporablja 24-urni zapis.
 - Vsi prikazi meritev, vključno s tooltipi grafov, temperaturo, relativno vlago in težo prikažejo na eno decimalko v lokalnem in cloud načinu. SD in Firebase še vedno hranita težo na dve decimalki za poznejše analize.
 - Graf za obdobja do 24 ur uporablja minutne točke; daljša obdobja ostanejo agregirana na urne, šesturne oziroma dnevne točke.
-- Zgornji cloud indikator prikazuje stanje izbranega panja glede na `status/device/last_seen_timestamp`: `Naprava online` do 90 sekund po odzivu, sicer `Naprava offline`. To ni več indikator povezave brskalnika s Firebase.
+- Zgornji cloud indikator za lastni panj uporablja `status/device/last_seen_timestamp`, za deljeni panj pa čas zadnje meritve iz `latest`: `Naprava online` do 90 sekund po odzivu, sicer `Naprava offline`. Deljeni uporabnik zato ne potrebuje dostopa do sistemskega statusa.
 - Na telefonu je v glavi namesto besedila indikatorja prikazana le zelena oziroma rdeča pika; lokalni pogled uporablja zeleno piko za uspešno lokalno povezavo z napravo.
 - Odzivna postavitev prilagodi navigacijo, kartice, tabelo, graf in obrazce telefonu, tablici ter namiznemu računalniku. Upravljalni elementi na dotik so visoki najmanj 44 px.
-- Pogled **Naprava** prikazuje trenutni datum in uro, vir časa ter stanje DS3231. Lokalno ali za izbrani online cloud panj lahko uporabnik nastavi datum in uro; NTP gumb je omogočen samo ob internetni povezavi.
+- Pogled **Naprava** za lastni panj prikazuje trenutni datum in uro, vir časa ter stanje DS3231. Lokalno ali za izbrani online lastni cloud panj lahko uporabnik nastavi datum in uro; NTP gumb je omogočen samo ob internetni povezavi. Pri deljenem panju ostanejo vidni le uporabniški račun, izbirnik panjev, registracija lastnega panja in sprejem povabila; podrobnosti naprave ter upravljanje so skriti.
 - Lokalni in cloud pogled v podrobnostih naprave prikažeta kartice stanja za BME680, HX711, DS3231 in SD kartico. Ob opozorilu ali napaki se v glavi pred indikatorjem online/offline naprave pojavi rumena oziroma rdeča značka, na pogledu **Pregled** pa je prikazan kratek seznam komponent, ki jih je treba preveriti. Brez opozoril se ta seznam ne prikazuje.
 - Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani `owner_uid`, `owner_email` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
-- Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Glavni skrbnik namesto podvojenega izbirnika vidi mrežo šestih kompaktnih kartic naprav (tri na širokem prikazu, dve na tablici) z notranjim drsenjem za nadaljnje naprave. Kartica prikaže zeleno/rdečo oznako online stanja, zadnji odziv in e-poštni naslov lastnika. Če je panj registriran, je v isti kartici gumb **Odjavi lastnika**; skrbnik mora za potrditev vpisati `ODJAVI`. En sam atomski Firebase zapis odstrani lastništvo in uporabnikovo povezavo, ne spremeni pa meritev, statusa, SD dnevnika ali aktivacijske kode. Lastniška e-pošta je shranjena kot `owner_email` pod napravo, ob naslednji prijavi lastnika se samodejno dopolni za stare registracije, prikazana pa je izključno skrbniku.
+- Lastnik lahko za izbrani panj ustvari osemmestno povabilo z veljavnostjo 24 ur. Povabilo je vezano na e-poštni naslov prejemnika in omogoči samo ogled trenutnih ter zgodovinskih meritev. Uporabnik vidi lastne panje v skupini **Moji panji**, deljene pa v skupini **Deljeni z mano** z oznako `samo ogled`. Lastnik lahko dostop posameznega gledalca prekliče; odregistracija lastnika prekliče vse delitve.
+- Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Če še nima lastnega ali deljenega panja, ga nadzorna plošča po branju obeh Firebase seznamov preusmeri v pogled **Naprava** in mu prikaže samo identiteto računa, registracijo panja ter sprejem povabila. Pogledi **Pregled**, **Grafi**, **Posodobitve**, prazen izbirnik in podrobnosti naprave ostanejo skriti, dokler uporabnik ne dobi prvega dostopa. Glavni skrbnik namesto podvojenega izbirnika vidi mrežo šestih kompaktnih kartic naprav (tri na širokem prikazu, dve na tablici) z notranjim drsenjem za nadaljnje naprave. Kartica prikaže zeleno/rdečo oznako online stanja, zadnji odziv in e-poštni naslov lastnika. Če je panj registriran, je v isti kartici gumb **Odjavi lastnika**; skrbnik mora za potrditev vpisati `ODJAVI`. En sam atomski Firebase zapis odstrani lastništvo in uporabnikovo povezavo, ne spremeni pa meritev, statusa, SD dnevnika ali aktivacijske kode. Lastniška e-pošta je shranjena kot `owner_email` pod napravo, ob naslednji prijavi lastnika se samodejno dopolni za stare registracije, prikazana pa je izključno skrbniku.
 - V cloud pogledu lahko lastnik ali glavni skrbnik po potrditvi z besedo `IZBRIŠI` pošlje ukaz za trajni izbris SD dnevnika skupaj s celotno cloud zgodovino (`latest`, `measurements`, `aggregates`). Popoln izbris je omogočen le za online napravo; ESP32 ukaz postavi v čakalno vrsto, dokler ne zaključi trenutnega SD prenosa, nato znova ustvari prazen CSV dnevnik in ponastavi kazalce sinhronizacije. Lokalni pogled te nevarne funkcije namenoma ne ponuja brez cloud prijave.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
@@ -159,12 +160,33 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
   display_name
   claimed_at
 
+/users/{firebase_uid}/shared_devices/{device_id}/
+  display_name
+  role: viewer
+  owner_uid
+  shared_at
+
+/device_access/{device_id}/{viewer_uid}/
+  role: viewer
+  email
+  owner_uid
+  shared_at
+
+/share_invites/{invite_code}/
+  device_id
+  owner_uid
+  recipient_email
+  display_name
+  role: viewer
+  created_at
+  expires_at
+
 /device_secrets/{device_id}/activation_code
 /device_claims/{device_id}/{firebase_uid}/activation_code
 ```
 
 Ob odprtju brez prijave je cloud nadzorna plošča zaklenjena: prikaže se prijavni obrazec, navigacija in prazne nadzorne vsebine pa ostanejo skrite. Po uspešni prijavi se odpre pogled **Pregled**.
 
-Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku pokaže samo naprave pod `/users/{firebase_uid}/devices`. Trenutni beta skrbniški UID lahko bere celotno pot `/devices` in zato samodejno vidi vse panje brez aktivacije; lahko tudi počisti merilno zgodovino izbranega panja ter z atomsko posodobitvijo odjavi trenutnega lastnika, ne more pa nastaviti novega lastnika ali brati zasebnih aktivacijskih podatkov. Popoln izbris uporabi akcijo `delete_history`, cloud tariranje akcijo `tare_load_cell`, kalibracija BME680 pa akcijo `set_bme680_calibration` v obstoječem ukazu `commands/firmware_update`, zato jih firmware preveri z istim zanesljivim 30-sekundnim ciklom kot OTA. Pred izvedbo ESP32 ukaz najprej odstrani, nato iz glavne zanke objavi končni uspeh ali napako; tako se Firebase zahteve ne prekrivajo. Zaključen izbris je v uporabniškem vmesniku označen kot zadnji izvedeni ukaz z datumom, saj po njem lahko že nastanejo nove meritve; staro besedilo Firebase ukaza se za ta prikaz namenoma ne uporabi. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.
+Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku združi lastne naprave iz `/users/{firebase_uid}/devices` ter deljene naprave iz `/users/{firebase_uid}/shared_devices`. Vloga `viewer` dobi branje meritev in agregatov, ne pa statusa komponent ali poti `commands`. Trenutni beta skrbniški UID lahko bere celotno pot `/devices` in zato samodejno vidi vse panje brez aktivacije; lahko tudi počisti merilno zgodovino izbranega panja ter z atomsko posodobitvijo odjavi trenutnega lastnika in vse gledalce, ne more pa nastaviti novega lastnika ali brati zasebnih aktivacijskih podatkov. Popoln izbris uporabi akcijo `delete_history`, cloud tariranje akcijo `tare_load_cell`, kalibracija BME680 pa akcijo `set_bme680_calibration` v obstoječem ukazu `commands/firmware_update`, zato jih firmware preveri z istim zanesljivim 30-sekundnim ciklom kot OTA. Pred izvedbo ESP32 ukaz najprej odstrani, nato iz glavne zanke objavi končni uspeh ali napako; tako se Firebase zahteve ne prekrivajo. Zaključen izbris je v uporabniškem vmesniku označen kot zadnji izvedeni ukaz z datumom, saj po njem lahko že nastanejo nove meritve; staro besedilo Firebase ukaza se za ta prikaz namenoma ne uporabi. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.
 
 Če cloud status tariranja ostane `queued` ali `taring` več kot 90 sekund, nadzorna plošča ga označi kot nedokončanega in ponovno omogoči gumb. Ob vsakem zagonu ESP32 objavi začetno stanje HX711, zato se zastarelo stanje prejšnjega zagona ponastavi.

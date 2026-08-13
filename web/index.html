@@ -30,8 +30,8 @@
         </button>
 
         <nav class="top-navigation" id="top-navigation" aria-label="Glavna navigacija">
-          <button class="nav-link active" type="button" data-view-target="overview" aria-current="page">Pregled</button>
-          <button class="nav-link" type="button" data-view-target="history">Grafi</button>
+          <button class="nav-link active" id="overview-nav-item" type="button" data-view-target="overview" aria-current="page">Pregled</button>
+          <button class="nav-link" id="history-nav-item" type="button" data-view-target="history">Grafi</button>
           <button class="nav-link" type="button" data-view-target="device">Naprava</button>
           <button class="nav-link" id="updates-nav-item" type="button" data-view-target="updates">Posodobitve</button>
         </nav>
@@ -102,7 +102,7 @@
 
         <div class="overview-links">
           <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Podrobnosti naprave</strong></button>
-          <button class="quick-link cloud-only-link" type="button" data-view-target="updates"><span>Različica</span><strong>Preveri posodobitve</strong></button>
+          <button class="quick-link cloud-only-link" id="cloud-updates-quick-link" type="button" data-view-target="updates"><span>Različica</span><strong>Preveri posodobitve</strong></button>
           <button class="quick-link local-only-link" type="button" data-view-target="updates" hidden><span>Različica</span><strong>Ročna posodobitev naprave</strong></button>
         </div>
       </section>
@@ -143,7 +143,7 @@
           <div>
             <p class="eyebrow">Naprava</p>
             <h1 id="device-heading">Pametni kontroler</h1>
-            <p class="subtitle">Omrežje, identiteta, delovanje in stanje SD kartice.</p>
+            <p class="subtitle" id="device-page-subtitle">Omrežje, identiteta, delovanje in stanje SD kartice.</p>
           </div>
         </div>
 
@@ -174,14 +174,42 @@
               </div>
               <div class="admin-device-list" id="admin-device-list" aria-live="polite"></div>
             </section>
-            <form class="claim-device-form" id="claim-device-form">
-              <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
-              <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
-              <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
-              <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
-              <button class="primary-button" type="submit">Registriraj panj</button>
-              <p class="form-status" id="claim-device-status" aria-live="polite"></p>
-            </form>
+            <div class="account-form-stack" id="account-form-stack">
+              <form class="claim-device-form" id="claim-device-form">
+                <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
+                <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
+                <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
+                <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
+                <button class="primary-button" type="submit">Registriraj panj</button>
+                <p class="form-status" id="claim-device-status" aria-live="polite"></p>
+              </form>
+
+              <section class="share-device-panel" id="share-device-panel" aria-labelledby="share-device-heading" hidden>
+                <div><p class="eyebrow">Deli panj</p><h2 id="share-device-heading">Dostop samo za ogled</h2><p class="muted">Povabilo velja 24 ur in samo za navedeni e-poštni naslov. Povabljeni uporabnik lahko vidi meritve in grafe, naprave pa ne more upravljati.</p></div>
+                <form class="share-device-form" id="share-device-form">
+                  <label class="account-field">E-poštni naslov prejemnika<input id="share-recipient-email" type="email" maxlength="254" placeholder="nika@example.com" autocomplete="email" required /></label>
+                  <button class="secondary-button" id="create-share-invitation" type="submit">Ustvari povabilo</button>
+                </form>
+                <section class="share-invitation-result" id="share-invitation-result" aria-labelledby="share-invitation-code-heading" hidden>
+                  <span id="share-invitation-code-heading">Koda povabila</span>
+                  <strong id="share-invitation-code">—</strong>
+                  <p id="share-invitation-detail">—</p>
+                  <button class="secondary-button" id="copy-share-invitation" type="button">Kopiraj kodo</button>
+                </section>
+                <div class="shared-viewer-section">
+                  <h3>Uporabniki z ogledom</h3>
+                  <div class="shared-viewer-list" id="shared-viewer-list" aria-live="polite"><p class="muted">Panj še ni deljen.</p></div>
+                </div>
+                <p class="form-status" id="share-device-status" aria-live="polite"></p>
+              </section>
+
+              <form class="accept-share-form" id="accept-share-form">
+                <div><p class="eyebrow">Deljeno z mano</p><h2>Sprejmi povabilo</h2><p class="muted">Vnesi kodo, ki ti jo je poslal lastnik panja. Povabilo mora biti namenjeno e-poštnemu naslovu tega računa.</p></div>
+                <label class="account-field">Koda povabila<input id="accept-share-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
+                <button class="secondary-button" type="submit">Dodaj deljeni panj</button>
+                <p class="form-status" id="accept-share-status" aria-live="polite"></p>
+              </form>
+            </div>
           </div>
         </section>
 
@@ -237,7 +265,7 @@
           </div>
         </section>
 
-        <section class="surface device-status-panel" aria-labelledby="device-status-heading">
+        <section class="surface device-status-panel" id="device-details-panel" aria-labelledby="device-status-heading">
           <div class="section-heading"><div><p class="eyebrow">Stanje sistema</p><h2 id="device-status-heading">Podrobnosti naprave</h2></div></div>
           <div class="status-grid">
             <article class="status-card" id="cloud-wifi-ssid-card" hidden><p>Wi‑Fi omrežje</p><strong id="cloud-wifi-ssid">—</strong></article>

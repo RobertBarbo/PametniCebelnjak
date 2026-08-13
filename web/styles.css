@@ -1485,6 +1485,16 @@ select:focus {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.account-management.empty-device-state {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.account-form-stack {
+  display: grid;
+  gap: 30px;
+  min-width: 0;
+}
+
 .device-selection-card {
   display: grid;
   align-content: start;
@@ -1516,10 +1526,136 @@ select:focus {
   width: 100%;
 }
 
-.claim-device-form {
+.claim-device-form,
+.share-device-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 18px 20px;
+}
+
+.share-device-panel,
+.accept-share-form {
+  display: grid;
+  gap: 18px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+}
+
+.share-device-panel h2,
+.accept-share-form h2,
+.shared-viewer-section h3 {
+  margin: 0;
+}
+
+.share-device-panel .muted,
+.accept-share-form .muted {
+  max-width: 680px;
+  margin-top: 12px;
+  line-height: 1.55;
+}
+
+.share-device-form {
+  display: grid;
+}
+
+.share-device-form .secondary-button,
+.accept-share-form .secondary-button {
+  width: 100%;
+}
+
+.accept-share-form {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
+  align-items: end;
+}
+
+.accept-share-form > div,
+.accept-share-form .form-status {
+  grid-column: 1 / -1;
+}
+
+.share-invitation-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 58%, var(--border));
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-solid));
+}
+
+.share-invitation-result > span,
+.share-invitation-result > p {
+  color: var(--text-soft);
+}
+
+.share-invitation-result > span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.share-invitation-result > strong {
+  grid-column: 1;
+  font-size: clamp(1.55rem, 4vw, 2.25rem);
+  letter-spacing: 0.14em;
+}
+
+.share-invitation-result > p {
+  grid-column: 1;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.share-invitation-result .secondary-button {
+  grid-column: 2;
+  grid-row: 1 / 4;
+}
+
+.shared-viewer-section {
+  display: grid;
+  gap: 12px;
+}
+
+.shared-viewer-section h3 {
+  font-size: 1rem;
+}
+
+.shared-viewer-list {
+  display: grid;
+  gap: 10px;
+}
+
+.shared-viewer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+}
+
+.shared-viewer-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shared-viewer-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-viewer-row small {
+  color: var(--text-soft);
+}
+
+.shared-viewer-row .secondary-button {
+  min-height: 42px;
 }
 
 .admin-device-overview {
@@ -1678,6 +1814,25 @@ select:focus {
 
   .admin-device-option.selected {
     padding: 13px 15px;
+  }
+
+  .share-device-form,
+  .accept-share-form,
+  .share-invitation-result,
+  .shared-viewer-row {
+    grid-template-columns: 1fr;
+  }
+
+  .share-invitation-result .secondary-button,
+  .share-invitation-result > span,
+  .share-invitation-result > strong,
+  .share-invitation-result > p {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .shared-viewer-row .secondary-button {
+    width: 100%;
   }
 }
 

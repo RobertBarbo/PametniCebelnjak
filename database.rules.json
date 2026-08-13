@@ -22,6 +22,63 @@
         }
       }
     },
+    "share_invites": {
+      "$inviteCode": {
+        ".read": "auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || data.child('owner_uid').val() === auth.uid || (auth.token.email != null && data.child('recipient_email').val() === auth.token.email && data.child('expires_at').val() >= now && data.child('created_at').val() + 86400000 >= now))",
+        ".write": "auth != null && ((!data.exists() && newData.hasChildren(['device_id', 'owner_uid', 'recipient_email', 'display_name', 'role', 'created_at', 'expires_at']) && newData.child('owner_uid').val() === auth.uid && root.child('devices').child(newData.child('device_id').val()).child('owner_uid').val() === auth.uid && newData.child('recipient_email').val() !== auth.token.email && newData.child('role').val() === 'viewer' && newData.child('created_at').val() <= now + 60000 && newData.child('expires_at').val() > now && newData.child('expires_at').val() <= newData.child('created_at').val() + 86400000 && newData.child('expires_at').val() <= now + 86460000) || (data.exists() && !newData.exists() && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || data.child('owner_uid').val() === auth.uid || (auth.token.email != null && data.child('recipient_email').val() === auth.token.email))))",
+        "device_id": {
+          ".validate": "newData.isString()"
+        },
+        "owner_uid": {
+          ".validate": "newData.isString()"
+        },
+        "recipient_email": {
+          ".validate": "newData.isString() && newData.val().length > 3 && newData.val().length <= 254"
+        },
+        "display_name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+        },
+        "role": {
+          ".validate": "newData.val() === 'viewer'"
+        },
+        "created_at": {
+          ".validate": "newData.isNumber()"
+        },
+        "expires_at": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "device_access": {
+      "$deviceId": {
+        ".read": "auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)",
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && ((!data.exists() && auth.uid === $uid && auth.token.email != null && newData.hasChildren(['role', 'email', 'owner_uid', 'shared_at', 'invite_code']) && newData.child('role').val() === 'viewer' && newData.child('email').val() === auth.token.email && root.child('share_invites').child(newData.child('invite_code').val()).child('device_id').val() === $deviceId && root.child('share_invites').child(newData.child('invite_code').val()).child('recipient_email').val() === auth.token.email && root.child('share_invites').child(newData.child('invite_code').val()).child('expires_at').val() >= now && root.child('share_invites').child(newData.child('invite_code').val()).child('created_at').val() + 86400000 >= now && root.child('share_invites').child(newData.child('invite_code').val()).child('owner_uid').val() === newData.child('owner_uid').val() && root.child('devices').child($deviceId).child('owner_uid').val() === newData.child('owner_uid').val()) || (data.exists() && !newData.exists() && (auth.uid === $uid || auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)))",
+          "role": {
+            ".validate": "newData.val() === 'viewer'"
+          },
+          "email": {
+            ".validate": "newData.isString() && newData.val().length > 3 && newData.val().length <= 254"
+          },
+          "owner_uid": {
+            ".validate": "newData.isString()"
+          },
+          "shared_at": {
+            ".validate": "newData.isNumber()"
+          },
+          "invite_code": {
+            ".validate": "newData.isString() && newData.val().length === 8"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
@@ -31,6 +88,11 @@
         "devices": {
           "$deviceId": {
             ".write": "auth != null && ((auth.uid === $uid && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid) || (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' && !newData.exists()))"
+          }
+        },
+        "shared_devices": {
+          "$deviceId": {
+            ".write": "auth != null && ((auth.uid === $uid && ((!data.exists() && auth.token.email != null && newData.hasChildren(['role', 'email', 'owner_uid', 'shared_at', 'invite_code', 'display_name']) && newData.child('role').val() === 'viewer' && newData.child('email').val() === auth.token.email && root.child('share_invites').child(newData.child('invite_code').val()).child('device_id').val() === $deviceId && root.child('share_invites').child(newData.child('invite_code').val()).child('recipient_email').val() === auth.token.email && root.child('share_invites').child(newData.child('invite_code').val()).child('expires_at').val() >= now && root.child('share_invites').child(newData.child('invite_code').val()).child('created_at').val() + 86400000 >= now && root.child('share_invites').child(newData.child('invite_code').val()).child('owner_uid').val() === newData.child('owner_uid').val() && root.child('devices').child($deviceId).child('owner_uid').val() === newData.child('owner_uid').val()) || (data.exists() && !newData.exists()))) || (data.exists() && !newData.exists() && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)))"
           }
         }
       }
@@ -46,9 +108,11 @@
           ".write": "auth != null && ((auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' && !newData.exists()) || (root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid && (!newData.exists() || (newData.isString() && newData.val() === auth.token.email))))"
         },
         "latest": {
+          ".read": "auth != null && root.child('device_access').child($deviceId).child(auth.uid).child('role').val() === 'viewer' && root.child('device_access').child($deviceId).child(auth.uid).child('owner_uid').val() === root.child('devices').child($deviceId).child('owner_uid').val()",
           ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))"
         },
         "measurements": {
+          ".read": "auth != null && root.child('device_access').child($deviceId).child(auth.uid).child('role').val() === 'viewer' && root.child('device_access').child($deviceId).child(auth.uid).child('owner_uid').val() === root.child('devices').child($deviceId).child('owner_uid').val()",
           ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
           "$timestamp": {
             ".write": "auth == null"
@@ -56,13 +120,14 @@
         },
         "aggregates": {
           "hourly": {
+            ".read": "auth != null && root.child('device_access').child($deviceId).child(auth.uid).child('role').val() === 'viewer' && root.child('device_access').child($deviceId).child(auth.uid).child('owner_uid').val() === root.child('devices').child($deviceId).child('owner_uid').val()",
             ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             "$timestamp": {
               ".write": "auth == null"
             }
           },
           "daily": {
-            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
+            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid || (root.child('device_access').child($deviceId).child(auth.uid).child('role').val() === 'viewer' && root.child('device_access').child($deviceId).child(auth.uid).child('owner_uid').val() === root.child('devices').child($deviceId).child('owner_uid').val())))",
             ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
             "$timestamp": {
               ".write": "auth == null"

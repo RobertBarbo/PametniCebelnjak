@@ -8,6 +8,8 @@ const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
 const THEME_STORAGE_KEY = "pametni-cebelnjak-theme";
 const DEFAULT_VIEW = "overview";
 const SUPER_ADMIN_UID = "Uv2bGWlFt8h9YTsAFoxsNlNsRK72";
+const SHARE_INVITATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
+const SHARE_INVITATION_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CHART_AXIS_HOUR_SECONDS = 60 * 60;
 const CHART_AXIS_DAY_SECONDS = 24 * CHART_AXIS_HOUR_SECONDS;
 const CHART_AXIS_FORMATTERS = new Map();
@@ -27,7 +29,10 @@ const elements = {
   topNavigation: document.querySelector("#top-navigation"),
   themeToggle: document.querySelector("#theme-toggle"),
   themeLabel: document.querySelector("#theme-label"),
+  overviewNavigationItem: document.querySelector("#overview-nav-item"),
+  historyNavigationItem: document.querySelector("#history-nav-item"),
   updatesNavigationItem: document.querySelector("#updates-nav-item"),
+  cloudUpdatesQuickLink: document.querySelector("#cloud-updates-quick-link"),
   navigationButtons: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view-panel]")],
   connectionStatus: document.querySelector("#connection-status"),
@@ -53,7 +58,10 @@ const elements = {
   accountAvatarInitials: document.querySelector("#account-avatar-initials"),
   authSignout: document.querySelector("#auth-signout"),
   accountManagement: document.querySelector("#account-management"),
+  accountFormStack: document.querySelector("#account-form-stack"),
   deviceSelectionCard: document.querySelector("#device-selection-card"),
+  devicePageSubtitle: document.querySelector("#device-page-subtitle"),
+  deviceDetailsPanel: document.querySelector("#device-details-panel"),
   cloudDeviceSelect: document.querySelector("#cloud-device-select"),
   adminDeviceOverview: document.querySelector("#admin-device-overview"),
   adminDeviceList: document.querySelector("#admin-device-list"),
@@ -68,6 +76,19 @@ const elements = {
   claimDeviceId: document.querySelector("#claim-device-id"),
   claimActivationCode: document.querySelector("#claim-activation-code"),
   claimDeviceStatus: document.querySelector("#claim-device-status"),
+  shareDevicePanel: document.querySelector("#share-device-panel"),
+  shareDeviceForm: document.querySelector("#share-device-form"),
+  shareRecipientEmail: document.querySelector("#share-recipient-email"),
+  createShareInvitation: document.querySelector("#create-share-invitation"),
+  shareInvitationResult: document.querySelector("#share-invitation-result"),
+  shareInvitationCode: document.querySelector("#share-invitation-code"),
+  shareInvitationDetail: document.querySelector("#share-invitation-detail"),
+  copyShareInvitation: document.querySelector("#copy-share-invitation"),
+  sharedViewerList: document.querySelector("#shared-viewer-list"),
+  shareDeviceStatus: document.querySelector("#share-device-status"),
+  acceptShareForm: document.querySelector("#accept-share-form"),
+  acceptShareCode: document.querySelector("#accept-share-code"),
+  acceptShareStatus: document.querySelector("#accept-share-status"),
   temperature: document.querySelector("#temperature-value"),
   humidity: document.querySelector("#humidity-value"),
   weight: document.querySelector("#weight-value"),
@@ -205,8 +226,14 @@ let firebaseAuth;
 let firebaseAuthModule;
 let currentCloudUser;
 let stopCloudDeviceListListener;
+let stopCloudSharedDeviceListListener;
+let ownedCloudDevicesLoaded = false;
+let sharedCloudDevicesLoaded = false;
 let stopCloudDeviceListeners = [];
 let cloudDevices = {};
+let ownedCloudDevices = {};
+let sharedCloudDevices = {};
+let activeShareInvitationCode = "";
 const ownerEmailSyncedDeviceIds = new Set();
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
@@ -304,8 +331,10 @@ function applyBrandAssets(useLocalAssets) {
 }
 
 function showView(viewName, updateLocation = true) {
-  const targetPanel = elements.viewPanels.find((panel) => panel.dataset.viewPanel === viewName);
-  const selectedView = targetPanel ? viewName : DEFAULT_VIEW;
+  const emptyCloudAccount = isCloudAccountWithoutDevices();
+  const allowedViewName = emptyCloudAccount || (viewName === "updates" && isSharedCloudDeviceSelected()) ? "device" : viewName;
+  const targetPanel = elements.viewPanels.find((panel) => panel.dataset.viewPanel === allowedViewName);
+  const selectedView = targetPanel ? allowedViewName : DEFAULT_VIEW;
 
   elements.viewPanels.forEach((panel) => {
     const isActive = panel.dataset.viewPanel === selectedView;
@@ -378,22 +407,95 @@ function isValidActivationCode(activationCode) {
   return /^[A-HJ-NP-Z2-9]{8}$/.test(String(activationCode));
 }
 
+function isValidShareInvitationCode(invitationCode) {
+  return /^[A-HJ-NP-Z2-9]{8}$/.test(String(invitationCode));
+}
+
 function isCloudAdministrator() {
   return currentCloudUser?.uid === SUPER_ADMIN_UID;
 }
 
+function isCloudAccountWithoutDevices() {
+  return !isLocalDashboard
+    && Boolean(currentCloudUser)
+    && !isCloudAdministrator()
+    && ownedCloudDevicesLoaded
+    && sharedCloudDevicesLoaded
+    && Object.keys(cloudDevices).length === 0;
+}
+
+function getCloudDeviceAccessRole(deviceId = cloudDevicePath.replace("devices/", "")) {
+  if (!deviceId) return "";
+  if (isCloudAdministrator()) return "administrator";
+  return cloudDevices[deviceId]?.access_role ?? "";
+}
+
+function isSharedCloudDeviceSelected() {
+  return !isLocalDashboard && getCloudDeviceAccessRole() === "viewer";
+}
+
+function canManageCloudDevice(deviceId = cloudDevicePath.replace("devices/", "")) {
+  const role = getCloudDeviceAccessRole(deviceId);
+  return role === "owner" || role === "administrator";
+}
+
 function configureCloudAccountView() {
   const isAdministrator = isCloudAdministrator();
+  const isEmptyAccount = isCloudAccountWithoutDevices();
   elements.accountHeading.textContent = isAdministrator ? "Vsi panji" : "Moji panji";
   elements.deviceListEyebrow.textContent = isAdministrator ? "Skrbniški pregled" : "Moji panji";
   elements.selectedDeviceDescription.textContent = isAdministrator
     ? "Skrbniški račun ima ogled vseh registriranih panjev."
     : "Izberi panj, katerega podatke želiš pregledovati.";
   elements.claimDeviceForm.hidden = isAdministrator;
+  elements.accountFormStack.hidden = isAdministrator;
   elements.adminDeviceOverview.hidden = !isAdministrator;
-  elements.deviceSelectionCard.hidden = isAdministrator;
+  elements.deviceSelectionCard.hidden = isAdministrator || isEmptyAccount;
   elements.accountManagement.classList.toggle("admin-mode", isAdministrator);
+  elements.accountManagement.classList.toggle("empty-device-state", isEmptyAccount);
   elements.unclaimDevice.hidden = isAdministrator;
+}
+
+function configureSelectedCloudDeviceAccess(deviceId) {
+  if (isLocalDashboard) return;
+
+  if (isCloudAccountWithoutDevices()) {
+    elements.devicePageSubtitle.textContent = "Registriraj svoj panj ali sprejmi povabilo za dostop do deljenega panja.";
+    elements.deviceDetailsPanel.hidden = true;
+    elements.overviewNavigationItem.hidden = true;
+    elements.historyNavigationItem.hidden = true;
+    elements.updatesNavigationItem.hidden = true;
+    elements.cloudUpdatesQuickLink.hidden = true;
+    elements.unclaimDevice.hidden = true;
+    elements.shareDevicePanel.hidden = true;
+    setCloudDeviceManagementVisibility(false);
+    showView("device");
+    return;
+  }
+
+  const role = getCloudDeviceAccessRole(deviceId);
+  const isSharedViewer = role === "viewer";
+  const isOwner = role === "owner";
+  const canManage = role === "owner" || role === "administrator";
+  elements.devicePageSubtitle.textContent = isSharedViewer
+    ? "Deljeni panj imaš na voljo samo za ogled meritev in grafov."
+    : "Omrežje, identiteta, delovanje in stanje SD kartice.";
+  elements.deviceDetailsPanel.hidden = isSharedViewer;
+  elements.overviewNavigationItem.hidden = false;
+  elements.historyNavigationItem.hidden = false;
+  elements.updatesNavigationItem.hidden = isSharedViewer;
+  elements.cloudUpdatesQuickLink.hidden = isSharedViewer;
+  elements.unclaimDevice.hidden = isCloudAdministrator() || isSharedViewer;
+  elements.unclaimDevice.disabled = !deviceId || !isOwner;
+  elements.shareDevicePanel.hidden = !isOwner;
+  elements.selectedDeviceDescription.textContent = isSharedViewer
+    ? "Deljeni panj · samo ogled. V izbirniku lahko kadarkoli preklopiš nazaj na svoj panj."
+    : "Izberi panj, katerega podatke želiš pregledovati.";
+  setCloudDeviceManagementVisibility(Boolean(deviceId && currentCloudUser && canManage));
+
+  if (isSharedViewer && elements.viewPanels.some((panel) => panel.dataset.viewPanel === "updates" && !panel.hidden)) {
+    showView("device");
+  }
 }
 
 function setCloudDeviceManagementVisibility(isVisible) {
@@ -430,6 +532,23 @@ function resetCloudDashboard() {
   renderHistoryManagementStatus(null);
 }
 
+function rebuildCloudDevices() {
+  if (isCloudAdministrator()) return;
+
+  const ownedDevices = Object.fromEntries(Object.entries(ownedCloudDevices).map(([deviceId, registration]) => [
+    deviceId,
+    { ...registration, access_role: "owner" },
+  ]));
+  const sharedDevices = Object.fromEntries(Object.entries(sharedCloudDevices)
+    .filter(([deviceId]) => !ownedDevices[deviceId])
+    .map(([deviceId, registration]) => [deviceId, { ...registration, access_role: "viewer" }]));
+  cloudDevices = { ...sharedDevices, ...ownedDevices };
+  synchronizeCurrentUserOwnerEmails();
+  if (!Object.keys(cloudDevices).length && (!ownedCloudDevicesLoaded || !sharedCloudDevicesLoaded)) return;
+  configureCloudAccountView();
+  renderCloudDeviceSelector();
+}
+
 function renderCloudDeviceSelector() {
   const deviceIds = Object.keys(cloudDevices);
   const requestedDeviceId = new URLSearchParams(window.location.search).get(CLOUD_DEVICE_QUERY_PARAMETER);
@@ -446,11 +565,24 @@ function renderCloudDeviceSelector() {
     return;
   }
 
-  deviceIds.sort().forEach((deviceId) => {
-    const device = cloudDevices[deviceId] ?? {};
-    const displayName = isCloudAdministrator() ? deviceId : device.display_name || deviceId;
-    elements.cloudDeviceSelect.append(new Option(displayName, deviceId));
-  });
+  if (isCloudAdministrator()) {
+    deviceIds.sort().forEach((deviceId) => elements.cloudDeviceSelect.append(new Option(deviceId, deviceId)));
+  } else {
+    const appendDeviceGroup = (label, role) => {
+      const matchingDeviceIds = deviceIds.filter((deviceId) => cloudDevices[deviceId]?.access_role === role).sort();
+      if (!matchingDeviceIds.length) return;
+      const group = document.createElement("optgroup");
+      group.label = label;
+      matchingDeviceIds.forEach((deviceId) => {
+        const device = cloudDevices[deviceId] ?? {};
+        const suffix = role === "viewer" ? " · samo ogled" : "";
+        group.append(new Option(`${device.display_name || deviceId}${suffix}`, deviceId));
+      });
+      elements.cloudDeviceSelect.append(group);
+    };
+    appendDeviceGroup("Moji panji", "owner");
+    appendDeviceGroup("Deljeni z mano", "viewer");
+  }
   elements.cloudDeviceSelect.disabled = false;
   const nextDeviceId = preferredDeviceId || deviceIds[0];
   elements.cloudDeviceSelect.value = nextDeviceId;
@@ -529,7 +661,7 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
 }
 
 async function ensureCloudDeviceOwnerEmail(deviceId) {
-  if (!deviceId || !firebaseDatabase || !currentCloudUser?.email || isCloudAdministrator() || ownerEmailSyncedDeviceIds.has(deviceId)) return;
+  if (!deviceId || !firebaseDatabase || !currentCloudUser?.email || getCloudDeviceAccessRole(deviceId) !== "owner" || ownerEmailSyncedDeviceIds.has(deviceId)) return;
 
   const { database, ref, set } = firebaseDatabase;
   try {
@@ -542,7 +674,7 @@ async function ensureCloudDeviceOwnerEmail(deviceId) {
 
 function synchronizeCurrentUserOwnerEmails() {
   if (isCloudAdministrator()) return;
-  Object.keys(cloudDevices).forEach((deviceId) => void ensureCloudDeviceOwnerEmail(deviceId));
+  Object.keys(ownedCloudDevices).forEach((deviceId) => void ensureCloudDeviceOwnerEmail(deviceId));
 }
 
 function selectCloudDevice(deviceId) {
@@ -551,14 +683,18 @@ function selectCloudDevice(deviceId) {
   bme680CalibrationRequestedAt = 0;
   elements.cloudBme680CalibrationForm.dataset.dirty = "false";
   cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
-  setCloudDeviceManagementVisibility(Boolean(cloudDevicePath && currentCloudUser));
   elements.cloudDeviceSelect.value = deviceId;
   renderAdminDeviceOverview();
+  configureSelectedCloudDeviceAccess(deviceId);
   void ensureCloudDeviceOwnerEmail(deviceId);
-  elements.unclaimDevice.disabled = !cloudDevicePath || isCloudAdministrator();
   elements.unclaimDeviceStatus.textContent = "";
-  elements.otaSection.hidden = !cloudDevicePath;
-  elements.cloudSyncControls.hidden = !cloudDevicePath;
+  elements.shareDeviceStatus.textContent = "";
+  elements.shareInvitationResult.hidden = true;
+  elements.sharedViewerList.replaceChildren();
+  activeShareInvitationCode = "";
+  const isSharedViewer = getCloudDeviceAccessRole(deviceId) === "viewer";
+  elements.otaSection.hidden = !cloudDevicePath || isSharedViewer;
+  elements.cloudSyncControls.hidden = !cloudDevicePath || isSharedViewer;
   if (!cloudDevicePath || !firebaseDatabase) {
     resetCloudDashboard();
     return;
@@ -576,14 +712,21 @@ function selectCloudDevice(deviceId) {
   const subscribe = (path, renderer) => {
     stopCloudDeviceListeners.push(onValue(ref(database, `${cloudDevicePath}/${path}`), (snapshot) => renderer(snapshot.val()), showDataError));
   };
-  subscribe("latest", renderLatestMeasurement);
-  subscribe("status/device", renderDeviceStatus);
-  subscribe("status/sd_card", renderSDStatus);
-  subscribe("status/firmware", renderFirmwareVersion);
-  subscribe("status/ota", renderOtaDeviceStatus);
-  subscribe("status/history", renderHistoryManagementStatus);
-  subscribe("status/load_cell", renderLoadCellTareStatus);
-  subscribe("status/bme680", renderBme680CalibrationStatus);
+  subscribe("latest", isSharedViewer ? renderSharedLatestMeasurement : renderLatestMeasurement);
+  if (!isSharedViewer) {
+    subscribe("status/device", renderDeviceStatus);
+    subscribe("status/sd_card", renderSDStatus);
+    subscribe("status/firmware", renderFirmwareVersion);
+    subscribe("status/ota", renderOtaDeviceStatus);
+    subscribe("status/history", renderHistoryManagementStatus);
+    subscribe("status/load_cell", renderLoadCellTareStatus);
+    subscribe("status/bme680", renderBme680CalibrationStatus);
+  }
+  if (getCloudDeviceAccessRole(deviceId) === "owner") {
+    stopCloudDeviceListeners.push(onValue(ref(database, `device_access/${deviceId}`), (snapshot) => {
+      renderSharedViewerList(deviceId, snapshot.val());
+    }, showDataError));
+  }
   historyViewLoading = undefined;
   refreshVisibleHistory();
 }
@@ -700,6 +843,13 @@ function renderLatestMeasurement(measurement) {
   elements.humidity.textContent = formatValue(measurement?.humidity_percent);
   elements.weight.textContent = formatValue(measurement?.weight_kg, 1);
   elements.latestTime.textContent = formatDateTime(measurement);
+}
+
+function renderSharedLatestMeasurement(measurement) {
+  renderLatestMeasurement(measurement);
+  const timestamp = Number(measurement?.timestamp);
+  latestDeviceStatus = Number.isFinite(timestamp) && timestamp > 0 ? { last_seen_timestamp: timestamp } : undefined;
+  renderHeaderDeviceState();
 }
 
 const COMPONENT_DEFINITIONS = [
@@ -3119,6 +3269,221 @@ async function claimDevice(event) {
   }
 }
 
+function normalizeEmail(email) {
+  return String(email ?? "").trim().toLowerCase();
+}
+
+function generateShareInvitationCode() {
+  const randomValues = new Uint8Array(8);
+  crypto.getRandomValues(randomValues);
+  return [...randomValues].map((value) => SHARE_INVITATION_ALPHABET[value % SHARE_INVITATION_ALPHABET.length]).join("");
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const temporaryInput = document.createElement("textarea");
+  temporaryInput.value = text;
+  temporaryInput.setAttribute("readonly", "");
+  temporaryInput.style.position = "fixed";
+  temporaryInput.style.opacity = "0";
+  document.body.append(temporaryInput);
+  temporaryInput.select();
+  const copied = document.execCommand("copy");
+  temporaryInput.remove();
+  if (!copied) throw new Error("Kopiranje ni uspelo");
+}
+
+async function createShareInvitation(event) {
+  event.preventDefault();
+  if (!currentCloudUser || !firebaseDatabase) return;
+
+  const deviceId = elements.cloudDeviceSelect.value;
+  const device = cloudDevices[deviceId];
+  const recipientEmail = normalizeEmail(elements.shareRecipientEmail.value);
+  const ownerEmail = normalizeEmail(currentCloudUser.email);
+  if (!deviceId || device?.access_role !== "owner") {
+    elements.shareDeviceStatus.textContent = "Izberi svoj panj, ki ga želiš deliti.";
+    return;
+  }
+  if (!recipientEmail || recipientEmail === ownerEmail) {
+    elements.shareDeviceStatus.textContent = recipientEmail
+      ? "Povabila ne moreš poslati svojemu računu."
+      : "Vnesi veljaven e-poštni naslov prejemnika.";
+    return;
+  }
+
+  elements.createShareInvitation.disabled = true;
+  elements.shareDeviceStatus.textContent = "Ustvarjam varno povabilo …";
+  elements.shareInvitationResult.hidden = true;
+  const { database, ref, set } = firebaseDatabase;
+  const createdAt = Date.now();
+  const invitation = {
+    device_id: deviceId,
+    owner_uid: currentCloudUser.uid,
+    recipient_email: recipientEmail,
+    display_name: device.display_name || deviceId,
+    role: "viewer",
+    created_at: createdAt,
+    expires_at: createdAt + SHARE_INVITATION_VALIDITY_MS,
+  };
+
+  try {
+    let invitationCode = "";
+    for (let attempt = 0; attempt < 5 && !invitationCode; attempt += 1) {
+      const candidateCode = generateShareInvitationCode();
+      try {
+        await set(ref(database, `share_invites/${candidateCode}`), invitation);
+        invitationCode = candidateCode;
+      } catch (error) {
+        if (attempt === 4) throw error;
+      }
+    }
+    activeShareInvitationCode = invitationCode;
+    elements.shareInvitationCode.textContent = invitationCode;
+    elements.shareInvitationDetail.textContent = `Za ${recipientEmail}; velja do ${formatDashboardDateTime(new Date(invitation.expires_at))}.`;
+    elements.shareInvitationResult.hidden = false;
+    elements.shareDeviceStatus.textContent = "Povabilo je pripravljeno. Prejemniku pošlji prikazano kodo.";
+  } catch (error) {
+    console.error(error);
+    elements.shareDeviceStatus.textContent = "Povabila ni bilo mogoče ustvariti. Preveri povezavo in Firebase pravila.";
+  } finally {
+    elements.createShareInvitation.disabled = false;
+  }
+}
+
+async function copyShareInvitationCode() {
+  if (!activeShareInvitationCode) return;
+  try {
+    await copyText(activeShareInvitationCode);
+    elements.shareDeviceStatus.textContent = "Koda povabila je kopirana.";
+  } catch (error) {
+    console.error(error);
+    elements.shareDeviceStatus.textContent = "Kopiranje ni uspelo. Kodo označi in kopiraj ročno.";
+  }
+}
+
+async function acceptShareInvitation(event) {
+  event.preventDefault();
+  if (!currentCloudUser || !firebaseDatabase) return;
+
+  const invitationCode = elements.acceptShareCode.value.trim().toUpperCase();
+  const recipientEmail = normalizeEmail(currentCloudUser.email);
+  if (!isValidShareInvitationCode(invitationCode) || !recipientEmail) {
+    elements.acceptShareStatus.textContent = "Preveri osemmestno kodo povabila in e-poštni naslov računa.";
+    return;
+  }
+
+  const submitButton = elements.acceptShareForm.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  elements.acceptShareStatus.textContent = "Preverjam povabilo …";
+  const { database, get, ref, update } = firebaseDatabase;
+  try {
+    const invitationSnapshot = await get(ref(database, `share_invites/${invitationCode}`));
+    const invitation = invitationSnapshot.val();
+    const deviceId = String(invitation?.device_id ?? "");
+    const createdAt = Number(invitation?.created_at);
+    const expiresAt = Number(invitation?.expires_at);
+    const effectiveExpiration = Math.min(expiresAt, createdAt + SHARE_INVITATION_VALIDITY_MS);
+    if (
+      !invitation
+      || !isValidDeviceId(deviceId)
+      || normalizeEmail(invitation.recipient_email) !== recipientEmail
+      || !Number.isFinite(createdAt)
+      || !Number.isFinite(expiresAt)
+      || effectiveExpiration < Date.now()
+    ) {
+      throw new Error("Povabilo ni veljavno");
+    }
+
+    const sharedAt = Date.now();
+    const accessRecord = {
+      role: "viewer",
+      email: recipientEmail,
+      owner_uid: invitation.owner_uid,
+      shared_at: sharedAt,
+      invite_code: invitationCode,
+    };
+    await update(ref(database), {
+      [`device_access/${deviceId}/${currentCloudUser.uid}`]: accessRecord,
+      [`users/${currentCloudUser.uid}/shared_devices/${deviceId}`]: {
+        ...accessRecord,
+        display_name: invitation.display_name || deviceId,
+      },
+      [`share_invites/${invitationCode}`]: null,
+    });
+    elements.acceptShareForm.reset();
+    elements.acceptShareStatus.textContent = `Deljeni panj »${invitation.display_name || deviceId}« je dodan v izbirnik.`;
+  } catch (error) {
+    console.error(error);
+    elements.acceptShareStatus.textContent = "Povabilo ni veljavno, je poteklo ali je namenjeno drugemu e-poštnemu naslovu.";
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function renderSharedViewerList(deviceId, accessRecords) {
+  elements.sharedViewerList.replaceChildren();
+  const viewers = Object.entries(accessRecords ?? {}).filter(([, access]) => access?.role === "viewer");
+  if (!viewers.length) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "muted";
+    emptyState.textContent = "Panj še ni deljen z nobenim uporabnikom.";
+    elements.sharedViewerList.append(emptyState);
+    return;
+  }
+
+  viewers.sort(([, left], [, right]) => String(left.email).localeCompare(String(right.email))).forEach(([viewerUid, access]) => {
+    const row = document.createElement("div");
+    row.className = "shared-viewer-row";
+    const identity = document.createElement("div");
+    const email = document.createElement("strong");
+    email.textContent = access.email || "Uporabnik brez e-poštnega naslova";
+    const role = document.createElement("small");
+    role.textContent = "Samo ogled";
+    identity.append(email, role);
+    const revokeButton = document.createElement("button");
+    revokeButton.type = "button";
+    revokeButton.className = "secondary-button danger-button";
+    revokeButton.textContent = "Prekliči dostop";
+    revokeButton.addEventListener("click", () => revokeSharedViewer(deviceId, viewerUid, access.email, revokeButton));
+    row.append(identity, revokeButton);
+    elements.sharedViewerList.append(row);
+  });
+}
+
+async function revokeSharedViewer(deviceId, viewerUid, viewerEmail, button) {
+  if (!currentCloudUser || !firebaseDatabase || getCloudDeviceAccessRole(deviceId) !== "owner") return;
+  if (!window.confirm(`Prekličem dostop samo za ogled uporabniku ${viewerEmail || viewerUid}?`)) return;
+
+  button.disabled = true;
+  elements.shareDeviceStatus.textContent = "Preklicujem deljeni dostop …";
+  try {
+    const { database, ref, update } = firebaseDatabase;
+    await update(ref(database), {
+      [`device_access/${deviceId}/${viewerUid}`]: null,
+      [`users/${viewerUid}/shared_devices/${deviceId}`]: null,
+    });
+    elements.shareDeviceStatus.textContent = "Dostop uporabnika je preklican.";
+  } catch (error) {
+    console.error(error);
+    button.disabled = false;
+    elements.shareDeviceStatus.textContent = "Dostopa ni bilo mogoče preklicati.";
+  }
+}
+
+async function appendSharedViewerRemovalUpdates(deviceId, updates) {
+  const { database, get, ref } = firebaseDatabase;
+  const accessSnapshot = await get(ref(database, `device_access/${deviceId}`));
+  Object.keys(accessSnapshot.val() ?? {}).forEach((viewerUid) => {
+    updates[`device_access/${deviceId}/${viewerUid}`] = null;
+    updates[`users/${viewerUid}/shared_devices/${deviceId}`] = null;
+  });
+}
+
 async function unclaimDevice() {
   if (!currentCloudUser || !firebaseDatabase) return;
 
@@ -3127,30 +3492,25 @@ async function unclaimDevice() {
 
   const displayName = cloudDevices[deviceId].display_name || deviceId;
   const isConfirmed = window.confirm(
-    `Ali želiš odregistrirati panj »${displayName}«?\n\nMeritve in zgodovina ostanejo v bazi, panj pa ne bo več viden v tvojem računu. Za ponoven dostop ga bo treba registrirati z aktivacijsko kodo.`,
+    `Ali želiš odregistrirati panj »${displayName}«?\n\nMeritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.`,
   );
   if (!isConfirmed) return;
 
-  const { database, ref, remove, set } = firebaseDatabase;
-  const userDevicePath = `users/${currentCloudUser.uid}/devices/${deviceId}`;
-  const ownerPath = `devices/${deviceId}/owner_uid`;
-  const ownerEmailPath = `devices/${deviceId}/owner_email`;
-  const registration = cloudDevices[deviceId];
+  const { database, ref, update } = firebaseDatabase;
   elements.unclaimDevice.disabled = true;
   elements.unclaimDeviceStatus.textContent = "Odregistriram panj …";
 
   try {
-    await remove(ref(database, userDevicePath));
-    try {
-      await remove(ref(database, ownerEmailPath));
-      await remove(ref(database, ownerPath));
-    } catch (error) {
-      await set(ref(database, userDevicePath), registration);
-      throw error;
-    }
+    const updates = {
+      [`users/${currentCloudUser.uid}/devices/${deviceId}`]: null,
+      [`devices/${deviceId}/owner_email`]: null,
+      [`devices/${deviceId}/owner_uid`]: null,
+    };
+    await appendSharedViewerRemovalUpdates(deviceId, updates);
+    await update(ref(database), updates);
 
     localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
-    elements.unclaimDeviceStatus.textContent = "Panj je odregistriran. Merilni podatki ostanejo shranjeni.";
+    elements.unclaimDeviceStatus.textContent = "Panj je odregistriran in vsi deljeni dostopi so preklicani. Merilni podatki ostanejo shranjeni.";
   } catch (error) {
     console.error(error);
     elements.unclaimDeviceStatus.textContent = "Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.";
@@ -3162,7 +3522,7 @@ function confirmAdministratorUnclaim(deviceId, ownerEmail) {
   const ownerDescription = ownerEmail ? `uporabnika ${ownerEmail}` : "trenutnega uporabnika";
   const confirmation = window.prompt(
     `Ali želiš panj ${deviceId} odjaviti od ${ownerDescription}?\n\n` +
-    "Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni. Panj bo nato mogoče registrirati na drug račun.\n\n" +
+    "Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.\n\n" +
     "Za potrditev vpiši ODJAVI.",
   );
   return confirmation === "ODJAVI";
@@ -3184,12 +3544,14 @@ async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
   try {
     const { database, ref, update } = firebaseDatabase;
     // Več lokacij posodobimo z enim atomarnim zapisom, da panj ne ostane delno odjavljen.
-    await update(ref(database), {
+    const updates = {
       [`devices/${deviceId}/owner_uid`]: null,
       [`devices/${deviceId}/owner_email`]: null,
       [`users/${ownerUid}/devices/${deviceId}`]: null,
-    });
-    statusElement.textContent = "Lastnik je odjavljen. Merilni podatki ostanejo shranjeni.";
+    };
+    await appendSharedViewerRemovalUpdates(deviceId, updates);
+    await update(ref(database), updates);
+    statusElement.textContent = "Lastnik in vsi deljeni dostopi so odjavljeni. Merilni podatki ostanejo shranjeni.";
   } catch (error) {
     console.error(error);
     statusElement.textContent = "Odjava lastnika ni uspela. Panj ostaja povezan z računom.";
@@ -3200,8 +3562,14 @@ async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
 function handleCloudAuthState(user) {
   clearCloudDeviceListeners();
   stopCloudDeviceListListener?.();
+  stopCloudSharedDeviceListListener?.();
   stopCloudDeviceListListener = undefined;
+  stopCloudSharedDeviceListListener = undefined;
   cloudDevices = {};
+  ownedCloudDevices = {};
+  sharedCloudDevices = {};
+  ownedCloudDevicesLoaded = false;
+  sharedCloudDevicesLoaded = false;
   ownerEmailSyncedDeviceIds.clear();
   currentCloudUser = user;
 
@@ -3227,11 +3595,23 @@ function handleCloudAuthState(user) {
   showView(DEFAULT_VIEW);
   renderHeaderDeviceState();
   const { database, onValue, ref } = firebaseDatabase;
-  const deviceListPath = isCloudAdministrator() ? "devices" : `users/${user.uid}/devices`;
-  stopCloudDeviceListListener = onValue(ref(database, deviceListPath), (snapshot) => {
-    cloudDevices = snapshot.val() ?? {};
-    synchronizeCurrentUserOwnerEmails();
-    renderCloudDeviceSelector();
+  if (isCloudAdministrator()) {
+    stopCloudDeviceListListener = onValue(ref(database, "devices"), (snapshot) => {
+      cloudDevices = snapshot.val() ?? {};
+      renderCloudDeviceSelector();
+    }, showDataError);
+    return;
+  }
+
+  stopCloudDeviceListListener = onValue(ref(database, `users/${user.uid}/devices`), (snapshot) => {
+    ownedCloudDevices = snapshot.val() ?? {};
+    ownedCloudDevicesLoaded = true;
+    rebuildCloudDevices();
+  }, showDataError);
+  stopCloudSharedDeviceListListener = onValue(ref(database, `users/${user.uid}/shared_devices`), (snapshot) => {
+    sharedCloudDevices = snapshot.val() ?? {};
+    sharedCloudDevicesLoaded = true;
+    rebuildCloudDevices();
   }, showDataError);
 }
 
@@ -3249,6 +3629,9 @@ function initializeAuthControls() {
   elements.authSignout.addEventListener("click", signOutCurrentUser);
   elements.cloudDeviceSelect.addEventListener("change", () => selectCloudDevice(elements.cloudDeviceSelect.value));
   elements.claimDeviceForm.addEventListener("submit", claimDevice);
+  elements.shareDeviceForm.addEventListener("submit", createShareInvitation);
+  elements.copyShareInvitation.addEventListener("click", copyShareInvitationCode);
+  elements.acceptShareForm.addEventListener("submit", acceptShareInvitation);
   elements.unclaimDevice.addEventListener("click", unclaimDevice);
   elements.deleteDeviceHistory.addEventListener("click", deleteDeviceHistory);
 }
@@ -3351,12 +3734,12 @@ async function useFirebaseDataSource() {
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js"),
     import("./firebase-config.js"),
   ]);
-  const { endAt, getDatabase, onValue, orderByKey, query, ref, remove, set, startAt, update } = databaseModule;
+  const { endAt, get, getDatabase, onValue, orderByKey, query, ref, remove, set, startAt, update } = databaseModule;
   const firebaseApp = initializeApp(configModule.firebaseConfig);
   const database = getDatabase(firebaseApp);
   firebaseAuth = authModule.getAuth(firebaseApp);
   firebaseAuthModule = authModule;
-  firebaseDatabase = { database, onValue, ref, remove, set, update };
+  firebaseDatabase = { database, get, onValue, ref, remove, set, update };
   elements.otaSection.hidden = true;
   elements.provisioningSection.hidden = true;
   initializeAuthControls();
@@ -3388,7 +3771,9 @@ async function startDashboard() {
   initializeOtaControls();
   initializeProvisioningForm();
   setInterval(() => {
-    if (latestDeviceStatus) renderDeviceStatus(latestDeviceStatus);
+    if (!latestDeviceStatus) return;
+    if (isSharedCloudDeviceSelected()) renderHeaderDeviceState();
+    else renderDeviceStatus(latestDeviceStatus);
   }, 15_000);
 
   try {

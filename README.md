@@ -2,7 +2,7 @@
 
 Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na SD kartico ter v Firebase Realtime Database.
 
-**Različica:** `0.1.0-rc.28`
+**Različica:** `0.1.0-rc.30`
 
 ## Trenutne funkcije
 
@@ -15,6 +15,7 @@ Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na
 - Dostopni AP kot rezerva, kadar domači Wi-Fi ni nastavljen ali ni dosegljiv.
 - Trajni ID, aktivacijska koda in Firebase prijava za registracijo več naprav na uporabnika.
 - Skrbniški pregled vseh panjev z varno odjavo trenutnega lastnika brez brisanja meritev.
+- Deljenje panja z drugim Firebase uporabnikom prek 24-urne kode in vloge **samo ogled**.
 - Odzivna lokalna nadzorna plošča z merjenjem, SD zgodovino in grafi tudi brez interneta.
 - OTA posodobitev iz preverjenega GitHub Release manifesta in ročna lokalna posodobitev firmware-a ali LittleFS prek ElegantOTA.
 - Varen izbris cloud zgodovine ali celotne SD in cloud zgodovine za izbrani panj.
@@ -41,7 +42,7 @@ Wi-Fi podatki se hranijo v NVS na ESP32 in niso del firmwarea, Git-a ali GitHub 
 
 ## Cloud in lastništvo naprav
 
-Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`. Uporabnik se prijavi z e-pošto/geslom ali Googlom, napravo prevzame z ID-jem in lokalno aktivacijsko kodo ter vidi samo lastne naprave. Glavni skrbnik lahko lastnika varno odjavi, brez brisanja naprave ali meritev. Postopek objave je v `docs/FIREBASE_AUTH_SETUP.md`. Ker ESP32 še anonimno pošilja meritve, je ta model namenjen beta testiranju in ne produkciji; omejitve so v `docs/DEVICE_OWNERSHIP.md`.
+Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`. Uporabnik se prijavi z e-pošto/geslom ali Googlom, napravo prevzame z ID-jem in lokalno aktivacijsko kodo ter vidi svoje in z njim deljene panje. Deljeni uporabnik lahko bere samo meritve in grafe; Firebase pravila mu blokirajo stanje komponent, OTA ter vse upravljalne ukaze. Glavni skrbnik lahko lastnika varno odjavi, brez brisanja naprave ali meritev. Postopek objave je v `docs/FIREBASE_AUTH_SETUP.md`. Ker ESP32 še anonimno pošilja meritve, je ta model namenjen beta testiranju in ne produkciji; omejitve so v `docs/DEVICE_OWNERSHIP.md`.
 
 ## Dokumentacija
 
@@ -55,7 +56,7 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 
 ### PlatformIO Wi-Fi OTA
 
-Firmware `0.1.0-rc.28` omogoča nalaganje firmware-a in LittleFS neposredno iz PlatformIO prek ArduinoOTA. Prvo namestitev te različice še vedno naredi prek USB. Nato v lokalni, Git-ignorirani datoteki `platformio.local.ini` vnesi aktivacijsko kodo z lokalne strani:
+Firmware `0.1.0-rc.30` omogoča nalaganje firmware-a in LittleFS neposredno iz PlatformIO prek ArduinoOTA. Prvo namestitev te različice še vedno naredi prek USB. Nato v lokalni, Git-ignorirani datoteki `platformio.local.ini` vnesi aktivacijsko kodo z lokalne strani:
 
 ```ini
 [env:esp32s3_ota]
@@ -68,8 +69,8 @@ V repozitoriju je samo vzorčna datoteka `platformio.local.ini.example`; dejansk
 Ob izdaji nove verzije spremeni `FIRMWARE_VERSION`, posodobi dokumentacijo, nato po uspešnem preverjanju objavi ustrezen tag:
 
 ```powershell
-git tag v0.1.0-rc.28
-git push origin v0.1.0-rc.28
+git tag v0.1.0-rc.30
+git push origin v0.1.0-rc.30
 ```
 
 GitHub Actions prevede univerzalni firmware in LittleFS sliko ter v GitHub Release objavi `firmware.bin`, `littlefs.bin` in `manifest.json`. ESP32 najprej na SD prenese in s SHA-256 preveri `littlefs.bin`, nato posodobi lokalno spletno stran in šele zatem preverjeno posodobi firmware. Ker Wi-Fi ni del kode, za OTA izdajo niso potrebne GitHub Actions skrivnosti.

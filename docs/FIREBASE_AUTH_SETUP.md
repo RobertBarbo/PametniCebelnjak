@@ -60,6 +60,23 @@ V Realtime Database moraš po uspešnem prevzemu videti:
 
 Z drugim uporabniškim računom ta naprava ne sme biti vidna niti berljiva.
 
+## Preverjanje deljenja panja
+
+1. Prijavi se kot lastnik, izberi svoj panj in v razdelku **Dostop samo za ogled** vnesi e-poštni naslov drugega Firebase računa.
+2. Kopiraj ustvarjeno osemmestno kodo. Koda velja 24 ur in jo lahko sprejme samo navedeni e-poštni naslov.
+3. Prijavi se kot povabljeni uporabnik ter v obrazcu **Sprejmi povabilo** vnesi kodo.
+4. Deljeni panj se prikaže v skupini **Deljeni z mano** z oznako `samo ogled`.
+5. Preveri, da sta na voljo pogleda **Pregled** in **Grafi**. V pogledu **Naprava** morata ostati samo račun in izbirnik, zavihek **Posodobitve** pa mora biti skrit.
+
+V Realtime Database nastaneta poti:
+
+```text
+/device_access/{device_id}/{viewer_uid}
+/users/{viewer_uid}/shared_devices/{device_id}
+```
+
+Lastnik lahko delitev prekliče v seznamu uporabnikov z ogledom. Preklic odstrani obe poti, meritev pa ne spremeni.
+
 ## Beta omejitev
 
 Ta Firebase-only rešitev skriva podatke pred drugimi uporabniki, ne more pa kriptografsko potrditi anonimnega ESP32 zapisa. Podrobnost je v `docs/DEVICE_OWNERSHIP.md`.

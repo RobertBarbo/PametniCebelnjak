@@ -19,7 +19,15 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
   commands
 ```
 
-`database.rules.json` dovoli branje naprave samo takrat, ko je `owner_uid` enak prijavljenemu Firebase UID-ju. Uporabnik lahko registrira več panjev in med njimi preklaplja z izbirnikom na cloud strani.
+`database.rules.json` dovoli celoten ogled naprave samo takrat, ko je `owner_uid` enak prijavljenemu Firebase UID-ju. Uporabnik lahko registrira več panjev in med njimi preklaplja z izbirnikom na cloud strani. Deljeni uporabnik dobi ločeno vlogo `viewer`, ki omogoča samo branje meritev in agregatov.
+
+## Deljenje panja samo za ogled
+
+Lastnik v cloud pogledu vnese e-poštni naslov prejemnika. Spletna stran ustvari naključno osemmestno kodo pod `/share_invites/{code}`; povabilo je vezano na izbrani panj, lastnika, e-poštni naslov in poteče po 24 urah. Prejemnik mora biti prijavljen prav s tem Firebase e-poštnim naslovom.
+
+Po vnosu kode se z eno atomsko posodobitvijo ustvarita dostop `/device_access/{deviceId}/{viewerUid}` in uporabnikov izbirnik `/users/{viewerUid}/shared_devices/{deviceId}`, uporabljeno povabilo pa se izbriše. Firebase pravila gledalcu dovolijo branje samo poti `latest`, `measurements`, `aggregates/hourly` in `aggregates/daily`. Poti `status`, `commands`, lastništvo in aktivacijska koda ostanejo nedostopne, zato skriti upravljalni gumbi niso edina zaščita.
+
+Lastnik lahko vidi seznam gledalcev in posamezen dostop prekliče. Ob odregistraciji panja lastnik ali skrbnik z istim atomskim zapisom odstrani tudi vse zapise `device_access` ter pripadajoče uporabniške povezave.
 
 ## Skrbniški ogled
 
@@ -44,7 +52,7 @@ Ta beta namerno ne uporablja Cloud Functions in zato ne zahteva Blaze paketa. Ak
 
 ## Odregistracija panja
 
-Prijavljen lastnik lahko v cloud nadzorni plošči odregistrira izbrani panj. Po potrditvi se najprej odstrani povezava `/users/{uid}/devices/{deviceId}`, nato še `/devices/{deviceId}/owner_uid`.
+Prijavljen lastnik lahko v cloud nadzorni plošči odregistrira izbrani panj. Po potrditvi se z eno atomsko posodobitvijo odstranijo povezava `/users/{uid}/devices/{deviceId}`, lastništvo pod `/devices/{deviceId}` in vsi deljeni dostopi.
 
 Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne brišejo. Panj zato ni več viden nobenemu uporabniku, novi lastnik pa ga lahko z istim ID-jem in aktivacijsko kodo ponovno registrira. Firebase pravilo dovoli brisanje `owner_uid` trenutnemu lastniku ali trenutnemu beta skrbniškemu UID-ju. Skrbniška kartica zahteva besedo `ODJAVI` in nato z enim atomarnim zapisom odstrani `owner_uid`, `owner_email` ter `/users/{lastnik_uid}/devices/{deviceId}`, zato ne more nastati delno odjavljen panj.
 
@@ -60,7 +68,9 @@ To je sprejemljivo samo za trenutno beta testiranje. Za produkcijo je potreben z
 
 - `device_secrets` je zaseben; anonimen ESP32 ga lahko ustvari in pozneje ponovno zapiše samo z isto aktivacijsko kodo.
 - `device_claims` lahko bere in piše samo uporabnik, katerega UID je v poti.
-- `devices/{deviceId}` lahko bere samo lastnik; trenutni beta skrbniški UID lahko bere vse naprave.
+- `devices/{deviceId}` lahko v celoti bere samo lastnik; trenutni beta skrbniški UID lahko bere vse naprave. Gledalec lahko bere samo merilne pod-poti, ki jih izrecno dovoljujejo pravila.
+- `share_invites` lahko ustvari lastnik, prebere in uporabi pa ga le prijavljeni račun z ustreznim e-poštnim naslovom; uporabljena koda se izbriše.
+- `device_access` lahko ustvari samo prejemnik veljavnega povabila, odstrani pa ga lahko gledalec, lastnik ali skrbnik.
 - Lastnik lahko pošlje OTA ukaz, anonimen ESP32 pa ga lahko le prebere in izbriše po obdelavi.
 - Meritve, agregati, status in `latest` dovoljujejo anonimen zapis samo zato, ker ESP32 še nima lastne Firebase avtentikacije.
 

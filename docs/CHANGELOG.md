@@ -2,6 +2,27 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-rc.30] - 2026-08-13
+
+### Changed
+
+- Prijavljen cloud uporabnik brez lastnega ali deljenega panja je samodejno preusmerjen v pogled **Naprava**, kjer vidi samo svoj račun, registracijo panja in sprejem povabila.
+- Dokler račun nima dostopa do nobenega panja, so pogledi **Pregled**, **Grafi**, **Posodobitve** in prazne podrobnosti naprave skriti; po prvi registraciji ali sprejemu povabila se običajna navigacija samodejno obnovi.
+
+## [0.1.0-rc.29] - 2026-08-13
+
+### Added
+
+- Lastnik lahko za izbrani panj ustvari 24-urno povabilo za točno določen e-poštni naslov in uporabniku dodeli vlogo **samo ogled**.
+- Povabljeni uporabnik sprejme enkratno osemmestno kodo ter v istem izbirniku vidi svoje in deljene panje.
+- Lastnik vidi seznam uporabnikov z deljenim dostopom in jim lahko dostop prekliče.
+
+### Changed
+
+- Ob izbranem deljenem panju pogled **Naprava** prikaže samo račun, izbirnik in obrazce računa; podrobnosti sistema, komponente, nastavitve in OTA so skriti.
+- Firebase pravila deljenemu uporabniku dovolijo samo branje `latest`, surovih meritev ter urnih/dnevnih agregatov; status naprave in ukazi ostanejo nedostopni.
+- Odregistracija panja s strani lastnika ali skrbnika atomsko prekliče tudi vse deljene dostope.
+
 ## [0.1.0-rc.28] - 2026-08-13
 
 ### Added

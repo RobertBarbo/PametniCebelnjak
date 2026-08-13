@@ -29,160 +29,154 @@
 
 namespace {
 
-// Časovni intervali posameznih opravil v glavni zanki.
-// Začasni diagnostični interval za preverjanje stabilnosti merilnih celic.
-constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10 * 1000;
-constexpr uint32_t SD_MEASUREMENT_INTERVAL_MS = 60 * 1000;
-constexpr uint32_t SD_STATUS_INTERVAL_MS = 60000;
-constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60000;
-// Nedosegljive komponente preverjamo redkeje, da ne obremenjujejo I2C, HX711 ali SD vodila.
-constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60000;
-constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;
-constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;
-constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30000;
-constexpr uint32_t TIME_COMMAND_INTERVAL_MS = 15000;
-constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// Zgodovina se iz SD sinhronizira postopno; prehiter tempo lahko ob DNS/TLS napaki zasiči Wi-Fi sklad.
-constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10000;
-constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60000;
-// Ročna obnova uporablja manjše pakete. Običajna sinhronizacija ostane počasnejša,
-// da med vsakodnevnim delovanjem ne tekmuje z lokalnim strežnikom in meritvami.
-constexpr uint32_t CLOUD_RECONCILIATION_INTERVAL_MS = 250;
-constexpr uint8_t RECONCILIATION_MEASUREMENTS_PER_REQUEST = 32;
-constexpr uint8_t DAILY_RAW_SYNC_VERSION = 2;
-// Varovalka za primer, ko FirebaseClient izgubi asinhroni rezultat, zastavica prenosa pa ostane aktivna.
-constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3000;
-constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;
-constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30000;
-// FirebaseClient je asinhron, zato 20 klicev na sekundo zadostuje in pusti čas lokalnemu HTTP strežniku.
-constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;
-constexpr uint32_t FIREBASE_TASK_TIMEOUT_MS = 12 * 1000;
-constexpr size_t MAX_FIREBASE_ASYNC_TASKS = 1;
-constexpr uint32_t SYSTEM_DIAGNOSTIC_INTERVAL_MS = 15 * 1000;
-// Med lokalnim HTTP prenosom Firebase ne sme tekmovati za TCP medpomnilnike.
-// uPlotovi predpomnjeni datoteki sta bistveno manjši od prejšnje knjižnice grafov,
-// zato za običajne assete zadostuje krajše okno. Zgodovina s SD potrebuje ločeno,
-// daljšo zaščito, saj je njen JSON odziv lahko večji.
-constexpr uint32_t LOCAL_ASSET_PRIORITY_WINDOW_MS = 3 * 1000;
-constexpr uint32_t LOCAL_HISTORY_PRIORITY_WINDOW_MS = 10 * 1000;
-constexpr uint16_t LOCAL_HISTORY_LINES_PER_LOOP = 128;
-constexpr uint16_t LOCAL_HISTORY_BUCKETS_PER_LOOP = 128;
-constexpr uint32_t LOCAL_HISTORY_LOOP_BUDGET_MS = 8;
-constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
-constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
-constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 30000;
-constexpr uint32_t WIFI_RECONNECT_ATTEMPT_TIMEOUT_MS = 8000;
-constexpr uint32_t NETWORK_SERVICE_STABILIZATION_MS = 2000;
-constexpr uint32_t NTP_FIREBASE_GUARD_MS = 3000;
-constexpr uint32_t NTP_SYNC_TIMEOUT_MS = 30000;
-constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 10000;
-constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;
-constexpr uint32_t WIFI_CONNECTION_REQUEST_DELAY_MS = 500;
-constexpr uint32_t WIFI_RADIO_RESTART_DELAY_MS = 1000;
-constexpr uint32_t ACCESS_POINT_START_RETRY_MS = 5000;
-constexpr uint32_t ACCESS_POINT_HEALTH_CHECK_INTERVAL_MS = 30000;
-// Kanal 6 se manj prekriva z domačimi omrežji na kanalih 2, 3 in 12 ter je podprt na vseh trgih.
-constexpr uint8_t PROVISIONING_ACCESS_POINT_CHANNEL = 6;
-constexpr uint8_t PROVISIONING_ACCESS_POINT_MAX_CLIENTS = 4;
-constexpr int8_t PROVISIONING_ACCESS_POINT_TX_POWER = 78;  // 78 × 0,25 dBm = 19,5 dBm.
-constexpr uint8_t WIFI_RECONNECTS_BEFORE_RESTART = 3;
-constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;
-constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;
-constexpr uint16_t DAILY_RECONCILIATION_LINES_PER_LOOP = 128;
-constexpr uint32_t DAILY_RECONCILIATION_LOOP_BUDGET_MS = 8;
-// Štirje leti minutnih zapisov so dovolj za običajno ročno obnovitev in porabijo le nekaj deset kB PSRAM-a.
-constexpr size_t MAX_DAILY_RECONCILIATION_DAYS = 1461;
+// === Intervali glavne zanke (v milisekundah) =================================
+// Spremeni jih samo, če razumeš vpliv na porabo, SD kartico in Firebase promet.
+constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10 * 1000;  // Čas med branji BME680 in HX711 za prikaz trenutnih meritev.
+constexpr uint32_t SD_MEASUREMENT_INTERVAL_MS = 60 * 1000;  // Čas med zapisi meritve v SD CSV dnevnik in cloud zgodovino.
+constexpr uint32_t SD_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med preverjanjem in objavo stanja SD kartice.
+constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med objavami IP-ja, RSSI-ja, uptime-a in online stanja.
+constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60 * 1000;  // Čas med ponovnimi poskusi nedosegljivega senzorja ali SD kartice.
+constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;  // Zaporedne napake pred opozorilnim stanjem komponente.
+constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;  // Zaporedne napake pred stanjem napake komponente.
+constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30 * 1000;  // Čas med preverjanji Firebase ukazov za OTA, tariranje ali izbris.
+constexpr uint32_t TIME_COMMAND_INTERVAL_MS = 15 * 1000;  // Čas med preverjanji cloud ukaza za nastavitev ure DS3231.
+constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;  // Čas med osvežitvami aktivacijske kode v zasebni Firebase poti.
 
-// Firebase poti se ob zagonu sestavijo iz trajnega device_id naprave.
-constexpr char DEVICE_DATABASE_ROOT[] = "/devices";
-constexpr size_t DATABASE_PATH_LENGTH = 96;
-constexpr char SD_LOG_PATH[] = "/measurements.csv";
-constexpr char SD_HISTORY_INDEX_PATH[] = "/measurements.idx";
-constexpr char SD_HISTORY_INDEX_TEMP_PATH[] = "/measurements.tmp";
-// Velik odgovor zgodovine se pripravi na SD, da 24 ur minutnih točk ne izčrpa RAM-a ESP32.
-constexpr char SD_HISTORY_RESPONSE_PATH[] = "/history-response.json";
-constexpr uint32_t HOURLY_AGGREGATE_SECONDS = 60 * 60;
-constexpr uint32_t DAILY_AGGREGATE_SECONDS = 24 * 60 * 60;
+// === Firebase in sinhronizacija SD zgodovine ==================================
+constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10 * 1000;  // Najkrajši čas med običajnimi prenosi SD zgodovine v Firebase.
+constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60 * 1000;  // Najdaljši zamik ponovnega poskusa po cloud napaki.
+constexpr uint32_t CLOUD_RECONCILIATION_INTERVAL_MS = 250;  // Premor med paketi pri ročni obnovi zgodovine.
+constexpr uint8_t RECONCILIATION_MEASUREMENTS_PER_REQUEST = 32;  // Število meritev v enem Firebase paketu ročne obnove.
+constexpr uint8_t DAILY_RAW_SYNC_VERSION = 2;  // Različica formata oznake dnevne sinhronizacije; spremeni ob spremembi modela.
+constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3 * 1000;  // Čas za asinhroni Firebase rezultat, preden zahtevo obravnavamo kot izgubljeno.
+constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;  // Najdaljše čakanje na posamezno Firebase zahtevo.
+constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor pred novim Firebase poskusom po omrežni napaki.
+constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;  // Perioda obdelave FirebaseClient; 50 ms pomeni največ 20 klicev na sekundo.
+constexpr uint32_t FIREBASE_TASK_TIMEOUT_MS = 12 * 1000;  // Najdaljše dovoljeno trajanje Firebase opravila.
+constexpr size_t MAX_FIREBASE_ASYNC_TASKS = 1;  // Največ hkratnih Firebase opravil; 1 preprečuje zasičenje RAM-a in TCP-ja.
+constexpr uint32_t SYSTEM_DIAGNOSTIC_INTERVAL_MS = 15 * 1000;  // Čas med internimi pregledi zasedenosti RAM-a in omrežja.
+constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;  // Čas med obnovami urnih in dnevnih cloud agregatov.
 
-// GitHub Release vedno vsebuje manifest.json, firmware.bin in littlefs.bin za najnovejšo izdajo.
-constexpr char OTA_MANIFEST_URL[] = "https://github.com/RobertBarbo/PametniCebelnjak/releases/latest/download/manifest.json";
-constexpr char OTA_LITTLEFS_STAGE_PATH[] = "/ota-littlefs.bin";
-constexpr size_t OTA_DOWNLOAD_BUFFER_SIZE = 2048;
-constexpr size_t OTA_COMMAND_PAYLOAD_LENGTH = 256;
-constexpr size_t FIRMWARE_VERSION_LENGTH = 24;
-constexpr uint32_t OTA_MANIFEST_TIMEOUT_MS = 15000;
-constexpr uint32_t OTA_FIRMWARE_TIMEOUT_MS = 20000;
-constexpr uint32_t OTA_STREAM_IDLE_TIMEOUT_MS = 15000;
-constexpr uint32_t OTA_RESTART_DELAY_MS = 1500;
-constexpr uint32_t LOCAL_ELEGANT_OTA_START_TIMEOUT_MS = 5000;
-constexpr uint32_t LOCAL_ELEGANT_OTA_RESTART_DELAY_MS = 2000;
-constexpr size_t LOCAL_ELEGANT_OTA_REPORT_INTERVAL_BYTES = 128 * 1024;
-constexpr uint8_t ARDUINO_OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;
-constexpr uint8_t OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;
-constexpr uint16_t OTA_HTTPS_PORT = 443;
-constexpr uint8_t OTA_MAX_REDIRECTS = 4;
-constexpr uint32_t OTA_HEADER_TIMEOUT_MS = 15000;
-constexpr size_t OTA_HTTP_LINE_MAX_LENGTH = 2048;
-constexpr uint8_t OTA_LITTLEFS_DOWNLOAD_PROGRESS_END = 45;
-constexpr uint8_t OTA_LITTLEFS_INSTALL_PROGRESS_END = 60;
-constexpr uint8_t OTA_FIRMWARE_DOWNLOAD_PROGRESS_END = 95;
+// === Prednost lokalne strani pred cloud prometom ===============================
+constexpr uint32_t LOCAL_ASSET_PRIORITY_WINDOW_MS = 3 * 1000;  // Čas, ko ima nalaganje HTML/CSS/JS prednost pred Firebase prometom.
+constexpr uint32_t LOCAL_HISTORY_PRIORITY_WINDOW_MS = 10 * 1000;  // Daljše prednostno okno za pripravo večjega JSON odgovora zgodovine s SD.
+constexpr uint16_t LOCAL_HISTORY_LINES_PER_LOOP = 128;  // Največ CSV vrstic prebranih v enem prehodu zanke.
+constexpr uint16_t LOCAL_HISTORY_BUCKETS_PER_LOOP = 128;  // Največ časovnih košev obdelanih v enem prehodu zanke.
+constexpr uint32_t LOCAL_HISTORY_LOOP_BUDGET_MS = 8;  // Najdaljši čas obdelave zgodovine v enem prehodu, da Wi-Fi ostane odziven.
 
-constexpr int SD_CS_PIN = 10;
-constexpr int SD_MOSI_PIN = 11;
-constexpr int SD_SCK_PIN = 12;
-constexpr int SD_MISO_PIN = 13;
+// === Wi-Fi, fallback AP in čas =================================================
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20 * 1000;  // Najdaljši čas začetnega povezovanja na shranjeni domači Wi-Fi.
+constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 30 * 1000;  // Čas med nadzorovanimi poskusi ponovne povezave domačega Wi-Fi-ja.
+constexpr uint32_t WIFI_RECONNECT_ATTEMPT_TIMEOUT_MS = 8 * 1000;  // Najdaljši čas enega ponovnega STA poskusa.
+constexpr uint32_t NETWORK_SERVICE_STABILIZATION_MS = 2 * 1000;  // Čas po pridobitvi IP-ja pred zagonom NTP in Firebase prometa.
+constexpr uint32_t NTP_FIREBASE_GUARD_MS = 3 * 1000;  // Dodatni premor med NTP sinhronizacijo in prvim Firebase dostopom.
+constexpr uint32_t NTP_SYNC_TIMEOUT_MS = 30 * 1000;  // Najdaljši čas čakanja na prvo veljavno NTP uro.
+constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 30 * 1000;  // Čas odprte AP točke po uspešnem vnosu novega SSID-ja in gesla.
+constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;  // Kratek zamik pred izbrisom NVS Wi-Fi nastavitev po zahtevi obrazca.
+constexpr uint32_t WIFI_CONNECTION_REQUEST_DELAY_MS = 500;  // Zamik po HTTP odgovoru, preden glavni program začne preklop Wi-Fi-ja.
+constexpr uint32_t WIFI_RADIO_RESTART_DELAY_MS = 1 * 1000;  // Premor med izklopom in ponovnim zagonom Wi-Fi radia.
+constexpr uint32_t ACCESS_POINT_START_RETRY_MS = 5 * 1000;  // Čas do novega poskusa zagona AP-ja, če prvi poskus ne uspe.
+constexpr uint32_t ACCESS_POINT_HEALTH_CHECK_INTERVAL_MS = 30 * 1000;  // Čas med preverjanji, ali fallback AP še res oddaja.
+constexpr uint8_t PROVISIONING_ACCESS_POINT_CHANNEL = 6;  // Wi-Fi kanal odprte provisioning AP točke; spremeni le ob motnjah kanala.
+constexpr uint8_t PROVISIONING_ACCESS_POINT_MAX_CLIENTS = 4;  // Največ hkratnih telefonov/računalnikov na provisioning AP-ju.
+constexpr int8_t PROVISIONING_ACCESS_POINT_TX_POWER = 78;  // Oddajna moč AP: 78 × 0,25 dBm = 19,5 dBm.
+constexpr uint8_t WIFI_RECONNECTS_BEFORE_RESTART = 3;  // Neuspešni poskusi pred popolnim ponovnim zagonom STA povezave.
 
-constexpr int BME680_SDA_PIN = 8;
-constexpr int BME680_SCL_PIN = 9;
-constexpr uint8_t BME680_PRIMARY_ADDRESS = 0x76;
-constexpr uint8_t BME680_SECONDARY_ADDRESS = 0x77;
-constexpr uint8_t DS3231_ADDRESS = 0x68;
-constexpr uint8_t DS3231_TIME_REGISTER = 0x00;
-constexpr uint8_t DS3231_STATUS_REGISTER = 0x0F;
-constexpr uint8_t DS3231_OSCILLATOR_STOP_FLAG = 0x80;
-constexpr int HX711_DOUT_PIN = 4;
-constexpr int HX711_SCK_PIN = 5;
-constexpr uint8_t HX711_TARE_SAMPLES = 20;
-// Periodično branje uporablja manj vzorcev, da HX711 ne zadržuje omrežnih in spletnih opravil.
-constexpr uint8_t HX711_READ_SAMPLES = 5;
-constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;
-// Večji skok ni napaka HX711, temveč zahteva še eno podobno meritev za potrditev.
-constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;
-constexpr float HX711_STEP_CONFIRM_TOLERANCE_KG = 1.0F;
-// Umerjeno 6. 8. 2026 z referenčnima utežema 1,464 kg in 2,470 kg na tej merilni konstrukciji.
-constexpr float HX711_CALIBRATION_FACTOR = 22845.060F;  //22500.0F;
+// === SD dnevnik in lokalna zgodovina ===========================================
+constexpr uint8_t MAX_SD_INITIALIZATION_FAILURES = 5;  // Neuspele inicializacije SD pred objavo trajne napake v Firebase.
+constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;  // Število uspešnih cloud zapisov pred shranitvijo kazalca sinhronizacije v NVS.
+constexpr uint16_t DAILY_RECONCILIATION_LINES_PER_LOOP = 128;  // Največ SD vrstic preverjenih v enem prehodu dnevne obnove.
+constexpr uint32_t DAILY_RECONCILIATION_LOOP_BUDGET_MS = 8;  // Časovni proračun enega prehoda dnevne obnove.
+constexpr size_t MAX_DAILY_RECONCILIATION_DAYS = 1461;  // Največ dni (približno štiri leta), ki jih lahko ročno obnovimo iz zgodovine.
 
-constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";
-constexpr char NTP_SERVER_1[] = "pool.ntp.org";
-constexpr char NTP_SERVER_2[] = "time.google.com";
-// Do 24 ur uporabljamo minutne koše, zato potrebujemo še en koš za vključen končni trenutek.
-constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 1441;
-constexpr time_t MAX_LOCAL_HISTORY_DURATION_SECONDS = 366 * 24 * 60 * 60;
-constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;
-constexpr time_t MAX_SETTABLE_UNIX_TIMESTAMP = 4102444799LL;  // 31. 12. 2099 23:59:59 UTC.
-constexpr char DEVICE_SETTINGS_NAMESPACE[] = "device";
-constexpr char WIFI_SETTINGS_NAMESPACE[] = "wifi";
-constexpr char SENSOR_SETTINGS_NAMESPACE[] = "sensors";
-constexpr char DEVICE_ID_KEY[] = "device_id";
-constexpr char ACTIVATION_CODE_KEY[] = "activation";
-constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";
-constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";
-constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";
-constexpr char HX711_OFFSET_KEY[] = "hx_offset";
-constexpr char BME680_TEMPERATURE_OFFSET_KEY[] = "bme_temp_off";
-constexpr char BME680_HUMIDITY_OFFSET_KEY[] = "bme_hum_off";
-constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 1;
-constexpr float BME680_TEMPERATURE_OFFSET_MIN_C = -10.0F;
-constexpr float BME680_TEMPERATURE_OFFSET_MAX_C = 10.0F;
-constexpr float BME680_HUMIDITY_OFFSET_MIN_PERCENT = -30.0F;
-constexpr float BME680_HUMIDITY_OFFSET_MAX_PERCENT = 30.0F;
-constexpr char WIFI_SSID_KEY[] = "ssid";
-constexpr char WIFI_PASSWORD_KEY[] = "password";
-constexpr char ACTIVATION_ALPHABET[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-constexpr size_t DEVICE_ID_LENGTH = 16;
-constexpr size_t ACTIVATION_CODE_LENGTH = 8;
-constexpr size_t ACCESS_POINT_SSID_LENGTH = 24;
-constexpr size_t ARDUINO_OTA_HOSTNAME_LENGTH = DEVICE_ID_LENGTH + 6;
+// === Datoteke na SD in Firebase poti ===========================================
+constexpr char DEVICE_DATABASE_ROOT[] = "/devices";  // Koren Firebase poti, pod katerim je ločena mapa vsake naprave.
+constexpr size_t DATABASE_PATH_LENGTH = 96;  // Velikost medpomnilnika za sestavljene Firebase poti; ne zmanjšuj brez preverjanja.
+constexpr char SD_LOG_PATH[] = "/measurements.csv";  // Glavni CSV dnevnik surovih meritev na SD kartici.
+constexpr char SD_HISTORY_INDEX_PATH[] = "/measurements.idx";  // Dnevni indeks CSV dnevnika za hitrejše lokalne grafe.
+constexpr char SD_HISTORY_INDEX_TEMP_PATH[] = "/measurements.tmp";  // Začasna datoteka med varnim ponovnim ustvarjanjem indeksa.
+constexpr char SD_HISTORY_RESPONSE_PATH[] = "/history-response.json";  // Začasni JSON odgovor na SD; prepreči porabo RAM-a pri 24-urnem grafu.
+constexpr uint32_t HOURLY_AGGREGATE_SECONDS = 60 * 60;  // Dolžina enega urnega agregacijskega koša.
+constexpr uint32_t DAILY_AGGREGATE_SECONDS = 24 * 60 * 60;  // Dolžina enega dnevnega agregacijskega koša.
+
+// === Cloud OTA iz GitHub Release ===============================================
+constexpr char OTA_MANIFEST_URL[] = "https://github.com/RobertBarbo/PametniCebelnjak/releases/latest/download/manifest.json";  // URL manifesta zadnje GitHub izdaje.
+constexpr char OTA_LITTLEFS_STAGE_PATH[] = "/ota-littlefs.bin";  // Začasna SD datoteka, v katero se pred namestitvijo prenese LittleFS slika.
+constexpr size_t OTA_DOWNLOAD_BUFFER_SIZE = 2048;  // Velikost RAM medpomnilnika za HTTPS OTA prenos.
+constexpr size_t OTA_COMMAND_PAYLOAD_LENGTH = 256;  // Največja dolžina Firebase OTA ukaza.
+constexpr size_t FIRMWARE_VERSION_LENGTH = 24;  // Največja dolžina besedila verzije firmware-a skupaj z ničelnim znakom.
+constexpr uint32_t OTA_MANIFEST_TIMEOUT_MS = 15 * 1000;  // Najdaljši čas čakanja na GitHub manifest.
+constexpr uint32_t OTA_FIRMWARE_TIMEOUT_MS = 20 * 1000;  // Najdaljši čas vzpostavljanja HTTPS povezave za OTA datoteko.
+constexpr uint32_t OTA_STREAM_IDLE_TIMEOUT_MS = 15 * 1000;  // Najdaljši dovoljeni premor brez OTA podatkov med prenosom.
+constexpr uint32_t OTA_RESTART_DELAY_MS = 1500;  // Kratek zamik pred ponovnim zagonom po uspešnem cloud OTA.
+constexpr uint32_t LOCAL_ELEGANT_OTA_START_TIMEOUT_MS = 5 * 1000;  // Čas čakanja, da ElegantOTA po HTTP zahtevi dejansko začne zapisovati flash.
+constexpr uint32_t LOCAL_ELEGANT_OTA_RESTART_DELAY_MS = 2 * 1000;  // Zamik pred ponovnim zagonom po uspešnem ElegantOTA prenosu.
+constexpr size_t LOCAL_ELEGANT_OTA_REPORT_INTERVAL_BYTES = 128 * 1024;  // Korak serijskega izpisa napredka ElegantOTA v bajtih.
+constexpr uint8_t ARDUINO_OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;  // Korak serijskega izpisa napredka PlatformIO Wi-Fi OTA.
+constexpr uint8_t OTA_PROGRESS_REPORT_INTERVAL_PERCENT = 10;  // Korak objave napredka cloud OTA v Firebase.
+constexpr uint16_t OTA_HTTPS_PORT = 443;  // Standardna HTTPS vrata za GitHub OTA prenos.
+constexpr uint8_t OTA_MAX_REDIRECTS = 4;  // Največ GitHub HTTP preusmeritev, ki jim firmware varno sledi.
+constexpr uint32_t OTA_HEADER_TIMEOUT_MS = 15 * 1000;  // Najdaljši čas čakanja na HTTP glave OTA strežnika.
+constexpr size_t OTA_HTTP_LINE_MAX_LENGTH = 2048;  // Največja obdelana dolžina ene HTTP glave.
+constexpr uint8_t OTA_LITTLEFS_DOWNLOAD_PROGRESS_END = 45;  // Cloud UI odstotek ob zaključku prenosa LittleFS slike.
+constexpr uint8_t OTA_LITTLEFS_INSTALL_PROGRESS_END = 60;  // Cloud UI odstotek ob zaključku zapisa LittleFS v flash.
+constexpr uint8_t OTA_FIRMWARE_DOWNLOAD_PROGRESS_END = 95;  // Cloud UI odstotek ob zaključku prenosa firmware slike.
+
+// === Priklop strojne opreme ESP32-S3 ============================================
+constexpr int SD_CS_PIN = 10;  // SD SPI CS pin; ne spreminjaj brez spremembe ožičenja.
+constexpr int SD_MOSI_PIN = 11;  // SD SPI MOSI pin; ne spreminjaj brez spremembe ožičenja.
+constexpr int SD_SCK_PIN = 12;  // SD SPI SCK pin; ne spreminjaj brez spremembe ožičenja.
+constexpr int SD_MISO_PIN = 13;  // SD SPI MISO pin; ne spreminjaj brez spremembe ožičenja.
+constexpr int BME680_SDA_PIN = 8;  // I2C SDA pin za BME680 in DS3231.
+constexpr int BME680_SCL_PIN = 9;  // I2C SCL pin za BME680 in DS3231.
+constexpr uint8_t BME680_PRIMARY_ADDRESS = 0x76;  // Privzeti I2C naslov BME680, če je SDO vezan na GND.
+constexpr uint8_t BME680_SECONDARY_ADDRESS = 0x77;  // Alternativni I2C naslov BME680, če je SDO vezan na VCC.
+constexpr uint8_t DS3231_ADDRESS = 0x68;  // Fiksni I2C naslov modula ure DS3231.
+constexpr uint8_t DS3231_TIME_REGISTER = 0x00;  // Prvi DS3231 register za datum in uro.
+constexpr uint8_t DS3231_STATUS_REGISTER = 0x0F;  // DS3231 statusni register za preverjanje veljavnosti ure.
+constexpr uint8_t DS3231_OSCILLATOR_STOP_FLAG = 0x80;  // Bit, ki pove, da je DS3231 ob izgubi napajanja ustavil uro.
+constexpr int HX711_DOUT_PIN = 4;  // HX711 DOUT pin; ne spreminjaj brez spremembe ožičenja.
+constexpr int HX711_SCK_PIN = 5;  // HX711 SCK pin; ne spreminjaj brez spremembe ožičenja.
+constexpr uint8_t HX711_TARE_SAMPLES = 20;  // Število vzorcev ob tariranju prazne tehtnice.
+constexpr uint8_t HX711_READ_SAMPLES = 5;  // Število vzorcev za eno redno meritev; višje število zmanjša šum, a upočasni zanko.
+constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;  // Najdaljši čas čakanja, da HX711 pripravi nov vzorec.
+constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;  // Večji skok teže zahteva še eno potrdilno meritev.
+constexpr float HX711_STEP_CONFIRM_TOLERANCE_KG = 1.0F;  // Največja razlika med dvema meritvama za potrditev velikega skoka.
+constexpr float HX711_CALIBRATION_FACTOR = 22845.060F;  // Faktor umerjanja HX711; spremeni ga šele po postopku kalibracije z znano utežjo.
+
+// === Datum, ura in lokalna zgodovina ============================================
+constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";  // Slovenija: CET pozimi in CEST poleti s samodejnim poletnim časom.
+constexpr char NTP_SERVER_1[] = "pool.ntp.org";  // Primarni javni NTP strežnik za sinhronizacijo ure.
+constexpr char NTP_SERVER_2[] = "time.google.com";  // Rezervni NTP strežnik, če primarni ni dosegljiv.
+constexpr size_t MAX_LOCAL_HISTORY_BUCKETS = 1441;  // Največ minutnih točk za 24 ur grafa, vključno s končnim trenutkom.
+constexpr time_t MAX_LOCAL_HISTORY_DURATION_SECONDS = 366 * 24 * 60 * 60;  // Najdaljše dovoljeno obdobje lokalnega grafa: 366 dni.
+constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;  // Najstarejši čas, ki ga štejemo za veljaven po NTP/DS3231 sinhronizaciji.
+constexpr time_t MAX_SETTABLE_UNIX_TIMESTAMP = 4102444799LL;  // Zadnji dovoljeni čas: 31. 12. 2099 23:59:59 UTC.
+
+// === NVS ključi, identiteta in kalibracija ======================================
+constexpr char DEVICE_SETTINGS_NAMESPACE[] = "device";  // NVS prostor za trajni ID in aktivacijsko kodo naprave.
+constexpr char WIFI_SETTINGS_NAMESPACE[] = "wifi";  // NVS prostor za Wi-Fi SSID in geslo.
+constexpr char SENSOR_SETTINGS_NAMESPACE[] = "sensors";  // NVS prostor za taro tehtnice in BME680 odmike.
+constexpr char DEVICE_ID_KEY[] = "device_id";  // NVS ključ trajnega ID-ja naprave.
+constexpr char ACTIVATION_CODE_KEY[] = "activation";  // NVS ključ lokalne aktivacijske kode.
+constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";  // NVS ključ položaja v SD datoteki, do katerega je zgodovina že sinhronizirana.
+constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";  // NVS ključ časa zadnje uspešne cloud sinhronizacije.
+constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";  // NVS ključ različice modela cloud agregatov.
+constexpr char HX711_OFFSET_KEY[] = "hx_offset";  // NVS ključ tare (odmika) HX711 tehtnice.
+constexpr char BME680_TEMPERATURE_OFFSET_KEY[] = "bme_temp_off";  // NVS ključ ročnega temperaturnega odmika BME680.
+constexpr char BME680_HUMIDITY_OFFSET_KEY[] = "bme_hum_off";  // NVS ključ ročnega odmika vlage BME680.
+constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 1;  // Trenutna različica strukture cloud agregatov.
+constexpr float BME680_TEMPERATURE_OFFSET_MIN_C = -10.0F;  // Najnižji dovoljeni ročni temperaturni odmik BME680.
+constexpr float BME680_TEMPERATURE_OFFSET_MAX_C = 10.0F;  // Najvišji dovoljeni ročni temperaturni odmik BME680.
+constexpr float BME680_HUMIDITY_OFFSET_MIN_PERCENT = -30.0F;  // Najnižji dovoljeni ročni odmik relativne vlage BME680.
+constexpr float BME680_HUMIDITY_OFFSET_MAX_PERCENT = 30.0F;  // Najvišji dovoljeni ročni odmik relativne vlage BME680.
+constexpr char WIFI_SSID_KEY[] = "ssid";  // Ime ključa Wi-Fi omrežja v NVS prostoru `wifi`.
+constexpr char WIFI_PASSWORD_KEY[] = "password";  // Ime ključa Wi-Fi gesla v NVS prostoru `wifi`.
+constexpr char ACTIVATION_ALPHABET[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // Znaki za kodo brez dvoumnih 0/O in 1/I.
+constexpr size_t DEVICE_ID_LENGTH = 16;  // Velikost medpomnilnika za ID oblike `CB-XXXXXXXXXXXX` z ničelnim znakom.
+constexpr size_t ACTIVATION_CODE_LENGTH = 8;  // Dolžina uporabnikove aktivacijske kode.
+constexpr size_t ACCESS_POINT_SSID_LENGTH = 24;  // Velikost medpomnilnika za ime AP točke oblike `Cebelnjak-XXXXXX`.
+constexpr size_t ARDUINO_OTA_HOSTNAME_LENGTH = DEVICE_ID_LENGTH + 6;  // Velikost medpomnilnika za ArduinoOTA ime `panj-<device_id>`.
 
 struct Measurement {
   float temperatureC;
@@ -1644,6 +1638,7 @@ void createDeviceIdentity()
   }
 
   snprintf(accessPointSsid, sizeof(accessPointSsid), "Cebelnjak-%s", deviceId + 9);
+  snprintf(arduinoOtaHostname, sizeof(arduinoOtaHostname), "panj-%s", deviceId);
 }
 
 void printDeviceRegistrationData()
@@ -4150,7 +4145,6 @@ void initializeArduinoOta()
   // mDNS/UDP inicializiramo šele po stabilizaciji STA vmesnika; lokalni ElegantOTA je na voljo tudi v AP načinu.
   if (arduinoOtaInitialized || !stationNetworkIsStable()) return;
 
-  snprintf(arduinoOtaHostname, sizeof(arduinoOtaHostname), "panj-%s", deviceId);
   ArduinoOTA.setHostname(arduinoOtaHostname);
   ArduinoOTA.setPort(3232);
   // Aktivacijska koda ostane shranjena samo lokalno in je za beta Wi-Fi OTA geslo.
@@ -4530,6 +4524,7 @@ void sendLocalStatus(AsyncWebServerRequest *request)
 {
   const Uptime uptime = getUptime();
   const String ipAddress = stationConnected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  const String stationIp = stationConnected ? WiFi.localIP().toString() : "";
   const String accessPointIp = WiFi.softAPIP().toString();
   const String wifiSignal = stationConnected ? String(WiFi.RSSI()) : "null";
   String escapedStationSsid;
@@ -4539,6 +4534,13 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   const bool cloudSynchronizationComplete = cloudSyncCaughtUp && !cloudSyncPending &&
                                              !hourlyAggregateReady && !dailyAggregateReady &&
                                              !reconciliationActive;
+  uint32_t accessPointShutdownRemainingSeconds = 0;
+  if (accessPointShutdownMillis != 0) {
+    const int32_t remainingMillis = static_cast<int32_t>(accessPointShutdownMillis - millis());
+    if (remainingMillis > 0) {
+      accessPointShutdownRemainingSeconds = (static_cast<uint32_t>(remainingMillis) + 999) / 1000;
+    }
+  }
   static char measurementJson[220];
   if (hasLatestMeasurement) {
     snprintf(measurementJson, sizeof(measurementJson),
@@ -4550,9 +4552,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   }
 
   const time_t currentTimestamp = time(nullptr);
-  static char jsonPayload[3200];
+  static char jsonPayload[3450];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"station_ip\":\"%s\",\"local_hostname\":\"%s.local\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"access_point_shutdown_remaining_seconds\":%lu,\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
@@ -4564,10 +4566,12 @@ void sendLocalStatus(AsyncWebServerRequest *request)
            static_cast<unsigned long>(currentTimestamp), timeSourceName(),
            currentTimestamp >= MIN_VALID_UNIX_TIMESTAMP ? "true" : "false", rtcReady ? "true" : "false",
            rtcTimeValid ? "true" : "false", ntpSynchronizationPending ? "true" : "false",
-           static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
-           stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
-           escapedStationSsid.c_str(), accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
-           wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
+            static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
+            stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
+            escapedStationSsid.c_str(), stationIp.c_str(), arduinoOtaHostname,
+            accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
+            static_cast<unsigned long>(accessPointShutdownRemainingSeconds),
+            wifiProvisioningStateName(), wifiProvisioningMessage(), activationCode,
            (cloudSyncPending || reconciliationActive) ? "true" : "false",
            cloudSynchronizationComplete ? "true" : "false",
            static_cast<unsigned long>(lastCloudSyncedTimestamp),

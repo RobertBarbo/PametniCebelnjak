@@ -1009,6 +1009,75 @@ select:disabled {
   display: block;
 }
 
+.wifi-connection-result {
+  display: grid;
+  gap: 16px;
+  padding: clamp(20px, 3vw, 30px);
+  border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border));
+  border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface-solid));
+}
+
+.wifi-connection-result h3,
+.wifi-connection-result p {
+  margin: 0;
+}
+
+.wifi-connection-result h3 {
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.wifi-address-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+}
+
+.wifi-address-card > span,
+.wifi-address-card small {
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.wifi-address-card > a {
+  color: var(--text);
+  font-size: clamp(1.1rem, 2.5vw, 1.45rem);
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.wifi-address-card small a {
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+.wifi-transition-notice {
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-radius: 12px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.wifi-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.wifi-result-actions .primary-button,
+.wifi-result-actions .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .cloud-sync-controls {
   display: grid;
   gap: 10px;
@@ -1132,6 +1201,53 @@ input:focus,
 select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.password-field input {
+  padding-right: 56px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  display: inline-grid;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  color: var(--text-soft);
+  background: transparent;
+  transform: translateY(-50%);
+}
+
+.password-toggle:hover:not(:disabled),
+.password-toggle[aria-pressed="true"] {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.password-toggle svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
 }
 
 .wifi-scan-controls {
@@ -1439,23 +1555,20 @@ select:focus {
 .admin-device-option {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 12px;
   min-height: 150px;
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
   background: var(--surface-soft);
   color: var(--text);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease, background 160ms ease;
 }
 
-.admin-device-option:hover,
-.admin-device-option:focus-visible {
+.admin-device-option:has(.admin-device-select:hover),
+.admin-device-option:has(.admin-device-select:focus-visible) {
   border-color: color-mix(in srgb, var(--primary) 72%, var(--border));
   background: var(--surface-solid);
-  transform: translateY(-2px);
 }
 
 .admin-device-option.selected {
@@ -1463,6 +1576,23 @@ select:focus {
   padding: 17px;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface-solid));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.admin-device-select {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.admin-device-select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 5px;
 }
 
 .admin-device-option strong {
@@ -1510,6 +1640,23 @@ select:focus {
 .admin-device-option small {
   color: var(--text-soft);
   line-height: 1.45;
+}
+
+.admin-device-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.admin-unclaim-button {
+  width: 100%;
+  min-height: 42px;
+  justify-content: center;
+}
+
+.admin-device-action-status {
+  min-height: 1.45em;
+  font-size: 0.78rem;
 }
 
 @media (max-width: 1080px) {
@@ -2143,6 +2290,11 @@ body[data-dashboard-mode="cloud"][data-auth-state="signed-out"] .menu-toggle {
   .page-heading > button,
   .date-range-trigger {
     width: 100%;
+  }
+
+  .wifi-result-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .latest-panel,

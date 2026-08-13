@@ -141,6 +141,7 @@ const elements = {
   wifiForm: document.querySelector("#wifi-form"),
   wifiSsid: document.querySelector("#wifi-ssid"),
   wifiPassword: document.querySelector("#wifi-password"),
+  wifiPasswordToggle: document.querySelector("#wifi-password-toggle"),
   wifiFormStatus: document.querySelector("#wifi-form-status"),
   wifiScan: document.querySelector("#wifi-scan"),
   wifiScanStatus: document.querySelector("#wifi-scan-status"),
@@ -149,6 +150,14 @@ const elements = {
   localDeviceId: document.querySelector("#local-device-id"),
   activationCode: document.querySelector("#activation-code"),
   connectedWifiSsid: document.querySelector("#connected-wifi-ssid"),
+  wifiConnectionResult: document.querySelector("#wifi-connection-result"),
+  wifiConnectionResultMessage: document.querySelector("#wifi-connection-result-message"),
+  wifiNewIpAddress: document.querySelector("#wifi-new-ip-address"),
+  wifiNewLocalHostname: document.querySelector("#wifi-new-local-hostname"),
+  wifiTransitionNotice: document.querySelector("#wifi-transition-notice"),
+  wifiCopyAddress: document.querySelector("#wifi-copy-address"),
+  wifiOpenAddress: document.querySelector("#wifi-open-address"),
+  wifiCopyStatus: document.querySelector("#wifi-copy-status"),
   localActivationCard: document.querySelector("#local-activation-card"),
   localActivationCode: document.querySelector("#local-activation-code"),
   cloudSyncStatus: document.querySelector("#cloud-sync-status"),
@@ -211,6 +220,8 @@ let historyViewLoading;
 let localHistoryRequestGeneration = 0;
 let bme680CalibrationPendingUntil = 0;
 let bme680CalibrationRequestedAt = 0;
+let wifiTransitionDeadline = 0;
+let wifiTransitionAddress = "";
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -464,11 +475,14 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     const device = cloudDevices[deviceId] ?? {};
     const status = device.status?.device;
     const isOnline = isDeviceOnline(status);
-    const card = document.createElement("button");
-    card.type = "button";
+    const card = document.createElement("article");
     card.className = `admin-device-option${cloudDevicePath === `devices/${deviceId}` ? " selected" : ""}`;
-    card.setAttribute("aria-pressed", String(cloudDevicePath === `devices/${deviceId}`));
-    card.addEventListener("click", () => selectCloudDevice(deviceId));
+    const selectButton = document.createElement("button");
+    selectButton.type = "button";
+    selectButton.className = "admin-device-select";
+    selectButton.setAttribute("aria-pressed", String(cloudDevicePath === `devices/${deviceId}`));
+    selectButton.setAttribute("aria-label", `Izberi panj ${deviceId}`);
+    selectButton.addEventListener("click", () => selectCloudDevice(deviceId));
 
     const identity = document.createElement("span");
     identity.className = "admin-device-identity";
@@ -492,7 +506,24 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     detail.textContent = Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
       ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
       : "Naprava še ni poslala stanja.";
-    card.append(identity, state, detail);
+    selectButton.append(identity, state, detail);
+    card.append(selectButton);
+
+    if (device.owner_uid) {
+      const actions = document.createElement("div");
+      actions.className = "admin-device-actions";
+      const unclaimButton = document.createElement("button");
+      unclaimButton.type = "button";
+      unclaimButton.className = "secondary-button danger-button admin-unclaim-button";
+      unclaimButton.textContent = "Odjavi lastnika";
+      const actionStatus = document.createElement("small");
+      actionStatus.className = "admin-device-action-status";
+      actionStatus.setAttribute("aria-live", "polite");
+      unclaimButton.addEventListener("click", () => unclaimDeviceAsAdministrator(deviceId, unclaimButton, actionStatus));
+      actions.append(unclaimButton, actionStatus);
+      card.append(actions);
+    }
+
     elements.adminDeviceList.append(card);
   });
 }
@@ -951,6 +982,46 @@ function renderBme680CalibrationStatus(status) {
   });
 }
 
+function updateWiFiTransitionNotice() {
+  if (!elements.wifiTransitionNotice || wifiTransitionDeadline === 0) return;
+
+  const remainingSeconds = Math.max(0, Math.ceil((wifiTransitionDeadline - Date.now()) / 1000));
+  elements.wifiTransitionNotice.textContent = remainingSeconds > 0
+    ? `Za branje teh navodil bo dostopna točka naprave na voljo še približno ${remainingSeconds} s.`
+    : "Dostopna točka naprave se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in odpri novi naslov.";
+}
+
+function renderWiFiConnectionResult(network, connectionState, isConnected) {
+  const stationIp = network?.station_ip ?? "";
+  const localHostname = network?.local_hostname ?? "";
+  const remainingSeconds = Number(network?.access_point_shutdown_remaining_seconds);
+  const showResult = connectionState === "connected" && isConnected && stationIp &&
+    Number.isFinite(remainingSeconds) && remainingSeconds > 0;
+
+  elements.wifiConnectionResult.hidden = !showResult;
+  elements.wifiForm.hidden = showResult;
+  if (!showResult) {
+    wifiTransitionDeadline = 0;
+    wifiTransitionAddress = "";
+    return;
+  }
+
+  const stationUrl = `http://${stationIp}/`;
+  const hostnameUrl = localHostname ? `http://${localHostname}/` : "";
+  wifiTransitionAddress = stationUrl;
+  wifiTransitionDeadline = Date.now() + remainingSeconds * 1000;
+  elements.wifiConnectionResultMessage.textContent = network?.station_ssid
+    ? `Naprava je povezana z omrežjem ${network.station_ssid}. Telefon ali računalnik poveži z istim omrežjem, nato odpri novi naslov.`
+    : "Telefon ali računalnik poveži z domačim Wi‑Fi omrežjem, nato odpri novi naslov naprave.";
+  elements.wifiNewIpAddress.textContent = stationUrl;
+  elements.wifiNewIpAddress.href = stationUrl;
+  elements.wifiOpenAddress.href = stationUrl;
+  elements.wifiNewLocalHostname.textContent = localHostname || "Ni na voljo";
+  elements.wifiNewLocalHostname.href = hostnameUrl || stationUrl;
+  elements.wifiCopyStatus.textContent = "";
+  updateWiFiTransitionNotice();
+}
+
 function renderProvisioning(network) {
   latestNetworkStatus = network;
   elements.provisioningSection.hidden = false;
@@ -964,6 +1035,7 @@ function renderProvisioning(network) {
   const isUsingAccessPoint = network?.provisioning_active === true;
   const isConnected = network?.station_connected === true;
   elements.connectedWifiSsid.textContent = isConnected && network?.station_ssid ? network.station_ssid : "—";
+  renderWiFiConnectionResult(network, connectionState, isConnected);
 
   if (isConnecting) {
     elements.provisioningDescription.textContent = `Naprava preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
@@ -981,6 +1053,7 @@ function renderProvisioning(network) {
 
   elements.wifiScan.disabled = isConnecting;
   elements.wifiForget.disabled = isConnecting;
+  elements.wifiPasswordToggle.disabled = isConnecting;
   elements.wifiForm.querySelector("button[type='submit']").disabled = isConnecting;
   if (network?.connection_message) elements.wifiFormStatus.textContent = network.connection_message;
 }
@@ -1155,6 +1228,9 @@ async function saveWiFiConfiguration(event) {
 
   const submitButton = elements.wifiForm.querySelector("button[type='submit']");
   submitButton.disabled = true;
+  elements.wifiConnectionResult.hidden = true;
+  wifiTransitionDeadline = 0;
+  wifiTransitionAddress = "";
   elements.wifiFormStatus.textContent = "Preverjam povezavo z Wi‑Fi omrežjem …";
   try {
     const response = await fetch("/api/wifi", {
@@ -1172,8 +1248,42 @@ async function saveWiFiConfiguration(event) {
   }
 }
 
+function toggleWiFiPasswordVisibility() {
+  const revealPassword = elements.wifiPassword.type === "password";
+  elements.wifiPassword.type = revealPassword ? "text" : "password";
+  elements.wifiPasswordToggle.setAttribute("aria-pressed", String(revealPassword));
+  const actionLabel = revealPassword ? "Skrij Wi‑Fi geslo" : "Prikaži Wi‑Fi geslo";
+  elements.wifiPasswordToggle.setAttribute("aria-label", actionLabel);
+  elements.wifiPasswordToggle.title = actionLabel;
+  elements.wifiPassword.focus();
+}
+
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function copyWiFiTransitionAddress() {
+  if (!wifiTransitionAddress) return;
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(wifiTransitionAddress);
+    } else {
+      const temporaryInput = document.createElement("textarea");
+      temporaryInput.value = wifiTransitionAddress;
+      temporaryInput.setAttribute("readonly", "");
+      temporaryInput.style.position = "fixed";
+      temporaryInput.style.opacity = "0";
+      document.body.append(temporaryInput);
+      temporaryInput.select();
+      const copied = document.execCommand("copy");
+      temporaryInput.remove();
+      if (!copied) throw new Error("Naslova ni bilo mogoče kopirati");
+    }
+    elements.wifiCopyStatus.textContent = "Novi lokalni naslov je kopiran.";
+  } catch (error) {
+    elements.wifiCopyStatus.textContent = "Kopiranje ni uspelo. Naslov označi in kopiraj ročno.";
+  }
 }
 
 function renderWiFiNetworks(networks) {
@@ -1475,8 +1585,10 @@ async function synchronizeDeviceTime() {
 
 function initializeProvisioningForm() {
   elements.wifiForm.addEventListener("submit", saveWiFiConfiguration);
+  elements.wifiPasswordToggle.addEventListener("click", toggleWiFiPasswordVisibility);
   elements.wifiScan.addEventListener("click", scanWiFiNetworks);
   elements.wifiForget.addEventListener("click", forgetWiFiConfiguration);
+  elements.wifiCopyAddress.addEventListener("click", copyWiFiTransitionAddress);
   elements.cloudResync.addEventListener("click", resetCloudHistorySynchronization);
   elements.deleteLocalMeasurementLog.addEventListener("click", deleteLocalMeasurementHistory);
   elements.localLoadCellTare.addEventListener("click", requestLoadCellTare);
@@ -1490,6 +1602,7 @@ function initializeProvisioningForm() {
   });
   elements.deviceTimeForm.addEventListener("submit", setDeviceTime);
   elements.syncDeviceTime.addEventListener("click", synchronizeDeviceTime);
+  setInterval(updateWiFiTransitionNotice, 1_000);
 }
 
 function renderSDStatus(status) {
@@ -3045,6 +3158,45 @@ async function unclaimDevice() {
   }
 }
 
+function confirmAdministratorUnclaim(deviceId, ownerEmail) {
+  const ownerDescription = ownerEmail ? `uporabnika ${ownerEmail}` : "trenutnega uporabnika";
+  const confirmation = window.prompt(
+    `Ali želiš panj ${deviceId} odjaviti od ${ownerDescription}?\n\n` +
+    "Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni. Panj bo nato mogoče registrirati na drug račun.\n\n" +
+    "Za potrditev vpiši ODJAVI.",
+  );
+  return confirmation === "ODJAVI";
+}
+
+async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
+  if (!isCloudAdministrator() || !firebaseDatabase) return;
+
+  const device = cloudDevices[deviceId];
+  const ownerUid = String(device?.owner_uid || "");
+  if (!ownerUid) {
+    statusElement.textContent = "Panj nima registriranega lastnika.";
+    return;
+  }
+  if (!confirmAdministratorUnclaim(deviceId, device.owner_email)) return;
+
+  button.disabled = true;
+  statusElement.textContent = "Odjavljam lastnika …";
+  try {
+    const { database, ref, update } = firebaseDatabase;
+    // Več lokacij posodobimo z enim atomarnim zapisom, da panj ne ostane delno odjavljen.
+    await update(ref(database), {
+      [`devices/${deviceId}/owner_uid`]: null,
+      [`devices/${deviceId}/owner_email`]: null,
+      [`users/${ownerUid}/devices/${deviceId}`]: null,
+    });
+    statusElement.textContent = "Lastnik je odjavljen. Merilni podatki ostanejo shranjeni.";
+  } catch (error) {
+    console.error(error);
+    statusElement.textContent = "Odjava lastnika ni uspela. Panj ostaja povezan z računom.";
+    button.disabled = false;
+  }
+}
+
 function handleCloudAuthState(user) {
   clearCloudDeviceListeners();
   stopCloudDeviceListListener?.();
@@ -3199,12 +3351,12 @@ async function useFirebaseDataSource() {
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js"),
     import("./firebase-config.js"),
   ]);
-  const { endAt, getDatabase, onValue, orderByKey, query, ref, remove, set, startAt } = databaseModule;
+  const { endAt, getDatabase, onValue, orderByKey, query, ref, remove, set, startAt, update } = databaseModule;
   const firebaseApp = initializeApp(configModule.firebaseConfig);
   const database = getDatabase(firebaseApp);
   firebaseAuth = authModule.getAuth(firebaseApp);
   firebaseAuthModule = authModule;
-  firebaseDatabase = { database, onValue, ref, remove, set };
+  firebaseDatabase = { database, onValue, ref, remove, set, update };
   elements.otaSection.hidden = true;
   elements.provisioningSection.hidden = true;
   initializeAuthControls();

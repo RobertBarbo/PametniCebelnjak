@@ -30,7 +30,7 @@
         },
         "devices": {
           "$deviceId": {
-            ".write": "auth != null && auth.uid === $uid && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid"
+            ".write": "auth != null && ((auth.uid === $uid && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid) || (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' && !newData.exists()))"
           }
         }
       }
@@ -40,10 +40,10 @@
       "$deviceId": {
         ".read": "auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || data.child('owner_uid').val() === auth.uid)",
         "owner_uid": {
-          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid && root.child('device_claims').child($deviceId).child(auth.uid).child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()) || (data.val() === auth.uid && !newData.exists()))"
+          ".write": "auth != null && ((auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' && data.exists() && !newData.exists()) || (!data.exists() && newData.val() === auth.uid && root.child('device_claims').child($deviceId).child(auth.uid).child('activation_code').val() === root.child('device_secrets').child($deviceId).child('activation_code').val()) || (data.val() === auth.uid && !newData.exists()))"
         },
         "owner_email": {
-          ".write": "auth != null && root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid && (!newData.exists() || (newData.isString() && newData.val() === auth.token.email))"
+          ".write": "auth != null && ((auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' && !newData.exists()) || (root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid && (!newData.exists() || (newData.isString() && newData.val() === auth.token.email))))"
         },
         "latest": {
           ".write": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))"

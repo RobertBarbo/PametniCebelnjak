@@ -5,6 +5,7 @@
 - Komunikacija, dokumentacija in komentarji so v slovenščini.
 - Imena C++ simbolov, Firebase ključev in datotek ostanejo v angleščini.
 - Koda naj uporablja jasna imena, majhne funkcije, `constexpr` za konstante in komentarje za pomembne odločitve, protokole ter omejitve strojne opreme.
+- Vsaka nastavitvena `constexpr` konstanta na začetku firmware-a mora imeti slovenski komentar z enoto in praktičnim namenom, da je varna za samostojno nastavljanje.
 - Ne dodajaj neuporabljenih knjižnic, kode ali konfiguracij.
 
 ## Razvoj firmware-a

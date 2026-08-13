@@ -36,6 +36,12 @@ firebase deploy --only hosting --project pametnicebelnjak
 
 Po objavi pravil nepovezani obiskovalci ne morejo brati podatkov naprav.
 
+Ko spremeniš cloud stran in Firebase pravila hkrati, ju objavi z enim ukazom:
+
+```powershell
+firebase deploy --only hosting,database --project pametnicebelnjak
+```
+
 ## 5. Ustvari račun in registriraj napravo
 
 1. Odpri Firebase Hosting stran in klikni **Prijava**.

@@ -206,11 +206,34 @@
                 <span id="wifi-scan-status" class="form-status" aria-live="polite"></span>
               </div>
               <div id="wifi-networks" class="wifi-networks" aria-live="polite" hidden></div>
-              <label>Wi‑Fi geslo<input id="wifi-password" name="password" type="password" maxlength="63" autocomplete="current-password" /></label>
+              <label>Wi‑Fi geslo
+                <span class="password-field">
+                  <input id="wifi-password" name="password" type="password" maxlength="63" autocomplete="current-password" />
+                  <button class="password-toggle" id="wifi-password-toggle" type="button" aria-controls="wifi-password" aria-label="Prikaži Wi‑Fi geslo" aria-pressed="false" title="Prikaži Wi‑Fi geslo">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg>
+                  </button>
+                </span>
+              </label>
               <button class="primary-button" type="submit">Shrani in poveži</button>
               <button class="secondary-button danger-button" id="wifi-forget" type="button">Izbriši shranjeni Wi‑Fi</button>
               <p id="wifi-form-status" class="form-status" aria-live="polite"></p>
             </form>
+            <section class="wifi-connection-result" id="wifi-connection-result" aria-labelledby="wifi-connection-result-heading" hidden>
+              <p class="eyebrow">Povezava je uspela</p>
+              <h3 id="wifi-connection-result-heading">Naprava je povezana</h3>
+              <p class="muted" id="wifi-connection-result-message">Telefon ali računalnik poveži z novim Wi‑Fi omrežjem.</p>
+              <div class="wifi-address-card">
+                <span>Novi lokalni naslov</span>
+                <a id="wifi-new-ip-address" href="#" target="_blank" rel="noopener">—</a>
+                <small>Stalni naslov: <a id="wifi-new-local-hostname" href="#" target="_blank" rel="noopener">—</a></small>
+              </div>
+              <p class="wifi-transition-notice" id="wifi-transition-notice" aria-live="polite"></p>
+              <div class="wifi-result-actions">
+                <button class="secondary-button" id="wifi-copy-address" type="button">Kopiraj naslov</button>
+                <a class="primary-button" id="wifi-open-address" href="#" target="_blank" rel="noopener">Odpri napravo</a>
+              </div>
+              <p class="form-status" id="wifi-copy-status" aria-live="polite"></p>
+            </section>
           </div>
         </section>
 

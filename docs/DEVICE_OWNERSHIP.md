@@ -23,7 +23,7 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
 
 ## Skrbniški ogled
 
-Za trenutni beta skrbniški UID so Firebase pravila določena neposredno v `database.rules.json`. Ta račun lahko bere celotno pot `/devices`, zato cloud nadzorna plošča samodejno prikaže vse registrirane in še neregistrirane panje brez aktivacijske kode. Skrbnik lahko za izbrani panj pošlje OTA ukaz ter počisti merilno zgodovino, ne more pa spreminjati lastništva, zasebnih aktivacijskih podatkov ali uporabniških računov.
+Za trenutni beta skrbniški UID so Firebase pravila določena neposredno v `database.rules.json`. Ta račun lahko bere celotno pot `/devices`, zato cloud nadzorna plošča samodejno prikaže vse registrirane in še neregistrirane panje brez aktivacijske kode. Skrbnik lahko za izbrani panj pošlje OTA ukaz, počisti merilno zgodovino in odjavi trenutnega lastnika; ne more pa nastaviti novega lastnika, brati zasebnih aktivacijskih podatkov ali upravljati uporabniških računov.
 
 Za nadaljnjo produkcijsko administracijo je treba ta enkratni UID zamenjati z vlogo Firebase custom claim, ki jo nastavi zaupanja vreden Admin SDK backend.
 
@@ -46,7 +46,7 @@ Ta beta namerno ne uporablja Cloud Functions in zato ne zahteva Blaze paketa. Ak
 
 Prijavljen lastnik lahko v cloud nadzorni plošči odregistrira izbrani panj. Po potrditvi se najprej odstrani povezava `/users/{uid}/devices/{deviceId}`, nato še `/devices/{deviceId}/owner_uid`.
 
-Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne brišejo. Panj zato ni več viden nobenemu uporabniku, novi lastnik pa ga lahko z istim ID-jem in aktivacijsko kodo ponovno registrira. Firebase pravilo dovoli brisanje `owner_uid` izključno trenutnemu lastniku.
+Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne brišejo. Panj zato ni več viden nobenemu uporabniku, novi lastnik pa ga lahko z istim ID-jem in aktivacijsko kodo ponovno registrira. Firebase pravilo dovoli brisanje `owner_uid` trenutnemu lastniku ali trenutnemu beta skrbniškemu UID-ju. Skrbniška kartica zahteva besedo `ODJAVI` in nato z enim atomarnim zapisom odstrani `owner_uid`, `owner_email` ter `/users/{lastnik_uid}/devices/{deviceId}`, zato ne more nastati delno odjavljen panj.
 
 ## Pomembna omejitev
 

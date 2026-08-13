@@ -2,6 +2,49 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-rc.28] - 2026-08-13
+
+### Added
+
+- Skrbniška kartica registriranega panja ima gumb **Odjavi lastnika**, ki zahteva vnos besede `ODJAVI`.
+
+### Changed
+
+- Odjava lastnika odstrani `owner_uid`, `owner_email` in povezavo pod `/users/{uid}/devices` z enim atomarnim Firebase zapisom; meritve in aktivacijska koda ostanejo nedotaknjeni.
+- Firebase pravila beta skrbniškemu UID-ju dovolijo samo odstranitev obstoječega lastništva, ne pa nastavitve novega lastnika.
+
+## [0.1.0-rc.27] - 2026-08-13
+
+### Changed
+
+- Vse nastavitvene konstante na začetku `src/main.cpp` imajo zdaj komentarje v slovenščini z enoto, namenom in vplivom spremembe.
+
+## [0.1.0-rc.26] - 2026-08-13
+
+### Fixed
+
+- Ikona očesa v lokalnem Wi-Fi obrazcu je navpično poravnana na sredino polja gesla.
+
+## [0.1.0-rc.25] - 2026-08-13
+
+### Added
+
+- Lokalni Wi-Fi obrazec ima dostopno ikono očesa, s katero uporabnik začasno prikaže ali ponovno skrije vpisano geslo.
+
+### Changed
+
+- Provisioning AP se po uspešni Wi-Fi povezavi zapre po 30 sekundah namesto po 90 sekundah.
+
+## [0.1.0-rc.24] - 2026-08-12
+
+### Added
+
+- Lokalna provisioning stran po uspešni povezavi prikaže domači SSID, novi lokalni IP, stalni `.local` naslov, gumba za kopiranje in odpiranje ter jasna navodila za preklop telefona oziroma računalnika na novo omrežje.
+
+### Changed
+
+- Provisioning AP po uspešni povezavi ostane aktiven 90 sekund, da ima uporabnik dovolj časa prebrati novi naslov in navodila. Obstoječa pravila fallback AP-ja in STA watchdog ostajajo nespremenjena.
+
 ## [0.1.0-rc.23] - 2026-08-12
 
 ### Fixed

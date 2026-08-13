@@ -56,6 +56,8 @@ const elements = {
   accountAvatar: document.querySelector("#account-avatar"),
   accountAvatarImage: document.querySelector("#account-avatar-image"),
   accountAvatarInitials: document.querySelector("#account-avatar-initials"),
+  authTriggerAvatar: document.querySelector("#auth-trigger-avatar"),
+  authTriggerLabel: document.querySelector("#auth-trigger-label"),
   authSignout: document.querySelector("#auth-signout"),
   accountManagement: document.querySelector("#account-management"),
   accountFormStack: document.querySelector("#account-form-stack"),
@@ -3169,6 +3171,42 @@ function renderAccountIdentity(user) {
   }
 }
 
+async function renderHeaderAuthIdentity(user) {
+  elements.authTriggerLabel.textContent = user ? "Odjava" : "Prijava";
+  elements.authTriggerAvatar.hidden = true;
+
+  if (!user) {
+    elements.authTriggerAvatar.removeAttribute("src");
+    elements.authTriggerAvatar.alt = "";
+    elements.authTriggerAvatar.onerror = null;
+    return;
+  }
+
+  let isGoogleSignIn = false;
+  try {
+    const tokenResult = await firebaseAuthModule.getIdTokenResult(user);
+    isGoogleSignIn = tokenResult.signInProvider === "google.com";
+  } catch {
+    isGoogleSignIn = false;
+  }
+
+  if (currentCloudUser !== user) return;
+  const avatarUrl = isGoogleSignIn ? String(user.photoURL || "").trim() : "";
+  elements.authTriggerAvatar.hidden = !avatarUrl;
+
+  if (avatarUrl) {
+    elements.authTriggerAvatar.src = avatarUrl;
+    elements.authTriggerAvatar.alt = `Profilna slika uporabnika ${user.displayName || user.email || "Google"}`;
+    elements.authTriggerAvatar.onerror = () => {
+      elements.authTriggerAvatar.hidden = true;
+    };
+  } else {
+    elements.authTriggerAvatar.removeAttribute("src");
+    elements.authTriggerAvatar.alt = "";
+    elements.authTriggerAvatar.onerror = null;
+  }
+}
+
 function openAuthDialog() {
   setAuthStatus("");
   if (!elements.authDialog.open) elements.authDialog.showModal();
@@ -3579,7 +3617,7 @@ function handleCloudAuthState(user) {
     elements.accountSection.hidden = true;
     elements.accountAvatarImage.removeAttribute("src");
     elements.authTrigger.hidden = false;
-    elements.authTrigger.textContent = "Prijava";
+    renderHeaderAuthIdentity(undefined);
     resetCloudDashboard();
     setConnectionState("Prijava je potrebna", "error");
     window.requestAnimationFrame(openAuthDialog);
@@ -3589,7 +3627,7 @@ function handleCloudAuthState(user) {
   document.body.dataset.authState = "signed-in";
   elements.accountSection.hidden = false;
   elements.authTrigger.hidden = false;
-  elements.authTrigger.textContent = "Odjava";
+  renderHeaderAuthIdentity(user);
   renderAccountIdentity(user);
   configureCloudAccountView();
   showView(DEFAULT_VIEW);

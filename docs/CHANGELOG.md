@@ -2,6 +2,13 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-rc.31] - 2026-08-13
+
+### Changed
+
+- Hamburger meni je v mobilni glavi prestavljen na skrajno levo, ostala dejanja pa ostanejo združena na desni.
+- Gumb **Odjava** v mobilnem in namiznem cloud pogledu prikaže profilno sliko uporabnika, kadar je ta prijavljen z Googlom; pri drugih načinih prijave ostane brez avatarja.
+
 ## [0.1.0-rc.30] - 2026-08-13
 
 ### Changed

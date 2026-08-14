@@ -1,0 +1,1112 @@
+<!doctype html>
+<html lang="sl" data-theme="dark" data-palette="honey">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#101113" />
+    <title>Predogled nove teme · Pametni čebelnjak</title>
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f1e7;
+        --bg-glow: #eadfbe;
+        --surface: rgba(255, 253, 247, 0.88);
+        --surface-solid: #fffdf7;
+        --surface-soft: #f1eadb;
+        --surface-hover: #ece1ca;
+        --text: #29271f;
+        --text-soft: #716b5f;
+        --text-faint: #948c7d;
+        --border: #ded4bf;
+        --border-strong: #c9b992;
+        --accent: #bc7d16;
+        --accent-strong: #8c5709;
+        --accent-soft: #f2dfb2;
+        --accent-text: #fffaf0;
+        --success: #2d9a64;
+        --danger: #c7554f;
+        --warning: #d89225;
+        --temperature: #e18b2d;
+        --humidity: #367fa6;
+        --weight: #796846;
+        --shadow: 0 24px 70px rgba(82, 62, 24, 0.12);
+        --shadow-small: 0 12px 32px rgba(82, 62, 24, 0.08);
+        --radius-xl: 30px;
+        --radius-lg: 22px;
+        --radius-md: 16px;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #101113;
+        --bg-glow: #2a2417;
+        --surface: rgba(27, 28, 31, 0.9);
+        --surface-solid: #1b1c1f;
+        --surface-soft: #222327;
+        --surface-hover: #2a2926;
+        --text: #f3efe6;
+        --text-soft: #aaa59a;
+        --text-faint: #817d75;
+        --border: #343438;
+        --border-strong: #605238;
+        --accent: #dda536;
+        --accent-strong: #f0b947;
+        --accent-soft: #3a301d;
+        --accent-text: #17140e;
+        --success: #4fc486;
+        --danger: #ef7770;
+        --warning: #e6a23c;
+        --temperature: #f2a541;
+        --humidity: #67b6de;
+        --weight: #d1b879;
+        --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+        --shadow-small: 0 12px 34px rgba(0, 0, 0, 0.25);
+      }
+
+      :root[data-palette="ocean"] {
+        --bg: #edf3f7;
+        --bg-glow: #bcd6e4;
+        --surface: rgba(249, 252, 254, 0.9);
+        --surface-solid: #f9fcfe;
+        --surface-soft: #e3edf3;
+        --surface-hover: #d8e8f0;
+        --text: #1d2d36;
+        --text-soft: #627681;
+        --text-faint: #82949d;
+        --border: #cbdce5;
+        --border-strong: #9dbdcd;
+        --accent: #287da3;
+        --accent-strong: #155f82;
+        --accent-soft: #d3e8f2;
+        --accent-text: #f7fcff;
+        --success: #2c9a72;
+        --warning: #d18b31;
+        --temperature: #d97945;
+        --humidity: #2e86b2;
+        --weight: #667b87;
+        --shadow: 0 24px 70px rgba(34, 82, 105, 0.13);
+        --shadow-small: 0 12px 32px rgba(34, 82, 105, 0.09);
+      }
+
+      :root[data-theme="dark"][data-palette="ocean"] {
+        --bg: #0c151b;
+        --bg-glow: #123a4d;
+        --surface: rgba(19, 32, 41, 0.92);
+        --surface-solid: #132029;
+        --surface-soft: #192a35;
+        --surface-hover: #203743;
+        --text: #edf7fb;
+        --text-soft: #a4b7c1;
+        --text-faint: #788d98;
+        --border: #29414e;
+        --border-strong: #3d6b7f;
+        --accent: #55b7d8;
+        --accent-strong: #72cae7;
+        --accent-soft: #173744;
+        --accent-text: #081419;
+        --success: #53c99a;
+        --temperature: #f19a68;
+        --humidity: #64c2eb;
+        --weight: #a8c0cc;
+      }
+
+      :root[data-palette="copper"] {
+        --bg: #f6f0ea;
+        --bg-glow: #e6c3af;
+        --surface: rgba(255, 251, 247, 0.9);
+        --surface-solid: #fffbf7;
+        --surface-soft: #f0e2d9;
+        --surface-hover: #ead6ca;
+        --text: #33251f;
+        --text-soft: #78675f;
+        --text-faint: #9a877d;
+        --border: #e0cdc1;
+        --border-strong: #cda995;
+        --accent: #b75f36;
+        --accent-strong: #8d4024;
+        --accent-soft: #f1d8ca;
+        --accent-text: #fff9f5;
+        --success: #388b68;
+        --warning: #ca862d;
+        --temperature: #c96337;
+        --humidity: #4e8992;
+        --weight: #806553;
+        --shadow: 0 24px 70px rgba(105, 55, 34, 0.13);
+        --shadow-small: 0 12px 32px rgba(105, 55, 34, 0.09);
+      }
+
+      :root[data-theme="dark"][data-palette="copper"] {
+        --bg: #15110f;
+        --bg-glow: #4a261b;
+        --surface: rgba(33, 27, 24, 0.92);
+        --surface-solid: #211b18;
+        --surface-soft: #2b211d;
+        --surface-hover: #382a24;
+        --text: #f6eee8;
+        --text-soft: #b7a69c;
+        --text-faint: #8e7c72;
+        --border: #46362e;
+        --border-strong: #76503d;
+        --accent: #dd8155;
+        --accent-strong: #ef986e;
+        --accent-soft: #42271d;
+        --accent-text: #1b0d08;
+        --success: #5ac295;
+        --temperature: #f09a68;
+        --humidity: #72b6bd;
+        --weight: #c5a48e;
+      }
+
+      :root[data-palette="plum"] {
+        --bg: #f4eff5;
+        --bg-glow: #dbc6e2;
+        --surface: rgba(253, 250, 254, 0.9);
+        --surface-solid: #fdfafe;
+        --surface-soft: #ebe0ee;
+        --surface-hover: #e3d5e8;
+        --text: #312738;
+        --text-soft: #74677c;
+        --text-faint: #93879b;
+        --border: #ddcfdf;
+        --border-strong: #bda3c4;
+        --accent: #875f9f;
+        --accent-strong: #68427f;
+        --accent-soft: #e7d8ec;
+        --accent-text: #fffaff;
+        --success: #368b6d;
+        --warning: #c98733;
+        --temperature: #c86f5c;
+        --humidity: #537fa8;
+        --weight: #78667d;
+        --shadow: 0 24px 70px rgba(76, 48, 88, 0.13);
+        --shadow-small: 0 12px 32px rgba(76, 48, 88, 0.09);
+      }
+
+      :root[data-theme="dark"][data-palette="plum"] {
+        --bg: #151116;
+        --bg-glow: #3c2341;
+        --surface: rgba(32, 26, 34, 0.92);
+        --surface-solid: #201a22;
+        --surface-soft: #2a2130;
+        --surface-hover: #35283d;
+        --text: #f5eef7;
+        --text-soft: #b4a5ba;
+        --text-faint: #897990;
+        --border: #44354a;
+        --border-strong: #71537b;
+        --accent: #c58ad8;
+        --accent-strong: #d99bea;
+        --accent-soft: #3d2845;
+        --accent-text: #190d1d;
+        --success: #57c497;
+        --temperature: #ed927e;
+        --humidity: #78abe0;
+        --weight: #c5accb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        min-width: 320px;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 8% -8%, color-mix(in srgb, var(--bg-glow) 72%, transparent), transparent 34rem),
+          radial-gradient(circle at 92% 18%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 28rem),
+          var(--bg);
+        transition: color 180ms ease, background-color 180ms ease;
+      }
+
+      button {
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .app-header {
+        position: sticky;
+        z-index: 20;
+        top: 0;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        backdrop-filter: blur(20px);
+      }
+
+      .header-inner {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 28px;
+        width: min(1480px, calc(100% - 48px));
+        min-height: 80px;
+        margin: 0 auto;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .brand img {
+        width: 48px;
+        height: 48px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 15px;
+        background: var(--surface-solid);
+        box-shadow: var(--shadow-small);
+        object-fit: contain;
+      }
+
+      .brand-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .brand-copy strong {
+        font-size: 1rem;
+      }
+
+      .brand-copy small {
+        color: var(--text-soft);
+        font-size: 0.75rem;
+      }
+
+      .navigation {
+        display: flex;
+        justify-content: center;
+        gap: 5px;
+      }
+
+      .nav-link,
+      .pill-button,
+      .icon-button {
+        min-height: 44px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        font-weight: 760;
+      }
+
+      .nav-link {
+        padding: 0 17px;
+        color: var(--text-soft);
+      }
+
+      .nav-link:hover {
+        color: var(--text);
+        background: var(--surface-soft);
+      }
+
+      .nav-link.active {
+        color: var(--accent-text);
+        background: var(--accent-strong);
+        box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 20%, transparent);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .status-pill,
+      .pill-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 44px;
+        padding: 0 15px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--text-soft);
+        background: var(--surface);
+        font-size: 0.8rem;
+        font-weight: 760;
+        white-space: nowrap;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 18%, transparent);
+      }
+
+      .theme-symbol {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        border: 2px solid currentColor;
+        border-radius: 50%;
+        font-size: 0;
+      }
+
+      .theme-symbol::after {
+        width: 50%;
+        height: 100%;
+        margin-left: auto;
+        border-radius: 0 999px 999px 0;
+        background: currentColor;
+        content: "";
+      }
+
+      .menu-button {
+        display: none;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--surface);
+      }
+
+      .menu-button span {
+        display: block;
+        width: 19px;
+        height: 2px;
+        margin: 4px auto;
+        border-radius: 2px;
+        background: var(--text);
+      }
+
+      main {
+        width: min(1320px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: 70px 0 100px;
+      }
+
+      .hero {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 32px;
+        margin-bottom: 34px;
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.19em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 800px;
+        margin-bottom: 12px;
+        font-size: clamp(2.6rem, 5vw, 5.3rem);
+        line-height: 0.98;
+        letter-spacing: -0.055em;
+      }
+
+      .subtitle {
+        max-width: 680px;
+        margin-bottom: 0;
+        color: var(--text-soft);
+        font-size: clamp(1rem, 1.5vw, 1.18rem);
+        line-height: 1.7;
+      }
+
+      .primary-button {
+        min-height: 50px;
+        padding: 0 20px;
+        border: 0;
+        border-radius: 15px;
+        color: var(--accent-text);
+        background: var(--accent-strong);
+        font-weight: 820;
+        box-shadow: 0 12px 26px color-mix(in srgb, var(--accent) 22%, transparent);
+      }
+
+      .palette-picker {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 22px;
+        margin: -8px 0 30px;
+        padding: 16px 18px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: color-mix(in srgb, var(--surface) 82%, transparent);
+        box-shadow: var(--shadow-small);
+      }
+
+      .palette-picker-label {
+        color: var(--text-soft);
+        font-size: 0.9rem;
+        font-weight: 750;
+        white-space: nowrap;
+      }
+
+      .palette-options {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 9px;
+      }
+
+      .palette-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 42px;
+        padding: 0 14px;
+        border: 1px solid var(--border);
+        border-radius: 13px;
+        background: var(--surface-solid);
+        font-size: 0.88rem;
+        font-weight: 800;
+      }
+
+      .palette-option:hover {
+        border-color: var(--border-strong);
+        background: var(--surface-hover);
+      }
+
+      .palette-option.active {
+        border-color: var(--accent);
+        color: var(--accent-strong);
+        background: var(--accent-soft);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+      }
+
+      .palette-preview {
+        width: 17px;
+        height: 17px;
+        border: 2px solid color-mix(in srgb, white 68%, transparent);
+        border-radius: 50%;
+        background: var(--preview-color);
+        box-shadow: 0 0 0 1px color-mix(in srgb, black 16%, transparent);
+      }
+
+      .surface {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .overview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.75fr);
+        gap: 22px;
+      }
+
+      .measurements-panel {
+        padding: clamp(24px, 4vw, 42px);
+      }
+
+      .section-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 28px;
+      }
+
+      .section-heading h2 {
+        margin-bottom: 0;
+        font-size: clamp(1.7rem, 3vw, 2.45rem);
+        letter-spacing: -0.035em;
+      }
+
+      .updated-time {
+        color: var(--text-soft);
+        font-size: 0.86rem;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .metric-card {
+        position: relative;
+        min-height: 178px;
+        overflow: hidden;
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--surface-solid);
+      }
+
+      .metric-card::after {
+        position: absolute;
+        right: -28px;
+        bottom: -38px;
+        width: 115px;
+        height: 115px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--metric-color) 13%, transparent);
+        content: "";
+      }
+
+      .metric-card.temperature {
+        --metric-color: var(--temperature);
+      }
+
+      .metric-card.humidity {
+        --metric-color: var(--humidity);
+      }
+
+      .metric-card.weight {
+        --metric-color: var(--weight);
+      }
+
+      .metric-icon {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        margin-bottom: 28px;
+        border-radius: 12px;
+        color: var(--metric-color);
+        background: color-mix(in srgb, var(--metric-color) 13%, transparent);
+        font-size: 1.05rem;
+        font-weight: 900;
+      }
+
+      .metric-card p {
+        margin-bottom: 7px;
+        color: var(--text-soft);
+        font-size: 0.84rem;
+        font-weight: 750;
+      }
+
+      .metric-card strong {
+        position: relative;
+        z-index: 1;
+        font-size: clamp(1.9rem, 3vw, 2.65rem);
+        letter-spacing: -0.045em;
+      }
+
+      .metric-card small {
+        margin-left: 6px;
+        color: var(--text-soft);
+        font-size: 0.85rem;
+        letter-spacing: 0;
+      }
+
+      .device-panel {
+        display: grid;
+        align-content: start;
+        gap: 16px;
+        padding: 28px;
+      }
+
+      .device-panel h2 {
+        margin-bottom: 4px;
+        font-size: 1.45rem;
+      }
+
+      .device-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 17px;
+        border: 1px solid color-mix(in srgb, var(--success) 38%, var(--border));
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--success) 8%, var(--surface-solid));
+      }
+
+      .device-status strong,
+      .device-status small {
+        display: block;
+      }
+
+      .device-status small {
+        margin-top: 2px;
+        color: var(--text-soft);
+      }
+
+      .detail-list {
+        display: grid;
+        gap: 0;
+        margin: 0;
+      }
+
+      .detail-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 15px 2px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .detail-row:last-child {
+        border-bottom: 0;
+      }
+
+      .detail-row dt {
+        color: var(--text-soft);
+      }
+
+      .detail-row dd {
+        margin: 0;
+        font-weight: 760;
+        text-align: right;
+      }
+
+      .chart-panel {
+        margin-top: 22px;
+        padding: clamp(24px, 4vw, 42px);
+      }
+
+      .chart-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-soft);
+        font-size: 0.85rem;
+        font-weight: 720;
+      }
+
+      .legend-line {
+        width: 24px;
+        height: 3px;
+        border-radius: 3px;
+        background: currentColor;
+      }
+
+      .chart-frame {
+        position: relative;
+        height: 310px;
+        margin-top: 25px;
+        overflow: hidden;
+        border-radius: var(--radius-lg);
+        background:
+          repeating-linear-gradient(to bottom, transparent 0, transparent 60px, var(--border) 61px, transparent 62px),
+          linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 34%, transparent), transparent);
+      }
+
+      .chart-frame svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+
+      .chart-tooltip {
+        position: absolute;
+        top: 42px;
+        left: 54%;
+        min-width: 210px;
+        padding: 15px 17px;
+        border: 1px solid var(--border-strong);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+        box-shadow: var(--shadow-small);
+        font-size: 0.82rem;
+      }
+
+      .chart-tooltip strong {
+        display: block;
+        margin-bottom: 7px;
+      }
+
+      .tooltip-value {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        margin-top: 4px;
+        color: var(--text-soft);
+      }
+
+      .tooltip-value b {
+        color: var(--text);
+      }
+
+      .palette-note {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        margin-top: 22px;
+        padding: 22px 25px;
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--radius-lg);
+        color: var(--text-soft);
+        background: color-mix(in srgb, var(--surface) 74%, transparent);
+      }
+
+      .palette-note strong {
+        color: var(--text);
+      }
+
+      .swatches {
+        display: flex;
+        gap: 8px;
+      }
+
+      .swatch {
+        width: 31px;
+        height: 31px;
+        border: 3px solid var(--surface-solid);
+        border-radius: 10px;
+        box-shadow: 0 0 0 1px var(--border);
+      }
+
+      @media (max-width: 1040px) {
+        .header-inner {
+          grid-template-columns: auto auto 1fr;
+        }
+
+        .menu-button {
+          display: block;
+          grid-column: 1;
+          grid-row: 1;
+        }
+
+        .brand {
+          grid-column: 2;
+        }
+
+        .navigation {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 24px;
+          display: none;
+          min-width: 220px;
+          padding: 10px;
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          background: var(--surface-solid);
+          box-shadow: var(--shadow);
+        }
+
+        .navigation.open {
+          display: grid;
+        }
+
+        .nav-link {
+          text-align: left;
+        }
+
+        .header-actions {
+          grid-column: 3;
+        }
+
+        .overview-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .device-panel {
+          grid-template-columns: minmax(220px, 0.8fr) 1fr;
+        }
+
+        .device-panel > div:first-child {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .header-inner,
+        main {
+          width: min(100% - 28px, 1320px);
+        }
+
+        .header-inner {
+          gap: 9px;
+          min-height: 72px;
+        }
+
+        .brand-copy {
+          display: none;
+        }
+
+        .brand img {
+          width: 42px;
+          height: 42px;
+        }
+
+        .status-pill span:last-child,
+        .pill-button span:last-child {
+          display: none;
+        }
+
+        .status-pill,
+        .pill-button {
+          justify-content: center;
+          width: 44px;
+          padding: 0;
+        }
+
+        main {
+          padding: 42px 0 70px;
+        }
+
+        .hero {
+          display: grid;
+        }
+
+        .hero .primary-button {
+          justify-self: start;
+        }
+
+        .metric-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .metric-card {
+          min-height: 150px;
+        }
+
+        .device-panel {
+          grid-template-columns: 1fr;
+        }
+
+        .section-heading {
+          display: grid;
+        }
+
+        .chart-frame {
+          height: 280px;
+        }
+
+        .chart-tooltip {
+          top: 28px;
+          right: 12px;
+          left: auto;
+          min-width: 190px;
+        }
+
+        .palette-note {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .palette-picker {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .palette-options {
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-inner">
+        <button class="menu-button" id="menu-button" type="button" aria-label="Odpri meni" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+
+        <div class="brand">
+          <img src="favicon.png" alt="" />
+          <span class="brand-copy"><strong>Pametni čebelnjak</strong><small>Nadzorna plošča</small></span>
+        </div>
+
+        <nav class="navigation" id="navigation" aria-label="Glavna navigacija">
+          <button class="nav-link active" type="button">Pregled</button>
+          <button class="nav-link" type="button">Grafi</button>
+          <button class="nav-link" type="button">Naprava</button>
+          <button class="nav-link" type="button">Posodobitve</button>
+        </nav>
+
+        <div class="header-actions">
+          <div class="status-pill"><span class="status-dot"></span><span>Naprava online</span></div>
+          <button class="pill-button" id="theme-toggle" type="button">
+            <span class="theme-symbol" aria-hidden="true"></span><span id="theme-label">Svetla tema</span>
+          </button>
+          <button class="pill-button" type="button"><span>Odjava</span></button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Panj · živ pogled</p>
+          <h1>Dobrodošel v pametnem panju</h1>
+          <p class="subtitle">Topla zlata barva poudari pomembna dejanja, nevtralne površine pa izboljšajo preglednost in pustijo statusnim barvam njihov pravi pomen.</p>
+        </div>
+        <button class="primary-button" type="button">Odpri grafe</button>
+      </section>
+
+      <section class="palette-picker" aria-label="Izberi barvno paleto">
+        <span class="palette-picker-label">Primerjaj barvno smer</span>
+        <div class="palette-options">
+          <button class="palette-option active" type="button" data-palette-option="honey" aria-pressed="true">
+            <span class="palette-preview" style="--preview-color: #dda536"></span>Medena
+          </button>
+          <button class="palette-option" type="button" data-palette-option="ocean" aria-pressed="false">
+            <span class="palette-preview" style="--preview-color: #55b7d8"></span>Nočno modra
+          </button>
+          <button class="palette-option" type="button" data-palette-option="copper" aria-pressed="false">
+            <span class="palette-preview" style="--preview-color: #dd8155"></span>Bakrena
+          </button>
+          <button class="palette-option" type="button" data-palette-option="plum" aria-pressed="false">
+            <span class="palette-preview" style="--preview-color: #c58ad8"></span>Slivova
+          </button>
+        </div>
+      </section>
+
+      <div class="overview-grid">
+        <section class="surface measurements-panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">Zadnja meritev</p><h2>Meritve</h2></div>
+            <span class="updated-time">Danes ob 14:32:10</span>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card temperature">
+              <span class="metric-icon">T</span>
+              <p>Temperatura</p>
+              <strong>27,4<small>°C</small></strong>
+            </article>
+            <article class="metric-card humidity">
+              <span class="metric-icon">V</span>
+              <p>Relativna vlaga</p>
+              <strong>48,2<small>%</small></strong>
+            </article>
+            <article class="metric-card weight">
+              <span class="metric-icon">kg</span>
+              <p>Teža panja</p>
+              <strong>42,7<small>kg</small></strong>
+            </article>
+          </div>
+        </section>
+
+        <aside class="surface device-panel">
+          <div><p class="eyebrow">Stanje sistema</p><h2>Podrobnosti naprave</h2></div>
+          <div class="device-status">
+            <span class="status-dot"></span>
+            <div><strong>Vse deluje normalno</strong><small>Zadnji odziv pred 8 sekundami</small></div>
+          </div>
+          <dl class="detail-list">
+            <div class="detail-row"><dt>Wi-Fi omrežje</dt><dd>BarboNet</dd></div>
+            <div class="detail-row"><dt>Signal</dt><dd>−52 dBm</dd></div>
+            <div class="detail-row"><dt>SD kartica</dt><dd>Zaznana</dd></div>
+            <div class="detail-row"><dt>Firmware</dt><dd>0.1.0-rc.31</dd></div>
+          </dl>
+        </aside>
+      </div>
+
+      <section class="surface chart-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Klima v panju</p>
+            <h2>Temperatura in vlaga</h2>
+          </div>
+          <div class="chart-legend">
+            <span class="legend-item" style="color: var(--temperature)"><span class="legend-line"></span>Temperatura</span>
+            <span class="legend-item" style="color: var(--humidity)"><span class="legend-line"></span>Vlaga</span>
+          </div>
+        </div>
+
+        <div class="chart-frame" aria-label="Statični predogled grafa">
+          <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points="0,205 70,202 120,178 190,183 250,142 320,148 390,124 455,135 520,92 590,106 660,86 735,96 810,59 875,68 940,42 1000,54" fill="none" stroke="var(--temperature)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline points="0,248 70,230 120,236 190,202 250,210 320,181 390,193 455,160 520,172 590,134 660,147 735,112 810,125 875,91 940,108 1000,78" fill="none" stroke="var(--humidity)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+            <line x1="610" y1="0" x2="610" y2="300" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 5" opacity="0.65" />
+            <circle cx="610" cy="101" r="7" fill="var(--surface-solid)" stroke="var(--temperature)" stroke-width="4" />
+            <circle cx="610" cy="138" r="7" fill="var(--surface-solid)" stroke="var(--humidity)" stroke-width="4" />
+          </svg>
+          <div class="chart-tooltip">
+            <strong>Danes ob 12:40</strong>
+            <span class="tooltip-value"><span>Temperatura</span><b>27,1 °C</b></span>
+            <span class="tooltip-value"><span>Vlaga</span><b>47,8 %</b></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="palette-note">
+        <div id="palette-description"><strong>Medena:</strong> topla zlata za glavna dejanja, nevtralne kartice ter zelena samo za uspeh in online stanje.</div>
+        <div class="swatches" aria-label="Barvna paleta">
+          <span class="swatch" style="background: var(--accent)"></span>
+          <span class="swatch" style="background: var(--success)"></span>
+          <span class="swatch" style="background: var(--humidity)"></span>
+          <span class="swatch" style="background: var(--danger)"></span>
+          <span class="swatch" style="background: var(--surface-solid)"></span>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const root = document.documentElement;
+      const themeToggle = document.querySelector("#theme-toggle");
+      const themeLabel = document.querySelector("#theme-label");
+      const menuButton = document.querySelector("#menu-button");
+      const navigation = document.querySelector("#navigation");
+      const paletteDescription = document.querySelector("#palette-description");
+      const paletteDescriptions = {
+        honey: "<strong>Medena:</strong> topla zlata za glavna dejanja, nevtralne kartice ter zelena samo za uspeh in online stanje.",
+        ocean: "<strong>Nočno modra:</strong> hladnejša tehnična smer z modro-cian poudarki in zelo mirnim temnim ozadjem.",
+        copper: "<strong>Bakrena:</strong> topel industrijski značaj z bakrenimi poudarki, ki se lepo povežejo z lesom panja.",
+        plum: "<strong>Slivova:</strong> sodobnejša premium smer z umirjeno vijolično, brez prevladujoče zelene barve."
+      };
+
+      function updateThemeLabel() {
+        themeLabel.textContent = root.dataset.theme === "dark" ? "Svetla tema" : "Temna tema";
+        document.querySelector('meta[name="theme-color"]').content = getComputedStyle(root).getPropertyValue("--bg").trim();
+      }
+
+      themeToggle.addEventListener("click", () => {
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+        updateThemeLabel();
+      });
+
+      menuButton.addEventListener("click", () => {
+        const isOpen = navigation.classList.toggle("open");
+        menuButton.setAttribute("aria-expanded", String(isOpen));
+      });
+
+      document.querySelectorAll(".nav-link").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelector(".nav-link.active")?.classList.remove("active");
+          button.classList.add("active");
+          navigation.classList.remove("open");
+          menuButton.setAttribute("aria-expanded", "false");
+        });
+      });
+
+      document.querySelectorAll("[data-palette-option]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const palette = button.dataset.paletteOption;
+          root.dataset.palette = palette;
+          document.querySelector(".palette-option.active")?.classList.remove("active");
+          document.querySelectorAll("[data-palette-option]").forEach((option) => {
+            option.setAttribute("aria-pressed", String(option === button));
+          });
+          button.classList.add("active");
+          paletteDescription.innerHTML = paletteDescriptions[palette];
+          updateThemeLabel();
+        });
+      });
+
+      updateThemeLabel();
+    </script>
+  </body>
+</html>

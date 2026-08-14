@@ -2,6 +2,52 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [0.1.0-rc.37] - 2026-08-14
+
+### Added
+
+- Uporabnik lahko izbrani deljeni panj odstrani iz svojega računa z gumbom **Odstrani deljeni panj**; odstranita se samo njegov dostop in povezava v izbirniku, lastni panj ter meritve pa ostanejo nespremenjeni.
+
+## [0.1.0-rc.36] - 2026-08-14
+
+### Changed
+
+- Lokalna nadzorna plošča skrije gumb **Izbriši shranjeni Wi-Fi**, kadar v NVS ni shranjenih Wi-Fi poverilnic.
+- Povezava na spletno nadzorno ploščo po nastavitvi Wi-Fi-ja uporablja čist naslov brez nepotrebnega parametra `device`.
+
+## [0.1.0-rc.35] - 2026-08-14
+
+### Changed
+
+- Po uspešni začetni nastavitvi ali menjavi Wi-Fi omrežja je spletna nadzorna plošča prikazana kot priporočena glavna možnost z izpisanim naslovom in poudarjenim gumbom **Odpri nadzorno ploščo**.
+- Lokalni IP oziroma `.local` naslov ostajata ločena sekundarna možnost; prikaz pojasni, da je ob nedelujočem lokalnem naslovu IP mogoče preveriti v usmerjevalniku.
+- Izraz **Odpri cloud** je nadomeščen z uporabniku prijaznejšim izrazom **Odpri nadzorno ploščo**.
+
+## [0.1.0-rc.34] - 2026-08-13
+
+### Added
+
+- Uspešen Wi-Fi prehod prek provisioning AP-ja in domačega omrežja ponudi neposredno povezavo na cloud nadzorno ploščo.
+- Prehodni prikaz pojasni, da je ob nedelujočem `.local` naslovu novi IP mogoče preveriti med povezanimi napravami v usmerjevalniku.
+
+## [0.1.0-rc.33] - 2026-08-13
+
+### Added
+
+- Menjava Wi-Fi omrežja prek domačega IP-ja prikaže prehodni zaslon z novim SSID-jem, stalnim `.local` naslovom in navodilom, naj uporabnik tudi telefon oziroma računalnik poveže z novim omrežjem.
+- Brisanje shranjenih Wi-Fi poverilnic še pred odklopom prikaže ime provisioning AP-ja, naslov `http://192.168.4.1/` in korake za ponovno nastavitev omrežja.
+
+### Changed
+
+- Brisanje Wi-Fi nastavitev se po odgovoru lokalnemu obrazcu izvede z 1,2-sekundnim zamikom, da lahko brskalnik zanesljivo izriše nadaljnja navodila.
+
+## [0.1.0-rc.32] - 2026-08-13
+
+### Changed
+
+- Firmware določi, ali je bil Wi-Fi obrazec oddan prek provisioning naslova `192.168.4.1` ali prek domačega omrežja.
+- Tridesetsekundni prehodni AP ostane aktiven samo po nastavitvi prek provisioning AP-ja; po uspešni menjavi omrežja prek domačega IP-ja se zapre takoj.
+
 ## [0.1.0-rc.31] - 2026-08-13
 
 ### Changed

@@ -71,8 +71,8 @@ constexpr uint32_t WIFI_RECONNECT_ATTEMPT_TIMEOUT_MS = 8 * 1000;  // Najdaljši 
 constexpr uint32_t NETWORK_SERVICE_STABILIZATION_MS = 2 * 1000;  // Čas po pridobitvi IP-ja pred zagonom NTP in Firebase prometa.
 constexpr uint32_t NTP_FIREBASE_GUARD_MS = 3 * 1000;  // Dodatni premor med NTP sinhronizacijo in prvim Firebase dostopom.
 constexpr uint32_t NTP_SYNC_TIMEOUT_MS = 30 * 1000;  // Najdaljši čas čakanja na prvo veljavno NTP uro.
-constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 30 * 1000;  // Čas odprte AP točke po uspešnem vnosu novega SSID-ja in gesla.
-constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 500;  // Kratek zamik pred izbrisom NVS Wi-Fi nastavitev po zahtevi obrazca.
+constexpr uint32_t ACCESS_POINT_SHUTDOWN_DELAY_MS = 30 * 1000;  // Prehodni čas AP-ja velja samo za nastavitev prek naslova 192.168.4.1.
+constexpr uint32_t WIFI_SETTINGS_CLEAR_DELAY_MS = 1200;  // Zamik omogoči prikaz navodil za AP, preden se prekine trenutna STA povezava.
 constexpr uint32_t WIFI_CONNECTION_REQUEST_DELAY_MS = 500;  // Zamik po HTTP odgovoru, preden glavni program začne preklop Wi-Fi-ja.
 constexpr uint32_t WIFI_RADIO_RESTART_DELAY_MS = 1 * 1000;  // Premor med izklopom in ponovnim zagonom Wi-Fi radia.
 constexpr uint32_t ACCESS_POINT_START_RETRY_MS = 5 * 1000;  // Čas do novega poskusa zagona AP-ja, če prvi poskus ne uspe.
@@ -475,9 +475,11 @@ bool savedWiFiReconnectAttemptActive = false;
 WiFiProvisioningState wifiProvisioningState = WiFiProvisioningState::Idle;
 String pendingWiFiSsid;
 String pendingWiFiPassword;
+bool pendingWiFiRequestFromAccessPoint = false;
 volatile bool wifiConnectionRequestQueued = false;
 char queuedWiFiSsid[33] = {};
 char queuedWiFiPassword[64] = {};
+bool queuedWiFiRequestFromAccessPoint = false;
 time_t lastCloudSyncedTimestamp = 0;
 Measurement latestMeasurement{};
 Measurement cloudSyncPendingMeasurement{};
@@ -1743,7 +1745,8 @@ bool wifiConnectionAttemptBusy()
   return requestQueued || wifiProvisioningState == WiFiProvisioningState::Connecting;
 }
 
-bool queueWiFiConnectionAttempt(const String &ssid, const String &password)
+bool queueWiFiConnectionAttempt(const String &ssid, const String &password,
+                                bool requestFromAccessPoint)
 {
   char ssidCopy[sizeof(queuedWiFiSsid)] = {};
   char passwordCopy[sizeof(queuedWiFiPassword)] = {};
@@ -1755,6 +1758,7 @@ bool queueWiFiConnectionAttempt(const String &ssid, const String &password)
   if (!wifiConnectionRequestQueued) {
     memcpy(queuedWiFiSsid, ssidCopy, sizeof(queuedWiFiSsid));
     memcpy(queuedWiFiPassword, passwordCopy, sizeof(queuedWiFiPassword));
+    queuedWiFiRequestFromAccessPoint = requestFromAccessPoint;
     queuedWiFiConnectionStartMillis = millis() + WIFI_CONNECTION_REQUEST_DELAY_MS;
     wifiConnectionRequestQueued = true;
     requestQueued = true;
@@ -1763,16 +1767,19 @@ bool queueWiFiConnectionAttempt(const String &ssid, const String &password)
   return requestQueued;
 }
 
-void startWiFiConnectionAttempt(const String &ssid, const String &password)
+void startWiFiConnectionAttempt(const String &ssid, const String &password,
+                                bool requestFromAccessPoint)
 {
   if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 63) {
     wifiProvisioningState = WiFiProvisioningState::Failed;
+    pendingWiFiRequestFromAccessPoint = false;
     Serial.println("Wi-Fi connection attempt rejected because the credentials are invalid.");
     return;
   }
 
   pendingWiFiSsid = ssid;
   pendingWiFiPassword = password;
+  pendingWiFiRequestFromAccessPoint = requestFromAccessPoint;
   wifiProvisioningState = WiFiProvisioningState::Connecting;
   accessPointShutdownMillis = 0;
 
@@ -1799,6 +1806,7 @@ void processQueuedWiFiConnectionAttempt()
   char ssid[sizeof(queuedWiFiSsid)] = {};
   char password[sizeof(queuedWiFiPassword)] = {};
   bool startAttempt = false;
+  bool requestFromAccessPoint = false;
   const uint32_t currentMillis = millis();
 
   portENTER_CRITICAL(&wifiProvisioningRequestMux);
@@ -1808,13 +1816,17 @@ void processQueuedWiFiConnectionAttempt()
     memcpy(password, queuedWiFiPassword, sizeof(password));
     memset(queuedWiFiSsid, 0, sizeof(queuedWiFiSsid));
     memset(queuedWiFiPassword, 0, sizeof(queuedWiFiPassword));
+    requestFromAccessPoint = queuedWiFiRequestFromAccessPoint;
+    queuedWiFiRequestFromAccessPoint = false;
     queuedWiFiConnectionStartMillis = 0;
     wifiConnectionRequestQueued = false;
     startAttempt = true;
   }
   portEXIT_CRITICAL(&wifiProvisioningRequestMux);
 
-  if (startAttempt) startWiFiConnectionAttempt(String(ssid), String(password));
+  if (startAttempt) {
+    startWiFiConnectionAttempt(String(ssid), String(password), requestFromAccessPoint);
+  }
 }
 
 void updateWiFiConnectionAttempt()
@@ -1833,7 +1845,19 @@ void updateWiFiConnectionAttempt()
     if (storeWiFiCredentials(pendingWiFiSsid, pendingWiFiPassword)) {
       savedWiFiCredentialsAvailable = true;
       wifiProvisioningState = WiFiProvisioningState::Connected;
-      accessPointShutdownMillis = millis() + ACCESS_POINT_SHUTDOWN_DELAY_MS;
+      if (pendingWiFiRequestFromAccessPoint) {
+        accessPointShutdownMillis = millis() + ACCESS_POINT_SHUTDOWN_DELAY_MS;
+        Serial.println("Provisioning AP remains available for 30 seconds after AP setup.");
+      } else {
+        accessPointShutdownMillis = 0;
+        if (accessPointExpected || accessPointActive) {
+          accessPointExpected = false;
+          WiFi.softAPdisconnect(true);
+          accessPointActive = false;
+          WiFi.mode(WIFI_STA);
+        }
+        Serial.println("Provisioning AP closed immediately after LAN Wi-Fi configuration.");
+      }
       Serial.printf("Wi-Fi connected. IP address: %s\n", WiFi.localIP().toString().c_str());
     } else {
       wifiProvisioningState = WiFiProvisioningState::Failed;
@@ -1842,6 +1866,7 @@ void updateWiFiConnectionAttempt()
     }
     pendingWiFiSsid = "";
     pendingWiFiPassword = "";
+    pendingWiFiRequestFromAccessPoint = false;
     return;
   }
 
@@ -1850,6 +1875,7 @@ void updateWiFiConnectionAttempt()
     wifiProvisioningState = WiFiProvisioningState::Failed;
     pendingWiFiSsid = "";
     pendingWiFiPassword = "";
+    pendingWiFiRequestFromAccessPoint = false;
     Serial.println("Wi-Fi connection test timed out.");
   }
 }
@@ -4411,7 +4437,15 @@ void saveWiFiConfiguration(AsyncWebServerRequest *request)
     return;
   }
 
-  if (!queueWiFiConnectionAttempt(ssid, password)) {
+  const IPAddress requestLocalIp = request->client() != nullptr
+                                       ? request->client()->localIP()
+                                       : IPAddress();
+  const bool requestFromAccessPoint = requestLocalIp == IPAddress(192, 168, 4, 1);
+  Serial.printf("Wi-Fi configuration received through %s (%s).\n",
+                requestFromAccessPoint ? "provisioning AP" : "home network",
+                requestLocalIp.toString().c_str());
+
+  if (!queueWiFiConnectionAttempt(ssid, password, requestFromAccessPoint)) {
     sendLocalJsonResponse(request, 409, "{\"error\":\"Wi-Fi connection test is in progress\"}");
     return;
   }
@@ -4552,9 +4586,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   }
 
   const time_t currentTimestamp = time(nullptr);
-  static char jsonPayload[3450];
+  static char jsonPayload[3520];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"station_connected\":%s,\"station_ssid\":\"%s\",\"station_ip\":\"%s\",\"local_hostname\":\"%s.local\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"access_point_shutdown_remaining_seconds\":%lu,\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"credentials_saved\":%s,\"station_connected\":%s,\"station_ssid\":\"%s\",\"station_ip\":\"%s\",\"local_hostname\":\"%s.local\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"access_point_shutdown_remaining_seconds\":%lu,\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
@@ -4567,7 +4601,8 @@ void sendLocalStatus(AsyncWebServerRequest *request)
            currentTimestamp >= MIN_VALID_UNIX_TIMESTAMP ? "true" : "false", rtcReady ? "true" : "false",
            rtcTimeValid ? "true" : "false", ntpSynchronizationPending ? "true" : "false",
             static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
-            stationConnected ? "station" : "access_point", stationConnected ? "true" : "false",
+            stationConnected ? "station" : "access_point",
+            savedWiFiCredentialsAvailable ? "true" : "false", stationConnected ? "true" : "false",
             escapedStationSsid.c_str(), stationIp.c_str(), arduinoOtaHostname,
             accessPointActive ? "true" : "false", accessPointSsid, accessPointIp.c_str(),
             static_cast<unsigned long>(accessPointShutdownRemainingSeconds),

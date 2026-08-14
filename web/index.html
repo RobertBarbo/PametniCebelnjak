@@ -190,7 +190,7 @@
               <section class="share-device-panel" id="share-device-panel" aria-labelledby="share-device-heading" hidden>
                 <div><p class="eyebrow">Deli panj</p><h2 id="share-device-heading">Dostop samo za ogled</h2><p class="muted">Povabilo velja 24 ur in samo za navedeni e-poštni naslov. Povabljeni uporabnik lahko vidi meritve in grafe, naprave pa ne more upravljati.</p></div>
                 <form class="share-device-form" id="share-device-form">
-                  <label class="account-field">E-poštni naslov prejemnika<input id="share-recipient-email" type="email" maxlength="254" placeholder="nika@example.com" autocomplete="email" required /></label>
+                  <label class="account-field">E-poštni naslov prejemnika<input id="share-recipient-email" type="email" maxlength="254" placeholder="uporabnik@gmail.com" autocomplete="email" required /></label>
                   <button class="secondary-button" id="create-share-invitation" type="submit">Ustvari povabilo</button>
                 </form>
                 <section class="share-invitation-result" id="share-invitation-result" aria-labelledby="share-invitation-code-heading" hidden>
@@ -250,18 +250,24 @@
               <p id="wifi-form-status" class="form-status" aria-live="polite"></p>
             </form>
             <section class="wifi-connection-result" id="wifi-connection-result" aria-labelledby="wifi-connection-result-heading" hidden>
-              <p class="eyebrow">Povezava je uspela</p>
+              <p class="eyebrow" id="wifi-connection-result-eyebrow">Povezava je uspela</p>
               <h3 id="wifi-connection-result-heading">Naprava je povezana</h3>
               <p class="muted" id="wifi-connection-result-message">Telefon ali računalnik poveži z novim Wi‑Fi omrežjem.</p>
-              <div class="wifi-address-card">
-                <span>Novi lokalni naslov</span>
+              <div class="wifi-address-card wifi-cloud-card" id="wifi-cloud-card">
+                <span>Spletna nadzorna plošča</span>
+                <a id="wifi-cloud-address" href="https://pametnicebelnjak.web.app/" target="_blank" rel="noopener">https://pametnicebelnjak.web.app/</a>
+                <small>Priporočeno za pregled meritev in upravljanje panja.</small>
+              </div>
+              <div class="wifi-address-card" id="wifi-address-card">
+                <span id="wifi-address-label">Novi lokalni naslov</span>
                 <a id="wifi-new-ip-address" href="#" target="_blank" rel="noopener">—</a>
-                <small>Stalni naslov: <a id="wifi-new-local-hostname" href="#" target="_blank" rel="noopener">—</a></small>
+                <small id="wifi-local-hostname-row">Stalni naslov: <a id="wifi-new-local-hostname" href="#" target="_blank" rel="noopener">—</a></small>
               </div>
               <p class="wifi-transition-notice" id="wifi-transition-notice" aria-live="polite"></p>
               <div class="wifi-result-actions">
-                <button class="secondary-button" id="wifi-copy-address" type="button">Kopiraj naslov</button>
-                <a class="primary-button" id="wifi-open-address" href="#" target="_blank" rel="noopener">Odpri napravo</a>
+                <a class="primary-button" id="wifi-open-cloud" href="https://pametnicebelnjak.web.app/" target="_blank" rel="noopener">Odpri nadzorno ploščo</a>
+                <a class="secondary-button" id="wifi-open-address" href="#" target="_blank" rel="noopener">Odpri lokalno</a>
+                <button class="secondary-button" id="wifi-copy-address" type="button">Kopiraj lokalni naslov</button>
               </div>
               <p class="form-status" id="wifi-copy-status" aria-live="polite"></p>
             </section>

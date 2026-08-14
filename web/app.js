@@ -2,6 +2,7 @@ const DEVICE_ONLINE_TIMEOUT_SECONDS = 90;
 const LOAD_CELL_TARE_TIMEOUT_SECONDS = 90;
 const BME680_CALIBRATION_TIMEOUT_SECONDS = 90;
 const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
+const CLOUD_DASHBOARD_URL = "https://pametnicebelnjak.web.app/";
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
 const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
@@ -174,12 +175,20 @@ const elements = {
   activationCode: document.querySelector("#activation-code"),
   connectedWifiSsid: document.querySelector("#connected-wifi-ssid"),
   wifiConnectionResult: document.querySelector("#wifi-connection-result"),
+  wifiConnectionResultEyebrow: document.querySelector("#wifi-connection-result-eyebrow"),
+  wifiConnectionResultHeading: document.querySelector("#wifi-connection-result-heading"),
   wifiConnectionResultMessage: document.querySelector("#wifi-connection-result-message"),
+  wifiCloudCard: document.querySelector("#wifi-cloud-card"),
+  wifiCloudAddress: document.querySelector("#wifi-cloud-address"),
+  wifiAddressCard: document.querySelector("#wifi-address-card"),
+  wifiAddressLabel: document.querySelector("#wifi-address-label"),
   wifiNewIpAddress: document.querySelector("#wifi-new-ip-address"),
+  wifiLocalHostnameRow: document.querySelector("#wifi-local-hostname-row"),
   wifiNewLocalHostname: document.querySelector("#wifi-new-local-hostname"),
   wifiTransitionNotice: document.querySelector("#wifi-transition-notice"),
   wifiCopyAddress: document.querySelector("#wifi-copy-address"),
   wifiOpenAddress: document.querySelector("#wifi-open-address"),
+  wifiOpenCloud: document.querySelector("#wifi-open-cloud"),
   wifiCopyStatus: document.querySelector("#wifi-copy-status"),
   localActivationCard: document.querySelector("#local-activation-card"),
   localActivationCode: document.querySelector("#local-activation-code"),
@@ -251,6 +260,8 @@ let bme680CalibrationPendingUntil = 0;
 let bme680CalibrationRequestedAt = 0;
 let wifiTransitionDeadline = 0;
 let wifiTransitionAddress = "";
+let wifiTransitionMode = "idle";
+let wifiTransitionProbeGeneration = 0;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -487,11 +498,12 @@ function configureSelectedCloudDeviceAccess(deviceId) {
   elements.historyNavigationItem.hidden = false;
   elements.updatesNavigationItem.hidden = isSharedViewer;
   elements.cloudUpdatesQuickLink.hidden = isSharedViewer;
-  elements.unclaimDevice.hidden = isCloudAdministrator() || isSharedViewer;
-  elements.unclaimDevice.disabled = !deviceId || !isOwner;
+  elements.unclaimDevice.hidden = isCloudAdministrator() || (!isOwner && !isSharedViewer);
+  elements.unclaimDevice.disabled = !deviceId || (!isOwner && !isSharedViewer);
+  elements.unclaimDevice.textContent = isSharedViewer ? "Odstrani deljeni panj" : "Odjavi izbrani panj";
   elements.shareDevicePanel.hidden = !isOwner;
   elements.selectedDeviceDescription.textContent = isSharedViewer
-    ? "Deljeni panj · samo ogled. V izbirniku lahko kadarkoli preklopiš nazaj na svoj panj."
+    ? "Deljeni panj · samo ogled. Dostop lahko kadarkoli odstraniš iz svojega računa."
     : "Izberi panj, katerega podatke želiš pregledovati.";
   setCloudDeviceManagementVisibility(Boolean(deviceId && currentCloudUser && canManage));
 
@@ -1135,15 +1147,114 @@ function renderBme680CalibrationStatus(status) {
 }
 
 function updateWiFiTransitionNotice() {
-  if (!elements.wifiTransitionNotice || wifiTransitionDeadline === 0) return;
+  if (!elements.wifiTransitionNotice || wifiTransitionMode !== "access_point" || wifiTransitionDeadline === 0) return;
 
   const remainingSeconds = Math.max(0, Math.ceil((wifiTransitionDeadline - Date.now()) / 1000));
   elements.wifiTransitionNotice.textContent = remainingSeconds > 0
-    ? `Za branje teh navodil bo dostopna točka naprave na voljo še približno ${remainingSeconds} s.`
-    : "Dostopna točka naprave se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in odpri novi naslov.";
+    ? `Dostopna točka bo na voljo še približno ${remainingSeconds} s. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni IP lahko preveriš v usmerjevalniku.`
+    : "Dostopna točka se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in nadaljuj v spletni nadzorni plošči; lokalni IP lahko preveriš v usmerjevalniku.";
+}
+
+function dashboardUsesProvisioningAddress() {
+  return window.location.hostname === "192.168.4.1";
+}
+
+function localHostnameUrl(network = latestNetworkStatus) {
+  const hostname = network?.local_hostname?.trim();
+  return hostname ? `http://${hostname}/` : "";
+}
+
+function cloudDashboardUrl() {
+  return CLOUD_DASHBOARD_URL;
+}
+
+function setWiFiTransitionAddress(address) {
+  wifiTransitionAddress = address;
+  elements.wifiNewIpAddress.textContent = address || "—";
+  elements.wifiNewIpAddress.href = address || "#";
+  elements.wifiOpenAddress.href = address || "#";
+  elements.wifiOpenAddress.classList.toggle("is-disabled", !address);
+  elements.wifiOpenAddress.setAttribute("aria-disabled", String(!address));
+}
+
+function showWiFiTransitionResult({ mode, eyebrow, heading, message, addressLabel, address, notice }) {
+  wifiTransitionMode = mode;
+  wifiTransitionDeadline = 0;
+  wifiTransitionProbeGeneration += 1;
+  elements.wifiConnectionResult.hidden = false;
+  elements.wifiConnectionResult.dataset.transition = mode;
+  elements.wifiForm.hidden = true;
+  elements.wifiConnectionResultEyebrow.textContent = eyebrow;
+  elements.wifiConnectionResultHeading.textContent = heading;
+  elements.wifiConnectionResultMessage.textContent = message;
+  elements.wifiAddressLabel.textContent = addressLabel;
+  elements.wifiLocalHostnameRow.hidden = true;
+  elements.wifiTransitionNotice.textContent = notice;
+  elements.wifiCopyStatus.textContent = "";
+  const showCloudAccess = mode !== "forgotten";
+  const cloudUrl = cloudDashboardUrl();
+  elements.wifiCloudCard.hidden = !showCloudAccess;
+  elements.wifiCloudAddress.href = cloudUrl;
+  elements.wifiOpenCloud.hidden = !showCloudAccess;
+  elements.wifiOpenCloud.href = cloudUrl;
+  elements.wifiOpenCloud.classList.toggle("primary-button", showCloudAccess);
+  elements.wifiOpenCloud.classList.toggle("secondary-button", !showCloudAccess);
+  elements.wifiOpenAddress.classList.toggle("primary-button", !showCloudAccess);
+  elements.wifiOpenAddress.classList.toggle("secondary-button", showCloudAccess);
+  setWiFiTransitionAddress(address);
+}
+
+async function probeDeviceOnLocalHostname(hostnameUrl, generation) {
+  if (!hostnameUrl) return;
+
+  for (let attempt = 0; attempt < 30 && generation === wifiTransitionProbeGeneration; attempt += 1) {
+    await delay(2_000);
+    try {
+      await fetch(hostnameUrl, { mode: "no-cors", cache: "no-store" });
+      if (generation !== wifiTransitionProbeGeneration || wifiTransitionMode !== "home_network") return;
+      elements.wifiTransitionNotice.textContent = "Naprava je dosegljiva na novem omrežju. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni dostop ostaja na voljo prek stalnega naslova.";
+      return;
+    } catch {
+      // Telefon ali računalnik morda še ni povezan z novim SSID-jem; poskus tiho ponovimo.
+    }
+  }
+}
+
+function showHomeNetworkTransition(ssid) {
+  const hostnameUrl = localHostnameUrl();
+  showWiFiTransitionResult({
+    mode: "home_network",
+    eyebrow: "Menjava omrežja",
+    heading: "Naprava se povezuje z novim Wi‑Fi omrežjem",
+    message: `Naprava prehaja v omrežje ${ssid}. Ko bo povezava vzpostavljena, za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.`,
+    addressLabel: "Stalni lokalni naslov naprave",
+    address: hostnameUrl,
+    notice: hostnameUrl
+      ? "Tudi telefon ali računalnik poveži z novim omrežjem. Za lokalni dostop počakaj nekaj sekund in odpri stalni naslov; če .local ne deluje, novi IP preveri v usmerjevalniku."
+      : "Tudi telefon ali računalnik poveži z novim omrežjem. Za lokalni dostop novi IP preveri med povezanimi napravami v usmerjevalniku.",
+  });
+  const generation = wifiTransitionProbeGeneration;
+  probeDeviceOnLocalHostname(hostnameUrl, generation);
+}
+
+function showForgottenWiFiTransition() {
+  const accessPointSsid = latestNetworkStatus?.access_point_ssid || "dostopna točka naprave";
+  const accessPointUrl = "http://192.168.4.1/";
+  showWiFiTransitionResult({
+    mode: "forgotten",
+    eyebrow: "Wi‑Fi je odstranjen",
+    heading: "Ponovno poveži napravo",
+    message: `Shranjeno omrežje bo izbrisano. Naprava bo odprla dostopno točko ${accessPointSsid}.`,
+    addressLabel: "Naslov nastavitev na dostopni točki",
+    address: accessPointUrl,
+    notice: `V nastavitvah Wi‑Fi telefona ali računalnika izberi ${accessPointSsid}, nato odpri ${accessPointUrl} in ponovno vnesi poverilnice.`,
+  });
+  elements.wifiOpenAddress.textContent = "Odpri nastavitve";
 }
 
 function renderWiFiConnectionResult(network, connectionState, isConnected) {
+  if (wifiTransitionMode === "home_network" || wifiTransitionMode === "forgotten") return;
+
   const stationIp = network?.station_ip ?? "";
   const localHostname = network?.local_hostname ?? "";
   const remainingSeconds = Number(network?.access_point_shutdown_remaining_seconds);
@@ -1153,23 +1264,43 @@ function renderWiFiConnectionResult(network, connectionState, isConnected) {
   elements.wifiConnectionResult.hidden = !showResult;
   elements.wifiForm.hidden = showResult;
   if (!showResult) {
+    wifiTransitionMode = "idle";
     wifiTransitionDeadline = 0;
     wifiTransitionAddress = "";
     return;
   }
 
+  wifiTransitionMode = "access_point";
+  elements.wifiConnectionResult.dataset.transition = "access_point";
+  elements.wifiConnectionResultEyebrow.textContent = "Povezava je uspela";
+  elements.wifiConnectionResultHeading.textContent = "Naprava je povezana";
+  elements.wifiAddressLabel.textContent = "Novi lokalni naslov";
+  const cloudUrl = cloudDashboardUrl();
+  elements.wifiCloudCard.hidden = false;
+  elements.wifiCloudAddress.href = cloudUrl;
+  elements.wifiLocalHostnameRow.hidden = false;
+  elements.wifiOpenAddress.textContent = "Odpri lokalno";
+  elements.wifiOpenCloud.hidden = false;
+  elements.wifiOpenCloud.href = cloudUrl;
+  elements.wifiOpenCloud.classList.add("primary-button");
+  elements.wifiOpenCloud.classList.remove("secondary-button");
+  elements.wifiOpenAddress.classList.add("secondary-button");
+  elements.wifiOpenAddress.classList.remove("primary-button");
+  elements.wifiOpenAddress.classList.remove("is-disabled");
+  elements.wifiOpenAddress.setAttribute("aria-disabled", "false");
   const stationUrl = `http://${stationIp}/`;
   const hostnameUrl = localHostname ? `http://${localHostname}/` : "";
   wifiTransitionAddress = stationUrl;
   wifiTransitionDeadline = Date.now() + remainingSeconds * 1000;
   elements.wifiConnectionResultMessage.textContent = network?.station_ssid
-    ? `Naprava je povezana z omrežjem ${network.station_ssid}. Telefon ali računalnik poveži z istim omrežjem, nato odpri novi naslov.`
-    : "Telefon ali računalnik poveži z domačim Wi‑Fi omrežjem, nato odpri novi naslov naprave.";
+    ? `Naprava je povezana z internetom prek omrežja ${network.station_ssid}. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.`
+    : "Naprava je povezana z internetom. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.";
   elements.wifiNewIpAddress.textContent = stationUrl;
   elements.wifiNewIpAddress.href = stationUrl;
   elements.wifiOpenAddress.href = stationUrl;
   elements.wifiNewLocalHostname.textContent = localHostname || "Ni na voljo";
   elements.wifiNewLocalHostname.href = hostnameUrl || stationUrl;
+  elements.wifiTransitionNotice.textContent = "Za lokalni dostop poveži telefon ali računalnik z istim Wi‑Fi omrežjem. Če lokalni naslov ni dosegljiv, IP preveri med povezanimi napravami v usmerjevalniku.";
   elements.wifiCopyStatus.textContent = "";
   updateWiFiTransitionNotice();
 }
@@ -1186,6 +1317,7 @@ function renderProvisioning(network) {
   const isConnecting = connectionState === "connecting";
   const isUsingAccessPoint = network?.provisioning_active === true;
   const isConnected = network?.station_connected === true;
+  const hasSavedCredentials = network?.credentials_saved === true;
   elements.connectedWifiSsid.textContent = isConnected && network?.station_ssid ? network.station_ssid : "—";
   renderWiFiConnectionResult(network, connectionState, isConnected);
 
@@ -1204,7 +1336,8 @@ function renderProvisioning(network) {
   }
 
   elements.wifiScan.disabled = isConnecting;
-  elements.wifiForget.disabled = isConnecting;
+  elements.wifiForget.hidden = !hasSavedCredentials;
+  elements.wifiForget.disabled = isConnecting || !hasSavedCredentials;
   elements.wifiPasswordToggle.disabled = isConnecting;
   elements.wifiForm.querySelector("button[type='submit']").disabled = isConnecting;
   if (network?.connection_message) elements.wifiFormStatus.textContent = network.connection_message;
@@ -1379,6 +1512,7 @@ async function saveWiFiConfiguration(event) {
   }
 
   const submitButton = elements.wifiForm.querySelector("button[type='submit']");
+  const requestFromAccessPoint = dashboardUsesProvisioningAddress();
   submitButton.disabled = true;
   elements.wifiConnectionResult.hidden = true;
   wifiTransitionDeadline = 0;
@@ -1393,7 +1527,11 @@ async function saveWiFiConfiguration(event) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Nastavitev Wi‑Fi ni uspela");
 
-    elements.wifiFormStatus.textContent = "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …";
+    if (requestFromAccessPoint) {
+      elements.wifiFormStatus.textContent = "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …";
+    } else {
+      showHomeNetworkTransition(ssid);
+    }
   } catch (error) {
     elements.wifiFormStatus.textContent = error.message;
     submitButton.disabled = false;
@@ -1495,12 +1633,21 @@ async function forgetWiFiConfiguration() {
   if (!window.confirm("Izbrišem shranjeni Wi‑Fi? Naprava bo nato odprla svojo dostopno točko.")) return;
 
   elements.wifiForget.disabled = true;
-  elements.wifiFormStatus.textContent = "Odstranjujem shranjeni Wi‑Fi. Nato se poveži na dostopno točko naprave …";
+  showForgottenWiFiTransition();
+  // Brskalniku omogočimo, da navodila izriše še pred prekinitvijo STA povezave.
+  await delay(50);
   try {
     const response = await fetch("/api/wifi", { method: "DELETE" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Brisanje Wi‑Fi nastavitev ni uspelo");
   } catch (error) {
+    if (error instanceof TypeError) {
+      elements.wifiTransitionNotice.textContent = "Povezava z napravo je bila prekinjena. To je po brisanju omrežja pričakovano; nadaljuj prek prikazane dostopne točke.";
+      return;
+    }
+    wifiTransitionMode = "idle";
+    elements.wifiConnectionResult.hidden = true;
+    elements.wifiForm.hidden = false;
     elements.wifiFormStatus.textContent = error.message;
     elements.wifiForget.disabled = false;
   }
@@ -3528,6 +3675,11 @@ async function unclaimDevice() {
   const deviceId = elements.cloudDeviceSelect.value;
   if (!deviceId || !cloudDevices[deviceId]) return;
 
+  if (getCloudDeviceAccessRole(deviceId) === "viewer") {
+    await removeSharedDeviceAccess(deviceId);
+    return;
+  }
+
   const displayName = cloudDevices[deviceId].display_name || deviceId;
   const isConfirmed = window.confirm(
     `Ali želiš odregistrirati panj »${displayName}«?\n\nMeritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.`,
@@ -3552,6 +3704,36 @@ async function unclaimDevice() {
   } catch (error) {
     console.error(error);
     elements.unclaimDeviceStatus.textContent = "Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.";
+    elements.unclaimDevice.disabled = false;
+  }
+}
+
+async function removeSharedDeviceAccess(deviceId) {
+  if (!currentCloudUser || !firebaseDatabase || getCloudDeviceAccessRole(deviceId) !== "viewer") return;
+
+  const displayName = cloudDevices[deviceId]?.display_name || deviceId;
+  const isConfirmed = window.confirm(
+    `Ali želiš deljeni panj »${displayName}« odstraniti iz svojega računa?\n\nLastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.`,
+  );
+  if (!isConfirmed) return;
+
+  const { database, ref, update } = firebaseDatabase;
+  elements.unclaimDevice.disabled = true;
+  elements.unclaimDeviceStatus.textContent = "Odstranjujem deljeni panj …";
+
+  try {
+    await update(ref(database), {
+      [`device_access/${deviceId}/${currentCloudUser.uid}`]: null,
+      [`users/${currentCloudUser.uid}/shared_devices/${deviceId}`]: null,
+    });
+
+    if (localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY) === deviceId) {
+      localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
+    }
+    elements.unclaimDeviceStatus.textContent = "Deljeni panj je odstranjen iz tvojega računa.";
+  } catch (error) {
+    console.error(error);
+    elements.unclaimDeviceStatus.textContent = "Deljenega panja ni bilo mogoče odstraniti. Dostop ostaja aktiven.";
     elements.unclaimDevice.disabled = false;
   }
 }

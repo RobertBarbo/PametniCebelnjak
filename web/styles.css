@@ -1033,6 +1033,16 @@ select:disabled {
   background: color-mix(in srgb, var(--primary) 7%, var(--surface-solid));
 }
 
+.wifi-connection-result[data-transition="home_network"] {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface-solid));
+}
+
+.wifi-connection-result[data-transition="forgotten"] {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface-solid));
+}
+
 .wifi-connection-result h3,
 .wifi-connection-result p {
   margin: 0;
@@ -1069,6 +1079,15 @@ select:disabled {
   overflow-wrap: anywhere;
 }
 
+.wifi-cloud-card {
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--border));
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-soft));
+}
+
+.wifi-cloud-card > a {
+  color: var(--primary);
+}
+
 .wifi-transition-notice {
   padding: 13px 15px;
   border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
@@ -1091,6 +1110,11 @@ select:disabled {
   align-items: center;
   justify-content: center;
   text-decoration: none;
+}
+
+.wifi-result-actions .is-disabled {
+  pointer-events: none;
+  opacity: 0.48;
 }
 
 .cloud-sync-controls {
@@ -1795,19 +1819,28 @@ select:focus {
 
 .admin-device-actions {
   display: grid;
+  align-items: start;
   gap: 8px;
   margin-top: auto;
+  min-width: 0;
 }
 
 .admin-unclaim-button {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   min-height: 42px;
+  padding-inline: 16px;
+  justify-self: start;
   justify-content: center;
 }
 
 .admin-device-action-status {
   min-height: 1.45em;
   font-size: 0.78rem;
+}
+
+.admin-device-action-status:empty {
+  display: none;
 }
 
 @media (max-width: 1080px) {
@@ -1818,17 +1851,29 @@ select:focus {
 
 @media (max-width: 720px) {
   .admin-device-list {
-    max-height: 360px;
+    max-height: min(480px, 62vh);
     grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 7px 6px 7px 5px;
   }
 
   .admin-device-option {
-    padding: 14px 16px;
+    gap: 14px;
+    padding: 16px;
     min-height: 0;
   }
 
   .admin-device-option.selected {
-    padding: 13px 15px;
+    padding: 15px;
+  }
+
+  .admin-device-actions {
+    margin-top: 2px;
+  }
+
+  .admin-unclaim-button {
+    min-height: 40px;
+    padding-inline: 15px;
   }
 
   .share-device-form,

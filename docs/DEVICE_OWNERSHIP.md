@@ -27,7 +27,7 @@ Lastnik v cloud pogledu vnese e-poštni naslov prejemnika. Spletna stran ustvari
 
 Po vnosu kode se z eno atomsko posodobitvijo ustvarita dostop `/device_access/{deviceId}/{viewerUid}` in uporabnikov izbirnik `/users/{viewerUid}/shared_devices/{deviceId}`, uporabljeno povabilo pa se izbriše. Firebase pravila gledalcu dovolijo branje samo poti `latest`, `measurements`, `aggregates/hourly` in `aggregates/daily`. Poti `status`, `commands`, lastništvo in aktivacijska koda ostanejo nedostopne, zato skriti upravljalni gumbi niso edina zaščita.
 
-Lastnik lahko vidi seznam gledalcev in posamezen dostop prekliče. Ob odregistraciji panja lastnik ali skrbnik z istim atomskim zapisom odstrani tudi vse zapise `device_access` ter pripadajoče uporabniške povezave.
+Lastnik lahko vidi seznam gledalcev in posamezen dostop prekliče. Gledalec lahko deljeni panj odstrani iz svojega računa; atomsko se izbrišeta samo njegov zapis `/device_access/{deviceId}/{viewerUid}` in povezava `/users/{viewerUid}/shared_devices/{deviceId}`, lastništvo ter meritve pa ostanejo nespremenjeni. Ob odregistraciji panja lastnik ali skrbnik z istim atomskim zapisom odstrani tudi vse zapise `device_access` ter pripadajoče uporabniške povezave.
 
 ## Skrbniški ogled
 

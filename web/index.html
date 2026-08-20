@@ -264,6 +264,19 @@
           <p class="form-status" id="shared-weather-settings-status" aria-live="polite"></p>
         </section>
 
+        <section class="measurement-settings-panel surface" id="measurement-settings-panel" aria-labelledby="measurement-settings-heading" hidden>
+          <div class="section-heading">
+            <div><p class="eyebrow">Meritve in shranjevanje</p><h2 id="measurement-settings-heading">Nastavitve meritev</h2><p class="muted">Nastavitve veljajo samo za izbrani panj. Naprava jih shrani tudi lokalno, zato ostanejo aktivne ob začasnem izpadu interneta.</p></div>
+          </div>
+          <form class="measurement-settings-form" id="measurement-settings-form">
+            <label class="account-field">Prikaz teže<select id="weight-display-decimals"><option value="1">1 decimalka</option><option value="2">2 decimalki</option></select><small>Podatki se vedno shranjujejo na dve decimalki.</small></label>
+            <label class="account-field">Interval meritev<input id="measurement-interval-seconds" type="number" min="5" max="120" step="1" inputmode="numeric" required /><small>Od 5 do 120 sekund. Trenutna meritev se posodobi po vsakem ciklu.</small></label>
+            <label class="account-field">Zapis zgodovine na SD<input id="sd-archive-interval-minutes" type="number" min="1" max="30" step="1" inputmode="numeric" required /><small>Od 1 do 30 minut. Ti zapisi se prenesejo tudi v Firebase zgodovino.</small></label>
+            <button class="primary-button" id="save-measurement-settings" type="submit">Shrani nastavitve</button>
+            <p class="form-status" id="measurement-settings-status" aria-live="polite"></p>
+          </form>
+        </section>
+
         <section class="provisioning-section surface" id="provisioning-section" aria-labelledby="provisioning-heading" hidden>
           <div class="provisioning-card">
             <div>

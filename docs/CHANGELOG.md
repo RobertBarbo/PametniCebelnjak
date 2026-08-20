@@ -6,6 +6,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Glavni skrbnik ima v zavihku **Naprava** med vremenskimi nastavitvami in stanjem sistema nov odsek **Meritve in shranjevanje** za izbrani panj. Nastavi lahko prikaz teže na eno ali dve decimalki, interval meritev od 5 do 120 sekund ter interval zapisa SD zgodovine od 1 do 30 minut.
 - Skrita lokalna pot **`/sd_card`** ponuja zaščiten raziskovalec SD kartice za pregled map, prenos, nalaganje in trajno brisanje datotek. Dostop uporablja Basic Auth z uporabniškim imenom `admin`; začetno geslo je lokalna aktivacijska koda, nato pa ga je mogoče na isti strani zamenjati in se ločeno shrani v NVS naprave.
 - Pri nalaganju datoteke z obstoječim imenom raziskovalec prikaže prilagojen modal za potrditev prepisa. Potrjena zamenjava po končanem nalaganju uporabi začasno datoteko, nato pa zamenja staro datoteko; posebej za `measurements.csv` vmesnik zahteva predhodno varnostno kopijo.
 
@@ -16,7 +17,10 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
-- Nove meritve teže se v CSV dnevnik, `latest`, Firebase surovo zgodovino in agregate zapišejo na dve decimalki. Kartica teže, y-os in tooltip lokalnega ter cloud grafa zdaj vedno prikažejo dve decimalki; temperatura in vlaga ostaneta na eni. Oznaka dnevne surove sinhronizacije je povišana, da se cloud ob naslednji primerjavi varno uskladi z novim zapisom kontrolne vsote.
+- Hitre izbire zgodovine z odprtim koncem, kot so **Zadnja ura**, **Zadnjih 24 ur**, **Zadnjih 7 dni** in koledarska obdobja do trenutka, na lokalnem in cloud pogledu zdaj vsakih 60 sekund samodejno pomaknejo časovno okno ter osvežijo samo podatke grafov. Celotna stran se ne naloži znova; ročno določen interval in približan graf ostaneta fiksna.
+- Cloud grafi uporabljajo gostejše prikazne koše: minutne do 7 dni, 30-minutne do 31 dni, urne do 3 mesecev, 12-urne do 6 mesecev in dnevne za daljša obdobja. Do 31 dni berejo surove meritve, nato urne oziroma dnevne Firebase agregate. Pri približanju izbranega cloud obdobja do 31 dni se surovi podatki znova združijo za dejansko vidni interval, zato ima približan enodnevni pogled minutne točke tudi, če je bil prvotno odprt daljši interval. Lokalni pogled ohrani svoje varčne koše, ker zgodovino pripravlja neposredno iz SD kartice brez interneta.
+- Privzeti interval zapisa SD zgodovine je 5 minut. Firmware nastavitve meritev vsakih 30 sekund prebere iz Firebase, jih preveri, shrani v NVS in jih zato uporablja tudi brez začasne cloud povezave. Firebase zgodovina nastaja iz istega intervala kot SD zapis.
+- Nove meritve teže se v CSV dnevnik, `latest`, Firebase surovo zgodovino in agregate zapišejo na dve decimalki. Kartica teže, y-os in tooltip lokalnega ter cloud grafa uporabljajo prikaz ene ali dveh decimalk, izbran za posamezen panj; temperatura in vlaga ostaneta na eni. Oznaka dnevne surove sinhronizacije je povišana, da se cloud ob naslednji primerjavi varno uskladi z novim zapisom kontrolne vsote.
 
 - Vsa spletna potrditvena okna zdaj uporablja enoten prilagojen modal namesto brskalniških `confirm()` in `prompt()` dialogov. Nevarna dejanja še vedno zahtevajo ustrezno vneseno potrditveno besedo.
 - Vremenski podatki se pridobijo neposredno iz brezplačnega Open-Meteo API-ja samo, kadar je prikaz vremena za izbrani panj vključen. Med odprtim pogledom **Pregled** se osvežijo največ enkrat na 15 minut, ob spremembi kraja ali dolžine napovedi pa se podatki pridobijo znova.
@@ -24,6 +28,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Y-os grafa teže uporablja korake 0,01 / 0,02 / 0,05 kg in večje natančne večkratnike. Dve različni vmesni vrednosti se zato po prikazu na dve decimalki ne moreta več izpisati z isto oznako.
 - Lokalni raziskovalec SD kartice za izpis map uporabi neposredno FAT/POSIX iteracijo, zato zanesljivo prikaže datoteke in mape na FAT SD kartici.
 - Poti raziskovalca so dodane pred začetno potjo `/sd_card`, saj je ta prej prestregla tudi zahtevek `/sd_card/api/list` in namesto JSON-a vrnila HTML stran. Vmesnik zato ni dobil poti, zasedenosti ali seznama datotek.
 

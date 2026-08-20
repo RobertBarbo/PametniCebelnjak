@@ -37,8 +37,13 @@ constexpr char SD_CARD_USERNAME[] = "admin";  // Fiksno uporabniško ime Basic A
 
 // === Intervali glavne zanke (v milisekundah) =================================
 // Spremeni jih samo, če razumeš vpliv na porabo, SD kartico in Firebase promet.
-constexpr uint32_t MEASUREMENT_INTERVAL_MS = 10 * 1000;  // Čas med branji BME680 in HX711 za prikaz trenutnih meritev.
-constexpr uint32_t SD_MEASUREMENT_INTERVAL_MS = 60 * 1000;  // Čas med zapisi meritve v SD CSV dnevnik in cloud zgodovino.
+constexpr uint32_t DEFAULT_MEASUREMENT_INTERVAL_MS = 10 * 1000;  // Privzeti čas med branji BME680 in HX711 za prikaz trenutnih meritev.
+constexpr uint32_t DEFAULT_SD_MEASUREMENT_INTERVAL_MS = 5 * 60 * 1000;  // Privzeti čas med zapisi meritve v SD CSV dnevnik in cloud zgodovino.
+constexpr uint16_t MEASUREMENT_INTERVAL_MIN_SECONDS = 5;  // Najkrajši dovoljeni interval meritev za posamezen panj.
+constexpr uint16_t MEASUREMENT_INTERVAL_MAX_SECONDS = 120;  // Najdaljši dovoljeni interval meritev za posamezen panj.
+constexpr uint8_t SD_ARCHIVE_INTERVAL_MIN_MINUTES = 1;  // Najkrajši dovoljeni interval zapisa zgodovine na SD kartico.
+constexpr uint8_t SD_ARCHIVE_INTERVAL_MAX_MINUTES = 30;  // Najdaljši dovoljeni interval zapisa zgodovine na SD kartico.
+constexpr uint8_t DEFAULT_WEIGHT_DISPLAY_DECIMALS = 2;  // Privzeto število prikazanih decimalk teže na lokalnem in cloud pogledu.
 constexpr uint32_t SD_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med preverjanjem in objavo stanja SD kartice.
 constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med objavami IP-ja, RSSI-ja, uptime-a in online stanja.
 constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60 * 1000;  // Čas med ponovnimi poskusi nedosegljivega senzorja ali SD kartice.
@@ -46,6 +51,7 @@ constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;  // Zaporedne napake pred opoz
 constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;  // Zaporedne napake pred stanjem napake komponente.
 constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30 * 1000;  // Čas med preverjanji Firebase ukazov za OTA, tariranje ali izbris.
 constexpr uint32_t TIME_COMMAND_INTERVAL_MS = 15 * 1000;  // Čas med preverjanji cloud ukaza za nastavitev ure DS3231.
+constexpr uint32_t MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS = 30 * 1000;  // Čas med branji nastavitev meritev v Firebase za posamezen panj.
 constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;  // Čas med osvežitvami aktivacijske kode v zasebni Firebase poti.
 
 // === Firebase in sinhronizacija SD zgodovine ==================================
@@ -173,6 +179,9 @@ constexpr char ACTIVATION_CODE_KEY[] = "activation";  // NVS ključ lokalne akti
 constexpr char CLOUD_SYNC_OFFSET_KEY[] = "cloud_offset";  // NVS ključ položaja v SD datoteki, do katerega je zgodovina že sinhronizirana.
 constexpr char CLOUD_SYNC_TIMESTAMP_KEY[] = "cloud_time";  // NVS ključ časa zadnje uspešne cloud sinhronizacije.
 constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";  // NVS ključ različice modela cloud agregatov.
+constexpr char MEASUREMENT_INTERVAL_KEY[] = "measure_int";  // NVS ključ intervala meritev v sekundah, pridobljenega iz cloud nastavitev panja.
+constexpr char SD_ARCHIVE_INTERVAL_KEY[] = "sd_archive";  // NVS ključ intervala zapisa zgodovine na SD v minutah.
+constexpr char WEIGHT_DISPLAY_DECIMALS_KEY[] = "weight_dec";  // NVS ključ števila prikazanih decimalk teže.
 constexpr char HX711_OFFSET_KEY[] = "hx_offset";  // NVS ključ tare (odmika) HX711 tehtnice.
 constexpr char BME680_TEMPERATURE_OFFSET_KEY[] = "bme_temp_off";  // NVS ključ ročnega temperaturnega odmika BME680.
 constexpr char BME680_HUMIDITY_OFFSET_KEY[] = "bme_hum_off";  // NVS ključ ročnega odmika vlage BME680.
@@ -418,6 +427,7 @@ uint32_t lastDeviceStatusMillis = 0;
 uint32_t lastComponentRecoveryMillis = 0;
 uint32_t lastFirmwareCommandCheckMillis = 0;
 uint32_t lastTimeCommandCheckMillis = 0;
+uint32_t lastMeasurementSettingsRefreshMillis = 0;
 uint32_t lastActivationSecretAttemptMillis = 0;
 uint32_t lastFirebaseAppLoopMillis = 0;
 uint32_t firebaseTaskStartedMillis = 0;
@@ -450,6 +460,7 @@ bool firmwareCommandPending = false;
 bool firmwareCommandQueued = false;
 bool timeCommandPending = false;
 bool timeCommandQueued = false;
+bool measurementSettingsRequestPending = false;
 bool timeCommandFromCloud = false;
 volatile bool ntpSynchronizationCompleted = false;
 bool ntpSynchronizationPending = false;
@@ -588,6 +599,7 @@ char timeCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char networkResetStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
+char measurementSettingsDatabasePath[DATABASE_PATH_LENGTH]{};
 char queuedFirmwareCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char queuedTimeCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
@@ -679,6 +691,9 @@ float bme680HumidityOffsetPercent = 0.0F;
 float pendingBme680TemperatureOffsetC = 0.0F;
 float pendingBme680HumidityOffsetPercent = 0.0F;
 bool bme680CalibrationFromCloud = false;
+uint32_t measurementIntervalMs = DEFAULT_MEASUREMENT_INTERVAL_MS;
+uint32_t sdMeasurementIntervalMs = DEFAULT_SD_MEASUREMENT_INTERVAL_MS;
+uint8_t weightDisplayDecimals = DEFAULT_WEIGHT_DISPLAY_DECIMALS;
 
 void processFirmwareUpdateCommand(const String &payload);
 void queueFirmwareUpdateCommand(const String &payload);
@@ -712,6 +727,9 @@ void resetCloudHistoryReconciliation();
 void completeCloudHistoryReconciliationRequest(CloudSyncRequestType requestType);
 bool processCloudHistoryReconciliationIndex(const String &payload);
 void appendJsonEscaped(String &json, const String &value);
+bool extractJsonUnsignedValue(const String &json, const char *key, uint32_t &value);
+void requestMeasurementSettings();
+void processMeasurementSettings(const String &payload);
 
 bool isCloudSyncRequest(const String &requestId)
 {
@@ -1132,6 +1150,9 @@ void processData(AsyncResult &result)
     if (result.uid() == "readTimeCommand") {
       timeCommandPending = false;
     }
+    if (result.uid() == "readMeasurementSettings") {
+      measurementSettingsRequestPending = false;
+    }
     if (result.uid() == "publishActivationSecret") {
       activationSecretPublishPending = false;
     }
@@ -1181,6 +1202,11 @@ void processData(AsyncResult &result)
           timeCommandQueued = true;
         }
       }
+      return;
+    }
+    if (result.uid() == "readMeasurementSettings") {
+      measurementSettingsRequestPending = false;
+      processMeasurementSettings(result.payload());
       return;
     }
     if (result.uid() == "publishActivationSecret") {
@@ -1523,6 +1549,77 @@ bool storeBme680Calibration(float temperatureOffsetC, float humidityOffsetPercen
   return temperatureBytes == sizeof(float) && humidityBytes == sizeof(float);
 }
 
+bool areMeasurementSettingsValid(uint32_t measurementIntervalSeconds, uint32_t sdArchiveIntervalMinutes,
+                                 uint32_t displayDecimals)
+{
+  return measurementIntervalSeconds >= MEASUREMENT_INTERVAL_MIN_SECONDS &&
+         measurementIntervalSeconds <= MEASUREMENT_INTERVAL_MAX_SECONDS &&
+         sdArchiveIntervalMinutes >= SD_ARCHIVE_INTERVAL_MIN_MINUTES &&
+         sdArchiveIntervalMinutes <= SD_ARCHIVE_INTERVAL_MAX_MINUTES &&
+         sdArchiveIntervalMinutes * 60U >= measurementIntervalSeconds &&
+         (displayDecimals == 1 || displayDecimals == 2);
+}
+
+bool storeMeasurementSettings(uint32_t measurementIntervalSeconds, uint32_t sdArchiveIntervalMinutes,
+                              uint32_t displayDecimals)
+{
+  if (!areMeasurementSettingsValid(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals) ||
+      !preferences.begin(DEVICE_SETTINGS_NAMESPACE, false)) {
+    return false;
+  }
+
+  const bool measurementStored = preferences.putUShort(MEASUREMENT_INTERVAL_KEY, measurementIntervalSeconds) ==
+                                 sizeof(uint16_t);
+  const bool archiveStored = preferences.putUChar(SD_ARCHIVE_INTERVAL_KEY, sdArchiveIntervalMinutes) == sizeof(uint8_t);
+  const bool decimalsStored = preferences.putUChar(WEIGHT_DISPLAY_DECIMALS_KEY, displayDecimals) == sizeof(uint8_t);
+  preferences.end();
+  return measurementStored && archiveStored && decimalsStored;
+}
+
+void loadMeasurementSettings()
+{
+  const uint32_t defaultMeasurementSeconds = DEFAULT_MEASUREMENT_INTERVAL_MS / 1000U;
+  const uint32_t defaultArchiveMinutes = DEFAULT_SD_MEASUREMENT_INTERVAL_MS / (60U * 1000U);
+  uint32_t measurementIntervalSeconds = defaultMeasurementSeconds;
+  uint32_t sdArchiveIntervalMinutes = defaultArchiveMinutes;
+  uint32_t displayDecimals = DEFAULT_WEIGHT_DISPLAY_DECIMALS;
+
+  if (preferences.begin(DEVICE_SETTINGS_NAMESPACE, true)) {
+    measurementIntervalSeconds = preferences.getUShort(MEASUREMENT_INTERVAL_KEY, defaultMeasurementSeconds);
+    sdArchiveIntervalMinutes = preferences.getUChar(SD_ARCHIVE_INTERVAL_KEY, defaultArchiveMinutes);
+    displayDecimals = preferences.getUChar(WEIGHT_DISPLAY_DECIMALS_KEY, DEFAULT_WEIGHT_DISPLAY_DECIMALS);
+    preferences.end();
+  }
+  if (!areMeasurementSettingsValid(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals)) {
+    measurementIntervalSeconds = defaultMeasurementSeconds;
+    sdArchiveIntervalMinutes = defaultArchiveMinutes;
+    displayDecimals = DEFAULT_WEIGHT_DISPLAY_DECIMALS;
+  }
+
+  measurementIntervalMs = measurementIntervalSeconds * 1000U;
+  sdMeasurementIntervalMs = sdArchiveIntervalMinutes * 60U * 1000U;
+  weightDisplayDecimals = static_cast<uint8_t>(displayDecimals);
+}
+
+bool applyMeasurementSettings(uint32_t measurementIntervalSeconds, uint32_t sdArchiveIntervalMinutes,
+                              uint32_t displayDecimals)
+{
+  if (!areMeasurementSettingsValid(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals)) {
+    return false;
+  }
+  if (!storeMeasurementSettings(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals)) {
+    return false;
+  }
+
+  measurementIntervalMs = measurementIntervalSeconds * 1000U;
+  sdMeasurementIntervalMs = sdArchiveIntervalMinutes * 60U * 1000U;
+  weightDisplayDecimals = static_cast<uint8_t>(displayDecimals);
+  lastMeasurementMillis = 0;
+  lastSDMeasurementMillis = 0;
+  lastDeviceStatusMillis = 0;
+  return true;
+}
+
 bool initializeBme680()
 {
   if (!bme680.begin(BME680_PRIMARY_ADDRESS) && !bme680.begin(BME680_SECONDARY_ADDRESS)) {
@@ -1836,6 +1933,8 @@ void createDeviceIdentity()
   }
   preferences.end();
 
+  loadMeasurementSettings();
+
   // Raziskovalec SD do prve spremembe uporabi aktivacijsko kodo, nato pa svoje
   // geslo hrani ločeno od poverilnic domačega Wi-Fi omrežja.
   if (preferences.begin(SD_CARD_SETTINGS_NAMESPACE, false)) {
@@ -1878,6 +1977,7 @@ void initializeDeviceDatabasePaths()
   snprintf(timeCommandDatabasePath, sizeof(timeCommandDatabasePath), "%s/commands/time", deviceDatabasePath);
   snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
   snprintf(networkResetStatusDatabasePath, sizeof(networkResetStatusDatabasePath), "%s/status/network_reset", deviceDatabasePath);
+  snprintf(measurementSettingsDatabasePath, sizeof(measurementSettingsDatabasePath), "%s/measurement_settings", deviceDatabasePath);
   snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
 }
 
@@ -3582,6 +3682,44 @@ void requestFirmwareUpdateCommand()
   database.get(asyncClient, otaCommandDatabasePath, processData, false, "readFirmwareUpdateCommand");
 }
 
+void processMeasurementSettings(const String &payload)
+{
+  // Ob manjkajoči nastavitvi naprava obdrži varne lokalno shranjene privzete vrednosti.
+  if (payload == "null" || payload.length() == 0) return;
+
+  uint32_t measurementIntervalSeconds = 0;
+  uint32_t sdArchiveIntervalMinutes = 0;
+  uint32_t displayDecimals = 0;
+  if (!extractJsonUnsignedValue(payload, "measurement_interval_seconds", measurementIntervalSeconds) ||
+      !extractJsonUnsignedValue(payload, "sd_archive_interval_minutes", sdArchiveIntervalMinutes) ||
+      !extractJsonUnsignedValue(payload, "weight_display_decimals", displayDecimals)) {
+    Serial.println("Measurement settings ignored: required values are missing.");
+    return;
+  }
+
+  if (!areMeasurementSettingsValid(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals)) {
+    Serial.println("Measurement settings ignored: values are outside the allowed range.");
+    return;
+  }
+
+  const bool changed = measurementIntervalMs != measurementIntervalSeconds * 1000U ||
+                       sdMeasurementIntervalMs != sdArchiveIntervalMinutes * 60U * 1000U ||
+                       weightDisplayDecimals != displayDecimals;
+  if (changed && applyMeasurementSettings(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals)) {
+    Serial.printf("Measurement settings applied: every %lu s, SD archive every %lu min, weight %lu decimals.\n",
+                  static_cast<unsigned long>(measurementIntervalSeconds),
+                  static_cast<unsigned long>(sdArchiveIntervalMinutes),
+                  static_cast<unsigned long>(displayDecimals));
+  }
+}
+
+void requestMeasurementSettings()
+{
+  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) return;
+  measurementSettingsRequestPending = true;
+  database.get(asyncClient, measurementSettingsDatabasePath, processData, false, "readMeasurementSettings");
+}
+
 bool queueTimeCommand(TimeCommandType type, time_t timestamp, bool fromCloud)
 {
   bool queued = false;
@@ -5225,9 +5363,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
   }
 
   const time_t currentTimestamp = time(nullptr);
-  static char jsonPayload[3520];
+  static char jsonPayload[3720];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"credentials_saved\":%s,\"station_connected\":%s,\"station_ssid\":\"%s\",\"station_ip\":\"%s\",\"local_hostname\":\"%s.local\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"access_point_shutdown_remaining_seconds\":%lu,\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
+           "{\"latest\":%s,\"device\":{\"device_id\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%s,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"last_seen_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}}},\"time\":{\"timestamp\":%lu,\"source\":\"%s\",\"system_valid\":%s,\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_sync_timestamp\":%lu},\"network\":{\"mode\":\"%s\",\"credentials_saved\":%s,\"station_connected\":%s,\"station_ssid\":\"%s\",\"station_ip\":\"%s\",\"local_hostname\":\"%s.local\",\"provisioning_active\":%s,\"access_point_ssid\":\"%s\",\"access_point_ip\":\"%s\",\"access_point_shutdown_remaining_seconds\":%lu,\"connection_state\":\"%s\",\"connection_message\":\"%s\",\"activation_code\":\"%s\"},\"sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}},\"measurement_settings\":{\"measurement_interval_seconds\":%lu,\"sd_archive_interval_minutes\":%lu,\"weight_display_decimals\":%u},\"local_history\":{\"deletion_state\":\"%s\"},\"sd_card\":{\"present\":%s,\"initialization_failures\":%u,\"error\":%s},\"sensors\":{\"load_cell\":{\"ready\":%s,\"tare_state\":\"%s\"},\"bme680\":{\"ready\":%s,\"temperature_offset_c\":%.1f,\"humidity_offset_percent\":%.1f,\"state\":\"%s\"}},\"firmware\":{\"version\":\"%s\"}}",
            measurementJson, deviceId, ipAddress.c_str(), wifiSignal.c_str(), static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
            static_cast<unsigned long>(lastSeenTimestamp),
@@ -5254,7 +5392,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
             dailyReconciliationDaysToTransfer, dailyReconciliationDaysCompleted,
             static_cast<unsigned long>(dailyReconciliationMeasurementsToTransfer),
             static_cast<unsigned long>(dailyReconciliationMeasurementsUploaded),
-            static_cast<unsigned long>(lastDailyReconciliationTimestamp),
+           static_cast<unsigned long>(lastDailyReconciliationTimestamp),
+           static_cast<unsigned long>(measurementIntervalMs / 1000U),
+           static_cast<unsigned long>(sdMeasurementIntervalMs / (60U * 1000U)), weightDisplayDecimals,
            localHistoryDeletionStateName(),
            sdCardReady ? "true" : "false", sdInitializationFailures,
            sdErrorReported ? "true" : "false", loadCellReady ? "true" : "false",
@@ -6726,7 +6866,7 @@ void updateDeviceStatus()
   const bool reconciliationActive = cloudHistoryReconciliationIsActive();
   char jsonPayload[1400];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}},\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
+           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}},\"measurement_settings\":{\"measurement_interval_seconds\":%lu,\"sd_archive_interval_minutes\":%lu,\"weight_display_decimals\":%u},\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
            deviceId, escapedStationSsid.c_str(), ipAddress.c_str(), WiFi.RSSI(),
            static_cast<unsigned long long>(uptime.days),
            static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
@@ -6740,6 +6880,8 @@ void updateDeviceStatus()
            componentHealthName(rtcStatus), rtcStatus.consecutiveFailures, rtcReady ? "true" : "false",
            rtcTimeValid ? "true" : "false", componentHealthName(sdCardStatus),
            sdCardStatus.consecutiveFailures, sdCardReady ? "true" : "false",
+           static_cast<unsigned long>(measurementIntervalMs / 1000U),
+           static_cast<unsigned long>(sdMeasurementIntervalMs / (60U * 1000U)), weightDisplayDecimals,
            (cloudSyncPending || reconciliationActive) ? "true" : "false",
            (cloudSyncCaughtUp && !cloudSyncPending && !hourlyAggregateReady && !dailyAggregateReady &&
             !reconciliationActive) ? "true" : "false",
@@ -6780,7 +6922,7 @@ void sendMeasurements(uint32_t measurementCycleMillis)
 
   const bool shouldArchiveMeasurement = lastSDMeasurementMillis == 0 ||
                                          measurementCycleMillis - lastSDMeasurementMillis >=
-                                             SD_MEASUREMENT_INTERVAL_MS;
+                                             sdMeasurementIntervalMs;
   bool savedToSDCard = false;
   if (shouldArchiveMeasurement) {
     lastSDMeasurementMillis = measurementCycleMillis;
@@ -6910,8 +7052,8 @@ void loop()
   // druge cloud zahteve pa začasno ustavimo, da ne tekmujejo z OTA statusom.
   if (!firmwareUpdateInProgress && !Update.isRunning()) {
     // Trenutna meritev ima prednost pred periodiÄnimi statusi. Tako en sam
-    // Firebase kanal ne more preskoÄiti 10-sekundne cloud posodobitve.
-    if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= MEASUREMENT_INTERVAL_MS) {
+    // Firebase kanal ne more preskoÄiti najnovejÅ¡e meritve nastavljenega cikla.
+    if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= measurementIntervalMs) {
       lastMeasurementMillis = currentMillis;
       sendMeasurements(currentMillis);
     }
@@ -6963,6 +7105,13 @@ void loop()
          currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
       lastFirmwareCommandCheckMillis = currentMillis;
       requestFirmwareUpdateCommand();
+    }
+
+    if (isFirebaseReady() && !measurementSettingsRequestPending &&
+        (lastMeasurementSettingsRefreshMillis == 0 ||
+         currentMillis - lastMeasurementSettingsRefreshMillis >= MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS)) {
+      lastMeasurementSettingsRefreshMillis = currentMillis;
+      requestMeasurementSettings();
     }
 
     if (isFirebaseReady() && !timeCommandPending && !timeCommandQueued &&

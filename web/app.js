@@ -13,6 +13,9 @@ const SHARE_INVITATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
 const SHARE_INVITATION_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CHART_AXIS_HOUR_SECONDS = 60 * 60;
 const CHART_AXIS_DAY_SECONDS = 24 * CHART_AXIS_HOUR_SECONDS;
+const CHART_AXIS_MONTH_SECONDS = 31 * CHART_AXIS_DAY_SECONDS;
+const CHART_AXIS_THREE_MONTHS_SECONDS = 92 * CHART_AXIS_DAY_SECONDS;
+const CHART_AXIS_SIX_MONTHS_SECONDS = 183 * CHART_AXIS_DAY_SECONDS;
 const NATIVE_AUTH_REQUEST_TYPE = "pametni-cebelnjak-native-auth-request";
 const NATIVE_AUTH_RESULT_TYPE = "pametni-cebelnjak-native-auth-result";
 const NATIVE_AUTH_REQUEST_TIMEOUT_MS = 90_000;
@@ -21,6 +24,11 @@ const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPENSTREETMAP_REVERSE_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse";
 const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+// Živa relativna obdobja pomaknejo konec grafa brez osveževanja celotne strani.
+const LIVE_HISTORY_REFRESH_INTERVAL_MS = 60 * 1000;
+const LIVE_HISTORY_PRESETS = new Set(["today", "week", "month", "year", "hour", "hours12", "hours24", "days7", "days30"]);
+// Namenski koraki preprečijo podvojene oznake, ko uPlot vmesno vrednost zaokroži na prikazne decimalke.
+const WEIGHT_AXIS_INCREMENTS = Object.freeze([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]);
 const CHART_AXIS_FORMATTERS = new Map();
 const isEmbeddedDashboard = window.parent !== window;
 const isAndroidAppDashboard =
@@ -88,6 +96,12 @@ const elements = {
   sharedWeatherSettingsPanel: document.querySelector("#shared-weather-settings-panel"),
   sharedWeatherEnabled: document.querySelector("#shared-weather-enabled"),
   sharedWeatherSettingsStatus: document.querySelector("#shared-weather-settings-status"),
+  measurementSettingsPanel: document.querySelector("#measurement-settings-panel"),
+  measurementSettingsForm: document.querySelector("#measurement-settings-form"),
+  weightDisplayDecimals: document.querySelector("#weight-display-decimals"),
+  measurementIntervalSeconds: document.querySelector("#measurement-interval-seconds"),
+  sdArchiveIntervalMinutes: document.querySelector("#sd-archive-interval-minutes"),
+  measurementSettingsStatus: document.querySelector("#measurement-settings-status"),
   accountFormStack: document.querySelector("#account-form-stack"),
   deviceSelectionCard: document.querySelector("#device-selection-card"),
   devicePageSubtitle: document.querySelector("#device-page-subtitle"),
@@ -264,12 +278,16 @@ let climateChart;
 let weightChart;
 let climateChartHasUserZoom = false;
 let weightChartHasUserZoom = false;
+let lastZoomedChartType;
+let scheduledCloudZoomAggregation = 0;
 let stopHistoryListener;
 let refreshHistory;
 let latestDeviceStatus;
 let isLocalDashboard = false;
 let appliedRange;
 let draftRange;
+let activeRelativeHistoryPreset;
+let draftRelativeHistoryPreset;
 let calendarMonth;
 let selectingRangeEnd = false;
 let firebaseDatabase;
@@ -315,6 +333,8 @@ let wifiTransitionAddress = "";
 let wifiTransitionMode = "idle";
 let wifiTransitionProbeGeneration = 0;
 let latestWeatherSettings;
+let latestMeasurementSettings;
+let latestMeasurement;
 let weatherFetchController;
 let weatherRequestKey = "";
 let weatherLastFetchedAt = 0;
@@ -445,6 +465,8 @@ function isHistoryViewActive() {
 async function ensureHistoryViewReady() {
   if (!dashboardDataSourceReady || !refreshHistory) return;
 
+  updateLiveHistoryRange();
+
   if (!historyViewLoading) {
     elements.historySummary.textContent = "Nalagam grafe in zgodovino meritev …";
     historyViewLoading = loadUPlot()
@@ -465,6 +487,25 @@ async function ensureHistoryViewReady() {
 
 function refreshVisibleHistory() {
   if (isHistoryViewActive()) ensureHistoryViewReady().catch(showDataError);
+}
+
+function hasLiveHistoryRange() {
+  return LIVE_HISTORY_PRESETS.has(activeRelativeHistoryPreset);
+}
+
+function updateLiveHistoryRange() {
+  if (!hasLiveHistoryRange() || elements.rangeDialog.open || climateChartHasUserZoom || weightChartHasUserZoom) return false;
+  const nextRange = getPresetRange(activeRelativeHistoryPreset);
+  if (!nextRange) return false;
+
+  appliedRange = nextRange;
+  elements.rangeValue.textContent = formatRange(appliedRange);
+  return true;
+}
+
+function refreshLiveHistoryRange() {
+  if (!isHistoryViewActive() || historyViewLoading || !updateLiveHistoryRange()) return;
+  void ensureHistoryViewReady().catch(showDataError);
 }
 
 function initializeNavigation() {
@@ -549,6 +590,7 @@ function configureSelectedCloudDeviceAccess(deviceId) {
     elements.unclaimDevice.hidden = true;
     elements.shareDevicePanel.hidden = true;
     elements.networkResetControl.hidden = true;
+    elements.measurementSettingsPanel.hidden = true;
     setCloudDeviceManagementVisibility(false);
     renderWeatherSettings(null);
     resetWeatherOverview();
@@ -577,6 +619,7 @@ function configureSelectedCloudDeviceAccess(deviceId) {
     : "Izberi panj, katerega podatke želiš pregledovati.";
   setCloudDeviceManagementVisibility(Boolean(deviceId && currentCloudUser && canManage));
   elements.networkResetControl.hidden = !(deviceId && currentCloudUser && isCloudAdministrator());
+  elements.measurementSettingsPanel.hidden = !(deviceId && currentCloudUser && isCloudAdministrator());
   updateWeatherOverviewVisibility();
 
   if (isSharedViewer && elements.viewPanels.some((panel) => panel.dataset.viewPanel === "updates" && !panel.hidden)) {
@@ -599,6 +642,7 @@ function clearCloudDeviceListeners() {
   weatherSharedLocationLookupKey = "";
   latestSharedWeatherPublicSettings = undefined;
   sharedWeatherEnabled = false;
+  latestMeasurementSettings = undefined;
   stopCloudDeviceListeners.forEach((unsubscribe) => unsubscribe());
   stopCloudDeviceListeners = [];
   stopHistoryListener?.();
@@ -621,6 +665,7 @@ function resetCloudDashboard() {
   renderBme680CalibrationStatus(null);
   renderTimeStatus(null);
   renderWeatherSettings(null);
+  renderMeasurementSettings(null);
   elements.sharedWeatherSettingsPanel.hidden = true;
   resetWeatherOverview();
   elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
@@ -840,6 +885,7 @@ function selectCloudDevice(deviceId) {
     if (canManageCloudDevice(deviceId)) {
       subscribe("weather", renderWeatherSettings);
     }
+    if (isCloudAdministrator()) subscribe("measurement_settings", renderMeasurementSettings);
   } else {
     subscribe("weather_public", renderSharedWeatherSettings);
     stopCloudDeviceListeners.push(onValue(ref(database, `users/${currentCloudUser.uid}/weather_preferences/${deviceId}`), (snapshot) => {
@@ -902,6 +948,27 @@ function parseMeasurementValue(value) {
   }
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function normalizeMeasurementSettings(settings) {
+  const measurementIntervalSeconds = Math.floor(Number(settings?.measurement_interval_seconds));
+  const sdArchiveIntervalMinutes = Math.floor(Number(settings?.sd_archive_interval_minutes));
+  const weightDisplayDecimals = Math.floor(Number(settings?.weight_display_decimals));
+  return {
+    measurementIntervalSeconds: measurementIntervalSeconds >= 5 && measurementIntervalSeconds <= 120
+      ? measurementIntervalSeconds
+      : 10,
+    sdArchiveIntervalMinutes: sdArchiveIntervalMinutes >= 1 && sdArchiveIntervalMinutes <= 30
+      ? sdArchiveIntervalMinutes
+      : 5,
+    weightDisplayDecimals: weightDisplayDecimals === 1 || weightDisplayDecimals === 2
+      ? weightDisplayDecimals
+      : 2,
+  };
+}
+
+function currentWeightDisplayDecimals() {
+  return latestMeasurementSettings?.weightDisplayDecimals ?? 2;
 }
 
 function formatValue(value, decimals = 1) {
@@ -984,10 +1051,11 @@ function renderLatestMetric(element, value, decimals, hasMeasurement) {
 }
 
 function renderLatestMeasurement(measurement) {
+  latestMeasurement = measurement;
   const hasMeasurement = measurement !== null && measurement !== undefined;
   renderLatestMetric(elements.temperature, measurement?.temperature_c, 1, hasMeasurement);
   renderLatestMetric(elements.humidity, measurement?.humidity_percent, 1, hasMeasurement);
-  renderLatestMetric(elements.weight, measurement?.weight_kg, 2, hasMeasurement);
+  renderLatestMetric(elements.weight, measurement?.weight_kg, currentWeightDisplayDecimals(), hasMeasurement);
   elements.latestTime.textContent = formatDateTime(measurement);
 }
 
@@ -1300,6 +1368,60 @@ function weatherSettingsCanBeChanged() {
   return Boolean(firebaseDatabase && cloudDevicePath && canManageCloudDevice());
 }
 
+function measurementSettingsCanBeChanged() {
+  return Boolean(firebaseDatabase && cloudDevicePath && isCloudAdministrator());
+}
+
+function renderMeasurementSettings(settings) {
+  latestMeasurementSettings = normalizeMeasurementSettings(settings);
+  if (elements.measurementSettingsPanel) {
+    elements.measurementSettingsPanel.hidden = !isCloudAdministrator() || !cloudDevicePath;
+    elements.weightDisplayDecimals.value = String(latestMeasurementSettings.weightDisplayDecimals);
+    elements.measurementIntervalSeconds.value = String(latestMeasurementSettings.measurementIntervalSeconds);
+    elements.sdArchiveIntervalMinutes.value = String(latestMeasurementSettings.sdArchiveIntervalMinutes);
+  }
+  if (latestMeasurement) renderLatestMeasurement(latestMeasurement);
+  if (weightChart) updateChartTheme();
+}
+
+async function saveMeasurementSettings(event) {
+  event.preventDefault();
+  if (!measurementSettingsCanBeChanged()) return;
+
+  const measurementIntervalSeconds = Math.floor(Number(elements.measurementIntervalSeconds.value));
+  const sdArchiveIntervalMinutes = Math.floor(Number(elements.sdArchiveIntervalMinutes.value));
+  const weightDisplayDecimals = Math.floor(Number(elements.weightDisplayDecimals.value));
+  if (!Number.isInteger(measurementIntervalSeconds) || measurementIntervalSeconds < 5 || measurementIntervalSeconds > 120 ||
+      !Number.isInteger(sdArchiveIntervalMinutes) || sdArchiveIntervalMinutes < 1 || sdArchiveIntervalMinutes > 30 ||
+      ![1, 2].includes(weightDisplayDecimals)) {
+    elements.measurementSettingsStatus.textContent = "Preveri dovoljene meje nastavitev.";
+    return;
+  }
+  if (sdArchiveIntervalMinutes * 60 < measurementIntervalSeconds) {
+    elements.measurementSettingsStatus.textContent = "Zapis zgodovine na SD ne more biti pogostejši od meritev.";
+    return;
+  }
+
+  const submitButton = elements.measurementSettingsForm.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  elements.measurementSettingsStatus.textContent = "Shranjujem nastavitve …";
+  try {
+    const { database, ref, set } = firebaseDatabase;
+    await set(ref(database, `${cloudDevicePath}/measurement_settings`), {
+      measurement_interval_seconds: measurementIntervalSeconds,
+      sd_archive_interval_minutes: sdArchiveIntervalMinutes,
+      weight_display_decimals: weightDisplayDecimals,
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+    elements.measurementSettingsStatus.textContent = "Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.";
+  } catch (error) {
+    console.error("Nastavitev meritev ni bilo mogoče shraniti.", error);
+    elements.measurementSettingsStatus.textContent = "Nastavitev meritev ni bilo mogoče shraniti.";
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
 async function saveWeatherSettings(changes, successMessage) {
   if (!weatherSettingsCanBeChanged()) return false;
   const { database, ref, update } = firebaseDatabase;
@@ -1503,6 +1625,7 @@ async function saveSearchedWeatherLocation(index) {
 }
 
 function initializeWeatherSettings() {
+  elements.measurementSettingsForm.addEventListener("submit", saveMeasurementSettings);
   elements.weatherSettingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
     void searchWeatherLocation();
@@ -2938,7 +3061,7 @@ function initializeOtaControls() {
 }
 
 
-function getBucketSeconds(range) {
+function getLocalBucketSeconds(range) {
   const rangeSeconds = (range.to.getTime() - range.from.getTime()) / 1000;
   if (rangeSeconds <= 24 * 60 * 60) return 60;
   if (rangeSeconds <= 7 * 24 * 60 * 60) return 60 * 60;
@@ -2946,12 +3069,25 @@ function getBucketSeconds(range) {
   return 24 * 60 * 60;
 }
 
+function getCloudBucketSeconds(range) {
+  const rangeSeconds = (range.to.getTime() - range.from.getTime()) / 1000;
+  if (rangeSeconds <= 7 * CHART_AXIS_DAY_SECONDS) return 60;
+  if (rangeSeconds <= CHART_AXIS_MONTH_SECONDS) return 30 * 60;
+  if (rangeSeconds <= CHART_AXIS_THREE_MONTHS_SECONDS) return CHART_AXIS_HOUR_SECONDS;
+  if (rangeSeconds <= CHART_AXIS_SIX_MONTHS_SECONDS) return 12 * CHART_AXIS_HOUR_SECONDS;
+  return 24 * 60 * 60;
+}
+
+function getBucketSeconds(range) {
+  return isLocalDashboard ? getLocalBucketSeconds(range) : getCloudBucketSeconds(range);
+}
+
 function getCloudHistorySource(from, to) {
   const duration = to - from;
-  if (duration <= 7 * 24 * 60 * 60) {
+  if (duration <= CHART_AXIS_MONTH_SECONDS) {
     return { path: "measurements", periodSeconds: 0 };
   }
-  if (duration <= 31 * 24 * 60 * 60) {
+  if (duration <= CHART_AXIS_SIX_MONTHS_SECONDS) {
     return { path: "aggregates/hourly", periodSeconds: 60 * 60 };
   }
   return { path: "aggregates/daily", periodSeconds: 24 * 60 * 60 };
@@ -3026,6 +3162,52 @@ function getChartXRange(chart) {
   return Number.isFinite(minimum) && Number.isFinite(maximum) && maximum > minimum
     ? { min: minimum, max: maximum }
     : undefined;
+}
+
+function getChartRangeAsDates(chart) {
+  const range = getChartXRange(chart);
+  if (!range) return undefined;
+  return {
+    from: new Date(range.min * 1000),
+    to: new Date(range.max * 1000),
+  };
+}
+
+function canReaggregateCloudZoom() {
+  if (isLocalDashboard || latestHistoryAlreadyAggregated || !appliedRange) return false;
+  const appliedSeconds = (appliedRange.to.getTime() - appliedRange.from.getTime()) / 1000;
+  return appliedSeconds > 0 && appliedSeconds <= CHART_AXIS_MONTH_SECONDS;
+}
+
+function getCloudZoomAggregationRange() {
+  if (!canReaggregateCloudZoom()) return undefined;
+
+  const preferredChart = lastZoomedChartType === "climate"
+    ? climateChart
+    : lastZoomedChartType === "weight"
+      ? weightChart
+      : undefined;
+  const fallbackChart = climateChartHasUserZoom ? climateChart : weightChartHasUserZoom ? weightChart : undefined;
+  const zoomedChart = preferredChart ?? fallbackChart;
+  return zoomedChart ? getChartRangeAsDates(zoomedChart) : undefined;
+}
+
+function refreshCloudZoomAggregation() {
+  if (!canReaggregateCloudZoom()) return;
+  const aggregationRange = getCloudZoomAggregationRange() ?? appliedRange;
+
+  renderHistory(latestHistoryReadings, false, {
+    climateZoom: climateChartHasUserZoom ? getChartXRange(climateChart) : undefined,
+    weightZoom: weightChartHasUserZoom ? getChartXRange(weightChart) : undefined,
+  }, aggregationRange);
+}
+
+function scheduleCloudZoomAggregation() {
+  if (!canReaggregateCloudZoom() || scheduledCloudZoomAggregation) return;
+  scheduledCloudZoomAggregation = requestAnimationFrame(() => {
+    scheduledCloudZoomAggregation = 0;
+    refreshCloudZoomAggregation();
+  });
 }
 
 function formatChartAxisNumber(value, decimals = 1, fixedDecimals = false) {
@@ -3300,12 +3482,19 @@ function getChartSize(chartHost) {
 function setChartZoomState(chartType, isZoomed, resetZoomButton) {
   if (chartType === "climate") climateChartHasUserZoom = isZoomed;
   else weightChartHasUserZoom = isZoomed;
+  if (isZoomed) {
+    lastZoomedChartType = chartType;
+  } else if (lastZoomedChartType === chartType) {
+    lastZoomedChartType = climateChartHasUserZoom ? "climate" : weightChartHasUserZoom ? "weight" : undefined;
+  }
   if (resetZoomButton) resetZoomButton.hidden = !isZoomed;
 }
 
 function resetChartZoom(chartType, chart, resetZoomButton) {
   setChartZoomState(chartType, false, resetZoomButton);
   chart.setScale("x", getAppliedChartRange());
+  scheduleCloudZoomAggregation();
+  if (hasLiveHistoryRange()) requestAnimationFrame(refreshLiveHistoryRange);
 }
 
 function createXZoomPlugin(chartType, resetZoomButton) {
@@ -3318,6 +3507,9 @@ function createXZoomPlugin(chartType, resetZoomButton) {
         // sam nastavi X merilo. Hook samo vključi naš gumb za ponastavitev.
         if (chart.select.width >= 5) {
           setChartZoomState(chartType, true, resetZoomButton);
+          // Po uPlotovem končanem nastavljanju X merila ponovno združimo
+          // surove cloud meritve za dejansko približan interval.
+          scheduleCloudZoomAggregation();
         }
       }],
       ready: [(chart) => {
@@ -3600,6 +3792,7 @@ function createTouchChartPlugin(chartType, tooltip, resetZoomButton) {
           gesture = null;
           pendingCursorTouch = null;
           pendingTwoFingerTouches = null;
+          scheduleCloudZoomAggregation();
         };
         const handleTouchCancel = () => {
           gesture = null;
@@ -3775,7 +3968,8 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
         labelSize: 28,
         stroke: colors.textSoft,
         font: "600 12px Inter, system-ui, sans-serif",
-        values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value, 2, true)),
+        incrs: WEIGHT_AXIS_INCREMENTS,
+        values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value, currentWeightDisplayDecimals(), true)),
         ticks: { stroke: colors.border },
         border: { stroke: colors.border },
         grid: { stroke: colors.grid, width: 1 },
@@ -3811,6 +4005,8 @@ function destroyCharts() {
   chartResizeObserver = undefined;
   if (scheduledChartResize) cancelAnimationFrame(scheduledChartResize);
   scheduledChartResize = 0;
+  if (scheduledCloudZoomAggregation) cancelAnimationFrame(scheduledCloudZoomAggregation);
+  scheduledCloudZoomAggregation = 0;
   climateChart?.destroy();
   weightChart?.destroy();
   climateChart = undefined;
@@ -3824,9 +4020,10 @@ function applyChartData(chart, data, chartType, shouldKeepZoom, zoomRange, reset
   chart.setScale("x", preservedRange ?? getAppliedChartRange());
 }
 
-function renderHistory(readings, alreadyAggregated = false, zoomRanges = {}) {
+function renderHistory(readings, alreadyAggregated = false, zoomRanges = {}, aggregationRange) {
   const sourceReadings = Array.isArray(readings) ? readings : [];
-  const chartReadings = alreadyAggregated ? sourceReadings : aggregateReadings(sourceReadings, appliedRange);
+  const effectiveAggregationRange = aggregationRange ?? getCloudZoomAggregationRange() ?? appliedRange;
+  const chartReadings = alreadyAggregated ? sourceReadings : aggregateReadings(sourceReadings, effectiveAggregationRange);
   latestHistoryReadings = sourceReadings;
   latestHistoryAlreadyAggregated = alreadyAggregated;
   elements.historySummary.textContent = chartReadings.length
@@ -3872,7 +4069,7 @@ function createCharts(zoomRanges = {}) {
     "weight-chart",
     "weight",
     [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1 }],
-    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1, decimals: 2 }],
+    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1, decimals: currentWeightDisplayDecimals() }],
   );
   climateChart = new window.uPlot(
     createUPlotOptions("climate", climatePresentation.chartHost, climatePresentation.tooltip, climatePresentation.resetZoomButton),
@@ -4049,6 +4246,7 @@ function renderCalendar() {
 }
 
 function selectCalendarDate(date) {
+  draftRelativeHistoryPreset = undefined;
   const selectedRange = getCalendarDayRange(date);
   if (!selectingRangeEnd) {
     draftRange = selectedRange;
@@ -4069,6 +4267,7 @@ function selectCalendarDate(date) {
 
 function openRangeDialog() {
   draftRange = cloneRange(appliedRange);
+  draftRelativeHistoryPreset = activeRelativeHistoryPreset;
   calendarMonth = new Date(draftRange.from.getFullYear(), draftRange.from.getMonth(), 1);
   selectingRangeEnd = false;
   syncRangeControls();
@@ -4083,8 +4282,12 @@ function applyRange() {
   }
 
   appliedRange = cloneRange(draftRange);
+  activeRelativeHistoryPreset = LIVE_HISTORY_PRESETS.has(draftRelativeHistoryPreset)
+    ? draftRelativeHistoryPreset
+    : undefined;
   climateChartHasUserZoom = false;
   weightChartHasUserZoom = false;
+  lastZoomedChartType = undefined;
   elements.rangeValue.textContent = formatRange(appliedRange);
   elements.rangeDialog.close();
   historyViewLoading = undefined;
@@ -4093,6 +4296,7 @@ function applyRange() {
 
 function initializeDateRangePicker() {
   appliedRange = getPresetRange("hours24");
+  activeRelativeHistoryPreset = "hours24";
   elements.rangeValue.textContent = formatRange(appliedRange);
   elements.rangeTrigger.addEventListener("click", openRangeDialog);
   document.querySelector("#date-range-cancel").addEventListener("click", () => elements.rangeDialog.close());
@@ -4110,14 +4314,17 @@ function initializeDateRangePicker() {
     if (button) selectCalendarDate(new Date(button.dataset.date));
   });
   elements.startTime.addEventListener("change", () => {
+    draftRelativeHistoryPreset = undefined;
     draftRange.from = setDateTime(draftRange.from, elements.startTime.value);
     syncRangeControls();
   });
   elements.endTime.addEventListener("change", () => {
+    draftRelativeHistoryPreset = undefined;
     draftRange.to = setDateTime(draftRange.to ?? draftRange.from, elements.endTime.value);
     syncRangeControls();
   });
   document.querySelectorAll("[data-preset]").forEach((button) => button.addEventListener("click", () => {
+    draftRelativeHistoryPreset = button.dataset.preset;
     draftRange = getPresetRange(button.dataset.preset);
     calendarMonth = new Date(draftRange.from.getFullYear(), draftRange.from.getMonth(), 1);
     selectingRangeEnd = false;
@@ -4890,6 +5097,7 @@ async function useLocalDataSource() {
   elements.accountSection.hidden = true;
 
   function renderLocalStatus(status) {
+    latestMeasurementSettings = normalizeMeasurementSettings(status.measurement_settings);
     renderLatestMeasurement(status.latest);
     renderDeviceStatus(status.device, true);
     renderProvisioning(status.network);
@@ -5011,6 +5219,7 @@ async function startDashboard() {
   setInterval(() => {
     void refreshWeatherForecast();
   }, WEATHER_REFRESH_INTERVAL_MS);
+  setInterval(refreshLiveHistoryRange, LIVE_HISTORY_REFRESH_INTERVAL_MS);
 
   if (isAndroidAppDashboard) {
     await useFirebaseDataSource();

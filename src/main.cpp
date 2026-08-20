@@ -47,7 +47,7 @@ constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10 * 1000;  // Najkrajši čas med o
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60 * 1000;  // Najdaljši zamik ponovnega poskusa po cloud napaki.
 constexpr uint32_t CLOUD_RECONCILIATION_INTERVAL_MS = 250;  // Premor med paketi pri ročni obnovi zgodovine.
 constexpr uint8_t RECONCILIATION_MEASUREMENTS_PER_REQUEST = 32;  // Število meritev v enem Firebase paketu ročne obnove.
-constexpr uint8_t DAILY_RAW_SYNC_VERSION = 2;  // Različica formata oznake dnevne sinhronizacije; spremeni ob spremembi modela.
+constexpr uint8_t DAILY_RAW_SYNC_VERSION = 3;  // Različica formata oznake dnevne sinhronizacije; spremeni ob spremembi modela.
 constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3 * 1000;  // Čas za asinhroni Firebase rezultat, preden zahtevo obravnavamo kot izgubljeno.
 constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;  // Najdaljše čakanje na posamezno Firebase zahtevo.
 constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor pred novim Firebase poskusom po omrežni napaki.
@@ -165,7 +165,7 @@ constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";  // NVS ključ razli
 constexpr char HX711_OFFSET_KEY[] = "hx_offset";  // NVS ključ tare (odmika) HX711 tehtnice.
 constexpr char BME680_TEMPERATURE_OFFSET_KEY[] = "bme_temp_off";  // NVS ključ ročnega temperaturnega odmika BME680.
 constexpr char BME680_HUMIDITY_OFFSET_KEY[] = "bme_hum_off";  // NVS ključ ročnega odmika vlage BME680.
-constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 1;  // Trenutna različica strukture cloud agregatov.
+constexpr uint8_t CLOUD_AGGREGATE_SCHEMA_VERSION = 2;  // Trenutna različica strukture cloud agregatov.
 constexpr float BME680_TEMPERATURE_OFFSET_MIN_C = -10.0F;  // Najnižji dovoljeni ročni temperaturni odmik BME680.
 constexpr float BME680_TEMPERATURE_OFFSET_MAX_C = 10.0F;  // Najvišji dovoljeni ročni temperaturni odmik BME680.
 constexpr float BME680_HUMIDITY_OFFSET_MIN_PERCENT = -30.0F;  // Najnižji dovoljeni ročni odmik relativne vlage BME680.
@@ -179,12 +179,14 @@ constexpr size_t ACCESS_POINT_SSID_LENGTH = 24;  // Velikost medpomnilnika za im
 constexpr size_t ARDUINO_OTA_HOSTNAME_LENGTH = DEVICE_ID_LENGTH + 6;  // Velikost medpomnilnika za ArduinoOTA ime `panj-<device_id>`.
 
 struct Measurement {
-  float temperatureC;
-  float humidityPercent;
-  float weightKg;
-  time_t timestamp;
-  char date[11];
-  char time[9];
+  float temperatureC = 0.0F;
+  float humidityPercent = 0.0F;
+  float weightKg = 0.0F;
+  bool bme680Valid = false;
+  bool loadCellValid = false;
+  time_t timestamp = 0;
+  char date[11]{};
+  char time[9]{};
 };
 
 struct Uptime {
@@ -201,20 +203,26 @@ struct ComponentStatus {
 };
 
 struct HistoryBucket {
-  time_t timestamp;
-  float temperatureSum;
-  float humiditySum;
-  float weightSum;
-  uint16_t count;
+  time_t timestamp = 0;
+  float temperatureSum = 0.0F;
+  float humiditySum = 0.0F;
+  float weightSum = 0.0F;
+  uint16_t count = 0;
+  uint16_t temperatureCount = 0;
+  uint16_t humidityCount = 0;
+  uint16_t weightCount = 0;
 };
 
 struct MeasurementAggregate {
-  time_t timestamp;
-  float temperatureSum;
-  float humiditySum;
-  float weightSum;
-  uint16_t count;
-  uint32_t syncChecksum;
+  time_t timestamp = 0;
+  float temperatureSum = 0.0F;
+  float humiditySum = 0.0F;
+  float weightSum = 0.0F;
+  uint16_t count = 0;
+  uint16_t temperatureCount = 0;
+  uint16_t humidityCount = 0;
+  uint16_t weightCount = 0;
+  uint32_t syncChecksum = 0;
 };
 
 struct DailyReconciliationManifest {
@@ -332,6 +340,14 @@ enum class HistoryDeletionStep : uint8_t {
   ClearCommandAfterError,
 };
 
+enum class WiFiCredentialResetStep : uint8_t {
+  Idle,
+  ReportQueued,
+  ClearCommand,
+  ResetCredentials,
+  ReportError,
+};
+
 enum class LocalHistoryDeletionState : uint8_t {
   Idle,
   Queued,
@@ -420,6 +436,8 @@ bool firmwareUpdateInProgress = false;
 bool queuedFirmwareCommandInvalid = false;
 bool historyDeletionQueued = false;
 bool historyDeletionRequestPending = false;
+bool wifiCredentialResetQueued = false;
+bool wifiCredentialResetRequestPending = false;
 volatile bool localHistoryDeletionQueued = false;
 // Nastavlja ga lokalni HTTP zahtevek ali Firebase ukaz; obdelava ostane v glavni zanki.
 volatile bool loadCellTareQueued = false;
@@ -547,6 +565,7 @@ char bme680StatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char timeCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
+char networkResetStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
 char queuedFirmwareCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char queuedTimeCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
@@ -625,6 +644,7 @@ OtaUpdateState otaUpdateState = OtaUpdateState::Idle;
 LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
 Bme680CalibrationState bme680CalibrationState = Bme680CalibrationState::Idle;
 HistoryDeletionStep historyDeletionStep = HistoryDeletionStep::Idle;
+WiFiCredentialResetStep wifiCredentialResetStep = WiFiCredentialResetStep::Idle;
 volatile LocalHistoryDeletionState localHistoryDeletionState = LocalHistoryDeletionState::Idle;
 TimeSource currentTimeSource = TimeSource::Unavailable;
 TimeCommandType pendingTimeCommandType = TimeCommandType::None;
@@ -646,9 +666,13 @@ void processQueuedTimeCommand();
 void processPendingTimeCommand();
 void queueHistoryDeleteAction();
 void processPendingHistoryDeletion();
+void queueWiFiCredentialResetAction();
+void processPendingWiFiCredentialReset();
 void processPendingLocalHistoryDeletion();
 bool isHistoryDeletionRequest(const String &requestId);
 void completeHistoryDeletionRequest();
+bool isWiFiCredentialResetRequest(const String &requestId);
+void completeWiFiCredentialResetRequest();
 bool queueLoadCellTare(bool publishCloudStatus = true);
 void processPendingLoadCellTare();
 bool queueBme680Calibration(float temperatureOffsetC, float humidityOffsetPercent, bool fromCloud);
@@ -774,6 +798,7 @@ void cancelPendingFirebaseTasks(const char *reason)
   timeCommandPending = false;
   activationSecretPublishPending = false;
   historyDeletionRequestPending = false;
+  wifiCredentialResetRequestPending = false;
   firmwareVersionReported = false;
   cloudSyncPending = false;
   cloudSyncRequestStartedMillis = 0;
@@ -826,14 +851,153 @@ void markCloudSyncFailure()
   Serial.println(" seconds.");
 }
 
+bool measurementHasSensorValue(const Measurement &measurement)
+{
+  return measurement.bme680Valid || measurement.loadCellValid;
+}
+
+void formatOptionalMeasurementValue(char *buffer, size_t bufferSize, float value, bool valid,
+                                    uint8_t decimals)
+{
+  if (!valid) {
+    strlcpy(buffer, "null", bufferSize);
+    return;
+  }
+  snprintf(buffer, bufferSize, "%.*f", static_cast<int>(decimals), value);
+}
+
+void formatOptionalCsvMeasurementValue(char *buffer, size_t bufferSize, float value, bool valid,
+                                       uint8_t decimals)
+{
+  if (!valid) {
+    buffer[0] = '\0';
+    return;
+  }
+  snprintf(buffer, bufferSize, "%.*f", static_cast<int>(decimals), value);
+}
+
+void serializeMeasurementJson(const Measurement &measurement, char *buffer, size_t bufferSize)
+{
+  char temperatureValue[32];
+  char humidityValue[32];
+  char weightValue[32];
+  formatOptionalMeasurementValue(temperatureValue, sizeof(temperatureValue), measurement.temperatureC,
+                                 measurement.bme680Valid, 1);
+  formatOptionalMeasurementValue(humidityValue, sizeof(humidityValue), measurement.humidityPercent,
+                                 measurement.bme680Valid, 1);
+  formatOptionalMeasurementValue(weightValue, sizeof(weightValue), measurement.weightKg,
+                                 measurement.loadCellValid, 2);
+
+  const int written = snprintf(buffer, bufferSize,
+                               "{\"temperature_c\":%s,\"humidity_percent\":%s,\"weight_kg\":%s,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
+                               temperatureValue, humidityValue, weightValue, measurement.date,
+                               measurement.time, static_cast<unsigned long>(measurement.timestamp));
+  if (written < 0 || static_cast<size_t>(written) >= bufferSize) {
+    strlcpy(buffer, "null", bufferSize);
+  }
+}
+
+bool serializeMeasurementCsvLine(const Measurement &measurement, char *buffer, size_t bufferSize)
+{
+  char temperatureValue[32];
+  char humidityValue[32];
+  char weightValue[32];
+  formatOptionalCsvMeasurementValue(temperatureValue, sizeof(temperatureValue), measurement.temperatureC,
+                                    measurement.bme680Valid, 1);
+  formatOptionalCsvMeasurementValue(humidityValue, sizeof(humidityValue), measurement.humidityPercent,
+                                    measurement.bme680Valid, 1);
+  formatOptionalCsvMeasurementValue(weightValue, sizeof(weightValue), measurement.weightKg,
+                                    measurement.loadCellValid, 1);
+
+  const int written = snprintf(buffer, bufferSize, "%s,%s,%lu,%s,%s,%s\n", measurement.date,
+                               measurement.time, static_cast<unsigned long>(measurement.timestamp),
+                               temperatureValue, humidityValue, weightValue);
+  return written >= 0 && static_cast<size_t>(written) < bufferSize;
+}
+
+void serializeHistoryBucketJson(const HistoryBucket &bucket, char *buffer, size_t bufferSize)
+{
+  char temperatureValue[32];
+  char humidityValue[32];
+  char weightValue[32];
+  formatOptionalMeasurementValue(temperatureValue, sizeof(temperatureValue),
+                                 bucket.temperatureCount > 0
+                                     ? bucket.temperatureSum / bucket.temperatureCount
+                                     : 0.0F,
+                                 bucket.temperatureCount > 0, 2);
+  formatOptionalMeasurementValue(humidityValue, sizeof(humidityValue),
+                                 bucket.humidityCount > 0 ? bucket.humiditySum / bucket.humidityCount : 0.0F,
+                                 bucket.humidityCount > 0, 2);
+  formatOptionalMeasurementValue(weightValue, sizeof(weightValue),
+                                 bucket.weightCount > 0 ? bucket.weightSum / bucket.weightCount : 0.0F,
+                                 bucket.weightCount > 0, 2);
+
+  const int written = snprintf(buffer, bufferSize,
+                               "{\"timestamp\":%lu,\"temperature_c\":%s,\"humidity_percent\":%s,\"weight_kg\":%s}",
+                               static_cast<unsigned long>(bucket.timestamp), temperatureValue,
+                               humidityValue, weightValue);
+  if (written < 0 || static_cast<size_t>(written) >= bufferSize) {
+    strlcpy(buffer, "null", bufferSize);
+  }
+}
+
+void serializeMeasurementAggregateJson(const MeasurementAggregate &aggregate, bool includeRawSync,
+                                       uint32_t periodSeconds, char *buffer, size_t bufferSize)
+{
+  char temperatureValue[32];
+  char humidityValue[32];
+  char weightValue[32];
+  formatOptionalMeasurementValue(temperatureValue, sizeof(temperatureValue),
+                                 aggregate.temperatureCount > 0
+                                     ? aggregate.temperatureSum / aggregate.temperatureCount
+                                     : 0.0F,
+                                 aggregate.temperatureCount > 0, 2);
+  formatOptionalMeasurementValue(humidityValue, sizeof(humidityValue),
+                                 aggregate.humidityCount > 0
+                                     ? aggregate.humiditySum / aggregate.humidityCount
+                                     : 0.0F,
+                                 aggregate.humidityCount > 0, 2);
+  formatOptionalMeasurementValue(weightValue, sizeof(weightValue),
+                                 aggregate.weightCount > 0 ? aggregate.weightSum / aggregate.weightCount : 0.0F,
+                                 aggregate.weightCount > 0, 2);
+
+  const int written = includeRawSync
+                          ? snprintf(buffer, bufferSize,
+                                     "{\"temperature_c\":%s,\"humidity_percent\":%s,\"weight_kg\":%s,\"timestamp\":%lu,\"sample_count\":%u,\"temperature_sample_count\":%u,\"humidity_sample_count\":%u,\"weight_sample_count\":%u,\"period_seconds\":%lu,\"sync_checksum\":%lu,\"raw_sample_count\":%u,\"raw_sync_checksum\":\"%lu\",\"raw_sync_version\":%u}",
+                                     temperatureValue, humidityValue, weightValue,
+                                     static_cast<unsigned long>(aggregate.timestamp), aggregate.count,
+                                     aggregate.temperatureCount, aggregate.humidityCount,
+                                     aggregate.weightCount, static_cast<unsigned long>(periodSeconds),
+                                     static_cast<unsigned long>(aggregate.syncChecksum), aggregate.count,
+                                     static_cast<unsigned long>(aggregate.syncChecksum), DAILY_RAW_SYNC_VERSION)
+                          : snprintf(buffer, bufferSize,
+                                     "{\"temperature_c\":%s,\"humidity_percent\":%s,\"weight_kg\":%s,\"timestamp\":%lu,\"sample_count\":%u,\"temperature_sample_count\":%u,\"humidity_sample_count\":%u,\"weight_sample_count\":%u,\"period_seconds\":%lu,\"sync_checksum\":%lu}",
+                                     temperatureValue, humidityValue, weightValue,
+                                     static_cast<unsigned long>(aggregate.timestamp), aggregate.count,
+                                     aggregate.temperatureCount, aggregate.humidityCount,
+                                     aggregate.weightCount, static_cast<unsigned long>(periodSeconds),
+                                     static_cast<unsigned long>(aggregate.syncChecksum));
+  if (written < 0 || static_cast<size_t>(written) >= bufferSize) {
+    strlcpy(buffer, "null", bufferSize);
+  }
+}
+
 uint32_t updateMeasurementChecksum(uint32_t checksum, const Measurement &measurement)
 {
   constexpr uint32_t FNV_OFFSET_BASIS = 2166136261UL;
   constexpr uint32_t FNV_PRIME = 16777619UL;
-  char normalizedMeasurement[72];
-  snprintf(normalizedMeasurement, sizeof(normalizedMeasurement), "%lu,%.1f,%.1f,%.1f",
-           static_cast<unsigned long>(measurement.timestamp), measurement.temperatureC,
-           measurement.humidityPercent, measurement.weightKg);
+  char temperatureValue[32];
+  char humidityValue[32];
+  char weightValue[32];
+  char normalizedMeasurement[112];
+  formatOptionalMeasurementValue(temperatureValue, sizeof(temperatureValue), measurement.temperatureC,
+                                 measurement.bme680Valid, 1);
+  formatOptionalMeasurementValue(humidityValue, sizeof(humidityValue), measurement.humidityPercent,
+                                 measurement.bme680Valid, 1);
+  formatOptionalMeasurementValue(weightValue, sizeof(weightValue), measurement.weightKg,
+                                 measurement.loadCellValid, 1);
+  snprintf(normalizedMeasurement, sizeof(normalizedMeasurement), "%lu,%s,%s,%s",
+           static_cast<unsigned long>(measurement.timestamp), temperatureValue, humidityValue, weightValue);
 
   uint32_t result = checksum == 0 ? FNV_OFFSET_BASIS : checksum;
   for (const char *character = normalizedMeasurement; *character != '\0'; ++character) {
@@ -859,9 +1023,16 @@ void addMeasurementToCloudAggregate(MeasurementAggregate &aggregate, Measurement
   if (aggregate.count == 0) {
     aggregate.timestamp = bucketTimestamp;
   }
-  aggregate.temperatureSum += measurement.temperatureC;
-  aggregate.humiditySum += measurement.humidityPercent;
-  aggregate.weightSum += measurement.weightKg;
+  if (measurement.bme680Valid) {
+    aggregate.temperatureSum += measurement.temperatureC;
+    aggregate.humiditySum += measurement.humidityPercent;
+    ++aggregate.temperatureCount;
+    ++aggregate.humidityCount;
+  }
+  if (measurement.loadCellValid) {
+    aggregate.weightSum += measurement.weightKg;
+    ++aggregate.weightCount;
+  }
   ++aggregate.count;
   aggregate.syncChecksum = updateMeasurementChecksum(aggregate.syncChecksum, measurement);
 }
@@ -958,6 +1129,9 @@ void processData(AsyncResult &result)
     if (isHistoryDeletionRequest(result.uid())) {
       historyDeletionRequestPending = false;
     }
+    if (isWiFiCredentialResetRequest(result.uid())) {
+      wifiCredentialResetRequestPending = false;
+    }
     return;
   }
 
@@ -1039,6 +1213,12 @@ void processData(AsyncResult &result)
       result.payload();
       historyDeletionRequestPending = false;
       completeHistoryDeletionRequest();
+      return;
+    }
+    if (isWiFiCredentialResetRequest(result.uid())) {
+      result.payload();
+      wifiCredentialResetRequestPending = false;
+      completeWiFiCredentialResetRequest();
       return;
     }
     // Preberemo odgovor, da knjižnica zaključene asinhrone zahteve ne vrne še enkrat.
@@ -1665,6 +1845,7 @@ void initializeDeviceDatabasePaths()
   snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
   snprintf(timeCommandDatabasePath, sizeof(timeCommandDatabasePath), "%s/commands/time", deviceDatabasePath);
   snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
+  snprintf(networkResetStatusDatabasePath, sizeof(networkResetStatusDatabasePath), "%s/status/network_reset", deviceDatabasePath);
   snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
 }
 
@@ -1880,12 +2061,20 @@ void updateWiFiConnectionAttempt()
   }
 }
 
-void clearStoredWiFiCredentials()
+bool clearStoredWiFiCredentials()
 {
-  if (preferences.begin(WIFI_SETTINGS_NAMESPACE, false)) {
-    preferences.remove(WIFI_SSID_KEY);
-    preferences.remove(WIFI_PASSWORD_KEY);
-    preferences.end();
+  if (!preferences.begin(WIFI_SETTINGS_NAMESPACE, false)) {
+    Serial.println("Saved Wi-Fi settings could not be opened for removal.");
+    return false;
+  }
+  const bool ssidRemoved = !preferences.isKey(WIFI_SSID_KEY) || preferences.remove(WIFI_SSID_KEY);
+  const bool passwordRemoved = !preferences.isKey(WIFI_PASSWORD_KEY) || preferences.remove(WIFI_PASSWORD_KEY);
+  const bool credentialsCleared = ssidRemoved && passwordRemoved &&
+                                !preferences.isKey(WIFI_SSID_KEY) && !preferences.isKey(WIFI_PASSWORD_KEY);
+  preferences.end();
+  if (!credentialsCleared) {
+    Serial.println("Saved Wi-Fi settings could not be removed.");
+    return false;
   }
 
   // Preklop STA -> AP je asinhron. Radio najprej popolnoma ustavimo in AP zaženemo šele
@@ -1911,6 +2100,7 @@ void clearStoredWiFiCredentials()
   scheduledAccessPointKeepsStationEnabled = false;
   scheduledAccessPointStartMillis = millis() + WIFI_RADIO_RESTART_DELAY_MS;
   Serial.println("Saved Wi-Fi settings were removed; provisioning AP will start after radio reset.");
+  return true;
 }
 
 void maintainProvisioningAccessPoint()
@@ -3140,6 +3330,11 @@ void processFirmwareUpdateCommand(const String &payload)
     return;
   }
 
+  if (action == "clear_wifi_credentials") {
+    queueWiFiCredentialResetAction();
+    return;
+  }
+
   if (action == "sync_history") {
     if (cloudSyncPending || cloudHistoryReconciliationIsActive()) {
       Serial.println("Cloud history reconciliation command ignored: synchronization is already active.");
@@ -3900,6 +4095,101 @@ void processPendingHistoryDeletion()
   }
 }
 
+void reportWiFiCredentialResetStatus(const char *state, const char *message, const char *requestId)
+{
+  char jsonPayload[256];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"state\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
+           state, message, static_cast<unsigned long>(time(nullptr)));
+  object_t networkResetStatus(jsonPayload);
+  wifiCredentialResetRequestPending = true;
+  database.set(asyncClient, networkResetStatusDatabasePath, networkResetStatus, processData, requestId);
+}
+
+bool isWiFiCredentialResetRequest(const String &requestId)
+{
+  return requestId == "wifiCredentialResetReportQueued" ||
+         requestId == "wifiCredentialResetClearCommand" ||
+         requestId == "wifiCredentialResetReportError";
+}
+
+void completeWiFiCredentialResetRequest()
+{
+  switch (wifiCredentialResetStep) {
+    case WiFiCredentialResetStep::ReportQueued:
+      wifiCredentialResetStep = WiFiCredentialResetStep::ClearCommand;
+      return;
+    case WiFiCredentialResetStep::ClearCommand:
+      wifiCredentialResetStep = WiFiCredentialResetStep::ResetCredentials;
+      return;
+    case WiFiCredentialResetStep::ReportError:
+      wifiCredentialResetQueued = false;
+      wifiCredentialResetStep = WiFiCredentialResetStep::Idle;
+      return;
+    case WiFiCredentialResetStep::Idle:
+    case WiFiCredentialResetStep::ResetCredentials:
+      return;
+  }
+}
+
+void queueWiFiCredentialResetAction()
+{
+  if (wifiCredentialResetQueued || historyDeletionQueued || firmwareUpdateInProgress || Update.isRunning()) {
+    Serial.println("Wi-Fi credential reset command ignored: another exclusive operation is active.");
+    return;
+  }
+  wifiCredentialResetQueued = true;
+  wifiCredentialResetStep = WiFiCredentialResetStep::ReportQueued;
+  Serial.println("Wi-Fi credential reset command queued.");
+}
+
+void processPendingWiFiCredentialReset()
+{
+  if (!wifiCredentialResetQueued || wifiCredentialResetRequestPending || firmwareUpdateInProgress || Update.isRunning() ||
+      historyDeletionQueued || cloudSyncPending || cloudHistoryReconciliationIsActive()) {
+    return;
+  }
+
+  switch (wifiCredentialResetStep) {
+    case WiFiCredentialResetStep::ReportQueued:
+      if (isFirebaseTransportReady()) {
+        // Status mora biti potrjen pred prekinitvijo STA povezave, saj po tem cloud ne more več vrniti odziva.
+        reportWiFiCredentialResetStatus("queued", "Naprava bo izbrisala Wi-Fi poverilnice in odprla provisioning dostop.",
+                                       "wifiCredentialResetReportQueued");
+      }
+      return;
+
+    case WiFiCredentialResetStep::ClearCommand:
+      if (isFirebaseTransportReady()) {
+        wifiCredentialResetRequestPending = true;
+        database.remove(asyncClient, otaCommandDatabasePath, processData, "wifiCredentialResetClearCommand");
+      }
+      return;
+
+    case WiFiCredentialResetStep::ResetCredentials:
+      if (clearStoredWiFiCredentials()) {
+        // Prejšnji zapis stanja ostane namenoma v Firebase: po prekinitvi Wi-Fi-ja ga naprava ne more več dopolniti.
+        wifiCredentialResetQueued = false;
+        wifiCredentialResetStep = WiFiCredentialResetStep::Idle;
+        Serial.println("Wi-Fi credential reset completed; provisioning AP will start.");
+      } else {
+        wifiCredentialResetStep = WiFiCredentialResetStep::ReportError;
+      }
+      return;
+
+    case WiFiCredentialResetStep::ReportError:
+      if (isFirebaseTransportReady()) {
+        reportWiFiCredentialResetStatus("error", "Wi-Fi poverilnic ni bilo mogoče izbrisati; naprava ostaja povezana.",
+                                       "wifiCredentialResetReportError");
+      }
+      return;
+
+    case WiFiCredentialResetStep::Idle:
+      wifiCredentialResetQueued = false;
+      return;
+  }
+}
+
 // --- SD kartica -------------------------------------------------------------
 
 bool initializeSDCard()
@@ -4575,12 +4865,9 @@ void sendLocalStatus(AsyncWebServerRequest *request)
       accessPointShutdownRemainingSeconds = (static_cast<uint32_t>(remainingMillis) + 999) / 1000;
     }
   }
-  static char measurementJson[220];
+  static char measurementJson[256];
   if (hasLatestMeasurement) {
-    snprintf(measurementJson, sizeof(measurementJson),
-             "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
-             latestMeasurement.temperatureC, latestMeasurement.humidityPercent, latestMeasurement.weightKg,
-             latestMeasurement.date, latestMeasurement.time, static_cast<unsigned long>(latestMeasurement.timestamp));
+    serializeMeasurementJson(latestMeasurement, measurementJson, sizeof(measurementJson));
   } else {
     snprintf(measurementJson, sizeof(measurementJson), "null");
   }
@@ -4740,9 +5027,16 @@ void processLocalHistory()
       if (bucketIndex >= MAX_LOCAL_HISTORY_BUCKETS) continue;
       HistoryBucket &bucket = localHistoryBuckets[bucketIndex];
       bucket.timestamp = (measurement.timestamp / localHistoryBucketDuration) * localHistoryBucketDuration;
-      bucket.temperatureSum += measurement.temperatureC;
-      bucket.humiditySum += measurement.humidityPercent;
-      bucket.weightSum += measurement.weightKg;
+      if (measurement.bme680Valid) {
+        bucket.temperatureSum += measurement.temperatureC;
+        bucket.humiditySum += measurement.humidityPercent;
+        ++bucket.temperatureCount;
+        ++bucket.humidityCount;
+      }
+      if (measurement.loadCellValid) {
+        bucket.weightSum += measurement.weightKg;
+        ++bucket.weightCount;
+      }
       ++bucket.count;
     }
 
@@ -4762,10 +5056,9 @@ void processLocalHistory()
     if (bucket.count == 0) continue;
     if (!localHistoryFirstReading) localHistoryResponseFile.print(',');
     localHistoryFirstReading = false;
-    localHistoryResponseFile.printf(
-        "{\"timestamp\":%lu,\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f}",
-        static_cast<unsigned long>(bucket.timestamp), bucket.temperatureSum / bucket.count,
-        bucket.humiditySum / bucket.count, bucket.weightSum / bucket.count);
+    char bucketJson[192];
+    serializeHistoryBucketJson(bucket, bucketJson, sizeof(bucketJson));
+    localHistoryResponseFile.print(bucketJson);
   }
 
   if (localHistoryWriteBucketIndex < MAX_LOCAL_HISTORY_BUCKETS) return;
@@ -4915,16 +5208,17 @@ void initializeLocalWebServer()
 
 bool createMeasurement(Measurement &measurement)
 {
+  measurement = {};
   struct tm timeInfo;
   if (rtcReady) {
     verifyDs3231Connection();
   }
 
-  // Vsako komponento preberemo posebej: izpad BME680 ne sme skriti napake HX711
-  // (in obratno) v serijskem izpisu ter na nadzorni plošči.
-  const bool bmeRead = readBme680(measurement.temperatureC, measurement.humidityPercent);
-  const bool loadCellRead = readLoadCell(measurement.weightKg);
-  if (!bmeRead || !loadCellRead) {
+  // Vsako komponento preberemo posebej. Veljavna BME680 meritev in veljavna HX711
+  // meritev se nato neodvisno zapišeta tudi, kadar druga komponenta odpove.
+  measurement.bme680Valid = readBme680(measurement.temperatureC, measurement.humidityPercent);
+  measurement.loadCellValid = readLoadCell(measurement.weightKg);
+  if (!measurementHasSensorValue(measurement)) {
     return false;
   }
   measurement.timestamp = time(nullptr);
@@ -4958,12 +5252,16 @@ bool appendToSDCard(const Measurement &measurement)
   }
 
   const uint32_t fileOffset = static_cast<uint32_t>(logFile.size());
-  const size_t bytesWritten = logFile.printf("%s,%s,%lu,%.1f,%.1f,%.1f\n", measurement.date, measurement.time,
-                                             static_cast<unsigned long>(measurement.timestamp),
-                                             measurement.temperatureC, measurement.humidityPercent,
-                                             measurement.weightKg);
+  char csvLine[192];
+  if (!serializeMeasurementCsvLine(measurement, csvLine, sizeof(csvLine))) {
+    logFile.close();
+    Serial.println("Meritve ni bilo mogoče oblikovati za measurements.csv.");
+    return false;
+  }
+  const size_t expectedBytes = strlen(csvLine);
+  const size_t bytesWritten = logFile.print(csvLine);
   logFile.close();
-  if (bytesWritten == 0) {
+  if (bytesWritten != expectedBytes) {
     Serial.println("Could not write the measurement to measurements.csv.");
     markSDCardUnavailable();
     return false;
@@ -4995,18 +5293,88 @@ bool persistCloudSyncState()
   return false;
 }
 
-bool parseMeasurementCsvLine(const char *line, Measurement &measurement)
+bool copyMeasurementCsvField(const char *&cursor, char *field, size_t fieldSize, bool lastField)
 {
-  unsigned long timestamp = 0;
-  const int valueCount = sscanf(line, "%10[^,],%8[^,],%lu,%f,%f,%f", measurement.date, measurement.time,
-                                &timestamp, &measurement.temperatureC, &measurement.humidityPercent,
-                                &measurement.weightKg);
-  if (valueCount != 6 || timestamp < static_cast<unsigned long>(MIN_VALID_UNIX_TIMESTAMP)) {
+  if (cursor == nullptr || fieldSize == 0) {
     return false;
   }
 
-  measurement.timestamp = static_cast<time_t>(timestamp);
+  const char *separator = strchr(cursor, ',');
+  if ((!lastField && separator == nullptr) || (lastField && separator != nullptr)) {
+    return false;
+  }
+
+  const char *fieldEnd = separator == nullptr ? cursor + strlen(cursor) : separator;
+  size_t fieldLength = static_cast<size_t>(fieldEnd - cursor);
+  while (fieldLength > 0 && (cursor[fieldLength - 1] == '\r' || cursor[fieldLength - 1] == '\n')) {
+    --fieldLength;
+  }
+  if (fieldLength >= fieldSize) {
+    return false;
+  }
+
+  memcpy(field, cursor, fieldLength);
+  field[fieldLength] = '\0';
+  cursor = separator == nullptr ? nullptr : separator + 1;
   return true;
+}
+
+bool parseOptionalCsvMeasurementValue(const char *field, float &value, bool &valid)
+{
+  valid = false;
+  value = 0.0F;
+  if (field[0] == '\0') {
+    return true;
+  }
+
+  char *end = nullptr;
+  const float parsedValue = strtof(field, &end);
+  if (end == field || *end != '\0' || !isfinite(parsedValue)) {
+    return false;
+  }
+
+  value = parsedValue;
+  valid = true;
+  return true;
+}
+
+bool parseMeasurementCsvLine(const char *line, Measurement &measurement)
+{
+  measurement = {};
+  char timestampField[16];
+  char temperatureField[32];
+  char humidityField[32];
+  char weightField[32];
+  const char *cursor = line;
+  if (!copyMeasurementCsvField(cursor, measurement.date, sizeof(measurement.date), false) ||
+      !copyMeasurementCsvField(cursor, measurement.time, sizeof(measurement.time), false) ||
+      !copyMeasurementCsvField(cursor, timestampField, sizeof(timestampField), false) ||
+      !copyMeasurementCsvField(cursor, temperatureField, sizeof(temperatureField), false) ||
+      !copyMeasurementCsvField(cursor, humidityField, sizeof(humidityField), false) ||
+      !copyMeasurementCsvField(cursor, weightField, sizeof(weightField), true) ||
+      measurement.date[0] == '\0' || measurement.time[0] == '\0') {
+    return false;
+  }
+
+  char *timestampEnd = nullptr;
+  const unsigned long timestamp = strtoul(timestampField, &timestampEnd, 10);
+  if (timestampEnd == timestampField || *timestampEnd != '\0' ||
+      timestamp < static_cast<unsigned long>(MIN_VALID_UNIX_TIMESTAMP)) {
+    return false;
+  }
+
+  bool temperatureValid = false;
+  bool humidityValid = false;
+  if (!parseOptionalCsvMeasurementValue(temperatureField, measurement.temperatureC, temperatureValid) ||
+      !parseOptionalCsvMeasurementValue(humidityField, measurement.humidityPercent, humidityValid) ||
+      !parseOptionalCsvMeasurementValue(weightField, measurement.weightKg, measurement.loadCellValid) ||
+      temperatureValid != humidityValid) {
+    return false;
+  }
+
+  measurement.bme680Valid = temperatureValid;
+  measurement.timestamp = static_cast<time_t>(timestamp);
+  return measurementHasSensorValue(measurement);
 }
 
 void resetCloudAggregateState()
@@ -5167,11 +5535,8 @@ bool readNextSDMeasurementForCloudSync(Measurement &measurement, uint32_t &nextF
 
 void queueSDMeasurementForCloudSync(const Measurement &measurement, uint32_t nextFileOffset)
 {
-  char jsonPayload[192];
-  snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
-           measurement.temperatureC, measurement.humidityPercent, measurement.weightKg,
-           measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
+  char jsonPayload[256];
+  serializeMeasurementJson(measurement, jsonPayload, sizeof(jsonPayload));
   object_t measurements(jsonPayload);
 
   char historyPath[96];
@@ -5194,23 +5559,10 @@ void queueCloudAggregate(const MeasurementAggregate &aggregate, const char *data
     return;
   }
 
-  char jsonPayload[320];
-  if (requestType == CloudSyncRequestType::ReconciliationDailyAggregate) {
-    snprintf(jsonPayload, sizeof(jsonPayload),
-             "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f,\"timestamp\":%lu,\"sample_count\":%u,\"period_seconds\":%lu,\"sync_checksum\":%lu,\"raw_sample_count\":%u,\"raw_sync_checksum\":\"%lu\",\"raw_sync_version\":%u}",
-             aggregate.temperatureSum / aggregate.count, aggregate.humiditySum / aggregate.count,
-             aggregate.weightSum / aggregate.count, static_cast<unsigned long>(aggregate.timestamp),
-             aggregate.count, static_cast<unsigned long>(periodSeconds),
-             static_cast<unsigned long>(aggregate.syncChecksum), aggregate.count,
-             static_cast<unsigned long>(aggregate.syncChecksum), DAILY_RAW_SYNC_VERSION);
-  } else {
-    snprintf(jsonPayload, sizeof(jsonPayload),
-             "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"weight_kg\":%.2f,\"timestamp\":%lu,\"sample_count\":%u,\"period_seconds\":%lu,\"sync_checksum\":%lu}",
-             aggregate.temperatureSum / aggregate.count, aggregate.humiditySum / aggregate.count,
-             aggregate.weightSum / aggregate.count, static_cast<unsigned long>(aggregate.timestamp),
-             aggregate.count, static_cast<unsigned long>(periodSeconds),
-             static_cast<unsigned long>(aggregate.syncChecksum));
-  }
+  char jsonPayload[512];
+  serializeMeasurementAggregateJson(aggregate,
+                                    requestType == CloudSyncRequestType::ReconciliationDailyAggregate,
+                                    periodSeconds, jsonPayload, sizeof(jsonPayload));
   object_t aggregateData(jsonPayload);
 
   char aggregatePath[DATABASE_PATH_LENGTH];
@@ -5296,9 +5648,16 @@ bool addDailyReconciliationMeasurement(const Measurement &measurement, uint32_t 
   }
 
   manifest->lastFileEndOffset = fileEndOffset;
-  manifest->aggregate.temperatureSum += measurement.temperatureC;
-  manifest->aggregate.humiditySum += measurement.humidityPercent;
-  manifest->aggregate.weightSum += measurement.weightKg;
+  if (measurement.bme680Valid) {
+    manifest->aggregate.temperatureSum += measurement.temperatureC;
+    manifest->aggregate.humiditySum += measurement.humidityPercent;
+    ++manifest->aggregate.temperatureCount;
+    ++manifest->aggregate.humidityCount;
+  }
+  if (measurement.loadCellValid) {
+    manifest->aggregate.weightSum += measurement.weightKg;
+    ++manifest->aggregate.weightCount;
+  }
   ++manifest->aggregate.count;
   manifest->aggregate.syncChecksum = updateMeasurementChecksum(manifest->aggregate.syncChecksum, measurement);
   return true;
@@ -5562,16 +5921,16 @@ bool readNextReconciliationMeasurementBatch(DailyReconciliationManifest &manifes
 void queueReconciliationMeasurementBatch(uint32_t nextFileOffset, bool completesDay)
 {
   String jsonPayload;
-  jsonPayload.reserve(reconciliationPendingMeasurementCount * 144U + 2U);
+  jsonPayload.reserve(reconciliationPendingMeasurementCount * 176U + 2U);
   jsonPayload = '{';
   for (uint8_t index = 0; index < reconciliationPendingMeasurementCount; ++index) {
     const Measurement &measurement = reconciliationPendingMeasurements[index];
-    char measurementJson[176];
-    snprintf(measurementJson, sizeof(measurementJson),
-             "%s\"%lu\":{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
-             index == 0 ? "" : ",", static_cast<unsigned long>(measurement.timestamp),
-             measurement.temperatureC, measurement.humidityPercent, measurement.weightKg,
-             measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
+    char measurementJson[256];
+    char keyPrefix[24];
+    serializeMeasurementJson(measurement, measurementJson, sizeof(measurementJson));
+    snprintf(keyPrefix, sizeof(keyPrefix), "%s\"%lu\":", index == 0 ? "" : ",",
+             static_cast<unsigned long>(measurement.timestamp));
+    jsonPayload += keyPrefix;
     jsonPayload += measurementJson;
   }
   jsonPayload += '}';
@@ -6029,7 +6388,7 @@ void updateDeviceStatus()
 
 void sendMeasurements(uint32_t measurementCycleMillis)
 {
-  Measurement measurement;
+  Measurement measurement{};
   if (!createMeasurement(measurement)) {
     return;
   }
@@ -6045,11 +6404,8 @@ void sendMeasurements(uint32_t measurementCycleMillis)
     latestMeasurementUploadPending = true;
   }
 
-  char jsonPayload[192];
-  snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
-           measurement.temperatureC, measurement.humidityPercent, measurement.weightKg,
-           measurement.date, measurement.time, static_cast<unsigned long>(measurement.timestamp));
+  char jsonPayload[256];
+  serializeMeasurementJson(measurement, jsonPayload, sizeof(jsonPayload));
   object_t measurements(jsonPayload);
 
   const bool shouldArchiveMeasurement = lastSDMeasurementMillis == 0 ||
@@ -6063,9 +6419,17 @@ void sendMeasurements(uint32_t measurementCycleMillis)
       cloudSyncCaughtUp = false;
     }
   }
-  Serial.printf("Measurement: %s %s, %.1f C, %.1f %%, %.2f kg\n", measurement.date,
-                measurement.time, measurement.temperatureC, measurement.humidityPercent,
-                measurement.weightKg);
+  if (measurement.bme680Valid && measurement.loadCellValid) {
+    Serial.printf("Meritev: %s %s, %.1f C, %.1f %%, %.2f kg\n", measurement.date,
+                  measurement.time, measurement.temperatureC, measurement.humidityPercent,
+                  measurement.weightKg);
+  } else if (measurement.bme680Valid) {
+    Serial.printf("Meritev: %s %s, %.1f C, %.1f %% (HX711 ni dosegljiv)\n", measurement.date,
+                  measurement.time, measurement.temperatureC, measurement.humidityPercent);
+  } else {
+    Serial.printf("Meritev: %s %s, %.2f kg (BME680 ni dosegljiv)\n", measurement.date,
+                  measurement.time, measurement.weightKg);
+  }
   if (isFirebaseReady() && measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
     // SD sinhronizacija je običajna pot zgodovine; neposredni zapis je le rezerva ob napaki SD.
     if (shouldArchiveMeasurement && !savedToSDCard) {
@@ -6084,12 +6448,8 @@ void processPendingLatestMeasurement()
     return;
   }
 
-  char jsonPayload[192];
-  snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"temperature_c\":%.1f,\"humidity_percent\":%.1f,\"weight_kg\":%.2f,\"date\":\"%s\",\"time\":\"%s\",\"timestamp\":%lu}",
-           latestMeasurement.temperatureC, latestMeasurement.humidityPercent, latestMeasurement.weightKg,
-           latestMeasurement.date, latestMeasurement.time,
-           static_cast<unsigned long>(latestMeasurement.timestamp));
+  char jsonPayload[256];
+  serializeMeasurementJson(latestMeasurement, jsonPayload, sizeof(jsonPayload));
   object_t measurements(jsonPayload);
   latestMeasurementUploadPending = false;
   latestMeasurementUploadInFlight = true;
@@ -6152,6 +6512,7 @@ void loop()
   processQueuedTimeCommand();
   processPendingTimeCommand();
   processPendingHistoryDeletion();
+  processPendingWiFiCredentialReset();
   processPendingLocalHistoryDeletion();
   processPendingLoadCellTare();
   processPendingBme680Calibration();

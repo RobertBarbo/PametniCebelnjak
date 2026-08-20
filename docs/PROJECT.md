@@ -4,6 +4,16 @@
 
 Firmware na ESP32-S3 spremlja en čebelji panj. Temperaturo in relativno vlago bere BME680, težo pa HX711 z merilnimi celicami. Vsaka meritev se najprej zapiše na SD kartico, nato pa se ob dosegljivem internetu postopno sinhronizira v Firebase Realtime Database za cloud nadzorno ploščo.
 
+Meritev je lahko delna: BME680 in HX711 imata ločeno veljavnost v vsakem merilnem ciklu. Če je veljavna vsaj ena komponenta, se njene vrednosti še vedno zapišejo lokalno in objavijo v Firebase; vrednosti nedosegljive komponente so v CSV prazne, v JSON pa `null` oziroma odsotne. Če sta nedosegljiva oba senzorja, se prazna meritev ne ustvari. Odpoved DS3231 ne ustavi meritev, kadar je sistemski čas že veljaven prek NTP ali ročne nastavitve; brez veljavnega časa se meritev še vedno lahko lokalno zapiše z oznako `offline`, v Firebase pa se pravilno ne pošlje.
+
+## Android aplikacija
+
+Mapa `android-app/` vsebuje spremljevalno Android aplikacijo, ki vodi uporabnika skozi prvi zagon naprave. Nativni vtičnik prek Androidovega sistemskega Wi-Fi izbirnika vzpostavi začasno povezavo z AP-jem `Cebelnjak-XXXXXX`, nato prek lokalnih API poti poišče domača omrežja in napravi pošlje izbrane poverilnice. Po uspešni povezavi začasno omrežje sprosti in obstoječo HTTPS cloud nadzorno ploščo naloži v istem aplikacijskem WebView, kjer ostanejo prijava, registracija panja, meritve, grafi in OTA. Google prijava uporablja nativni Android izbirnik računa ter Firebase sejo ustvari v istem WebViewu, zato se OAuth ne odpira v zunanjem brskalniku in ne izgubi začetnega prijavnega stanja. Kontroli za ponovno iskanje omrežij ter prikaz gesla uporabljata poravnani SVG ikoni namesto sistemsko odvisnih znakov oziroma emojijev.
+
+Aplikacija uporablja Capacitor 8 in podpira Android 10 ali novejši. Wi-Fi gesla ne shranjuje, lokalni nešifriran HTTP pa je v Android konfiguraciji dovoljen samo do provisioning naslova `192.168.4.1`. Nativna Google prijava zahteva Firebase Android registracijo paketa `si.pametnicebelnjak.app`, SHA prstne odtise podpisnega ključa in lokalno datoteko `android/app/google-services.json`. Podrobna arhitektura, dovoljenja in navodila za gradnjo so v `docs/ANDROID_APP.md` in `android-app/README.md`.
+
+Gostovana cloud stran v aplikacijskem WebViewu dinamično registrira Capacitorjev `FirebaseAuthentication` most. V nativnem Android okolju spletni popup/redirect tok ni dovoljen, zato manjkajoč most povzroči jasno napako namesto odpiranja zunanjega brskalnika in izgube prijavnega stanja.
+
 ## Strojna oprema
 
 - ESP32-S3 DevKitC-1 z 16 MB QIO flash in 8 MB vgrajenega OPI PSRAM
@@ -78,6 +88,7 @@ Lokalni strežnik med kratkim prenosom statičnega asseta za 3 sekunde odloži z
 - Navpični kurzor grafov z native uPlot cursor points označi dejansko meritev vsake vidne serije z njeno barvo in kontrastno tematsko obrobo. Označevalci sledijo miški oziroma dotiku ter ostanejo poravnani med zoomom in vodoravnim premikanjem; skrite serije in neveljavne vrednosti nimajo označevalca.
 - Horizontalni grid climate grafa vedno riše samo ena Y-os. Temperaturna os ima prednost, kadar je vidna; če uporabnik skrije temperaturo in pusti vlago, grid prevzame desna humidity os in se poravna z njenimi ticki. Preklop uporablja obstoječe podatke ter ohrani X zoom in izbrano obdobje.
 - Lokalna grafa uporabita dnevni SD indeks in podatke agregirata na ESP32. `/api/history` zahtevek samo uvrsti pripravo; glavni `loop()` SD dnevnik bere v kratkih časovno omejenih korakih, history koše hrani v PSRAM in JSON postopno pripravi v začasni datoteki na SD. Frontend med odgovorom `202` počaka ter zahtevek ponovi, zato AsyncTCP callback nikoli ne izvaja dolgega skeniranja CSV. Če SD ali PSRAM trenutno ni dosegljiv, ostane nadzorna plošča v lokalnem načinu in jasno prikaže napako zgodovine.
+- Lokalni in cloud graf za posamezno manjkajočo temperaturo, vlago ali tež ne narišeta točke. Urni, dnevni in prikazni agregati za vsako veličino vodijo svoj števec veljavnih vzorcev, zato izpad HX711 ne spremeni povprečja temperature oziroma vlage in obratno.
 - Cloud grafa za obdobja do 7 dni bereta surove meritve, do 31 dni urne agregate, za daljša obdobja pa dnevne agregate. Tako ostaneta prenos in poraba brskalnika predvidljiva tudi pri enoletnem pogledu.
 - Običajna sinhronizacija ob vrnitvi interneta nadaljuje od v NVS shranjenega položaja in pošlje samo nove SD zapise. Lokalni gumb **Ponovno sinhroniziraj zgodovino** dodatno neblokirajoče izdela dnevni indeks SD dnevnika ter ga primerja z dnevnimi agregati v Firebase. Ločeni polji `raw_sample_count` in `raw_sync_checksum` predstavljata zadnjo potrjeno surovo predpono dneva ter se ne spreminjata ob običajni osvežitvi prikaznega povprečja. Če je cloud dan krajši, firmware preveri njegovo kontrolno vsoto proti enako dolgi predponi SD dneva in prenese samo manjkajoči rep; ob neskladni predponi obnovi celoten dan. Dnevi iz starejših izdaj brez veljavnega markerja `raw_sync_version` se ob prvi primerjavi enkrat obnovijo v celoti. Vsak dan hrani dejanski prvi in zadnji položaj v nespremenljivem posnetku CSV, zato starejši zapisi med novejšimi datumi ne pokvarijo primerjave. Če je bila celotna Firebase zgodovina izbrisana, so vsi dnevi manjkajoči in je popolna obnova pričakovana. Manjkajoče meritve prenaša v paketih po največ 32 zapisov, vključno z zadnjim nepolnim paketom, zato med obnovo ostane odziven za meritve in lokalno nadzorno ploščo; zapisi, ustvarjeni med obnovo, ostanejo za običajno inkrementalno sinhronizacijo. Firmware zazna izgubljeno, predolgo čakajočo ali zavrnjeno Firebase asinhrono zahtevo, obnovo varno ustavi oziroma nadaljuje z varnim ponovnim poskusom.
 - Izbirnik omogoča hitra obdobja, začetni in končni datum z urama ter X-zoomiranje obeh grafov v lokalnem in cloud pogledu. Klik na pretekli dan samodejno izbere obdobje od `00:00` do `23:59`, klik na današnji dan pa od `00:00` do trenutne ure; drugi klik lahko obdobje razširi na drug dan.
@@ -95,6 +106,9 @@ Lokalni strežnik med kratkim prenosom statičnega asseta za 3 sekunde odloži z
 - Cloud uporabnik lahko izbrani panj odregistrira po potrditvi. Postopek odstrani `owner_uid`, `owner_email` in povezavo pod `/users/{uid}/devices`; meritve, SD sinhronizacija in aktivacijska koda ostanejo nedotaknjeni, zato je panj mogoče z isto kodo ponovno registrirati.
 - Lastnik lahko za izbrani panj ustvari osemmestno povabilo z veljavnostjo 24 ur. Povabilo je vezano na e-poštni naslov prejemnika in omogoči samo ogled trenutnih ter zgodovinskih meritev. Uporabnik vidi lastne panje v skupini **Moji panji**, deljene pa v skupini **Deljeni z mano** z oznako `samo ogled`. Lastnik lahko dostop posameznega gledalca prekliče, gledalec pa lahko z gumbom **Odstrani deljeni panj** sam odstrani dostop iz svojega računa. Pri tem lastništvo in meritve ostanejo nespremenjeni; odregistracija lastnika prekliče vse delitve.
 - Navaden cloud uporabnik ob izbiri svojih panjev ohrani obrazec za registracijo novega panja. Če še nima lastnega ali deljenega panja, ga nadzorna plošča po branju obeh Firebase seznamov preusmeri v pogled **Naprava** in mu prikaže samo identiteto računa, registracijo panja ter sprejem povabila. Pogledi **Pregled**, **Grafi**, **Posodobitve**, prazen izbirnik in podrobnosti naprave ostanejo skriti, dokler uporabnik ne dobi prvega dostopa. Glavni skrbnik namesto podvojenega izbirnika vidi mrežo šestih kompaktnih kartic naprav (tri na širokem prikazu, dve na tablici) z notranjim drsenjem za nadaljnje naprave. Kartica prikaže zeleno/rdečo oznako online stanja, zadnji odziv in e-poštni naslov lastnika. Če je panj registriran, je v isti kartici gumb **Odjavi lastnika**; skrbnik mora za potrditev vpisati `ODJAVI`. En sam atomski Firebase zapis odstrani lastništvo in uporabnikovo povezavo, ne spremeni pa meritev, statusa, SD dnevnika ali aktivacijske kode. Lastniška e-pošta je shranjena kot `owner_email` pod napravo, ob naslednji prijavi lastnika se samodejno dopolni za stare registracije, prikazana pa je izključno skrbniku.
+- Glavni skrbnik ima na kartici naprave desno od gumba **Odjavi lastnika** gumb **Izbriši napravo**. Potrdi ga z besedo `IZBRIŠI`; en atomski Firebase zapis odstrani napravo in povezane meritve, agregate, stanje, ukaze, aktivacijsko kodo, zahtevke, delitve ter odprta povabila. Če je fizična naprava po izbrisu še povezana, lahko zaradi nespremenjenega firmwarea znova začne ustvarjati nove Firebase zapise.
+- Vse potrditve spletnih dejanj uporabljajo enoten prilagojen modal, zato se ne prikazujejo več sistemska brskalniška okna. Običajna dejanja imajo gumba za preklic in nadaljevanje, nevarna pa poleg tega zahtevajo vnos besede `ODJAVI` oziroma `IZBRIŠI`.
+- Lastnik ali glavni skrbnik lahko med karticama **Moj račun** in **Stanje sistema** za izbrani panj vključi **Vreme na pregledu**, izbere 3- ali 5-dnevno napoved ter shrani lokacijo telefona/brskalnika ali ročno poišče kraj. Ob izbiri lokacije brskalnika se koordinate z enkratnim povratnim geokodiranjem OpenStreetMap pretvorijo v kraj; stara splošna oznaka »Trenutna lokacija« se ob naslednjem odprtju samodejno dopolni z imenom kraja. Deljeni uporabnik na istem mestu vidi samo lastno stikalo za prikaz vremenske kartice na svojem pregledu; ne more spreminjati kraja ali dolžine napovedi. Pod kartico meritev se nato prikaže ločena kartica **Vreme v kraju [kraj]** s trenutnim stanjem, zunanjo temperaturo, relativno vlago, tlakom, hitrostjo in smerjo vetra ter dnevno napovedjo. Deljeni uporabnik dobi samo ime kraja in dolžino napovedi, nato z Open-Meteo poišče približno lokacijo kraja; natančne koordinate panja ostanejo zasebne. Barvne SVG ikone ločijo stanje vremena, temperaturo, vlago, tlak in veter. Vreme se pridobi neposredno iz brezplačnega Open-Meteo API-ja samo, ko je vključeno za ta uporabniški pregled; med odprtim pogledom **Pregled** največ enkrat na 15 minut, takoj pa se ponovno pridobi po spremembi kraja ali dolžine napovedi. To niso meritve BME680 v panju.
 - V cloud pogledu lahko lastnik ali glavni skrbnik po potrditvi z besedo `IZBRIŠI` pošlje ukaz za trajni izbris SD dnevnika skupaj s celotno cloud zgodovino (`latest`, `measurements`, `aggregates`). Popoln izbris je omogočen le za online napravo; ESP32 ukaz postavi v čakalno vrsto, dokler ne zaključi trenutnega SD prenosa, nato znova ustvari prazen CSV dnevnik in ponastavi kazalce sinhronizacije. Lokalni pogled te nevarne funkcije namenoma ne ponuja brez cloud prijave.
 - Po spremembi datotek v `web/` izvedi `pio run -t uploadfs`.
 
@@ -139,17 +153,20 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
 /devices/{device_id}/
   owner_uid
   owner_email
-  latest/
-  measurements/{unix_timestamp}/
+  weather/{enabled,forecast_days,latitude,longitude,location_name,updated_at}
+  weather_public/{enabled,forecast_days,location_name,updated_at}
+  latest/{temperature_c?,humidity_percent?,weight_kg?,date,time,timestamp}
+  measurements/{unix_timestamp}/{temperature_c?,humidity_percent?,weight_kg?,date,time,timestamp}
   aggregates/
-    hourly/{hour_start_timestamp}/
-    daily/{day_start_timestamp}/{temperature_c,humidity_percent,weight_kg,timestamp,sample_count,period_seconds,sync_checksum}
+    hourly/{hour_start_timestamp}/{temperature_c?,humidity_percent?,weight_kg?,timestamp,sample_count,temperature_sample_count,humidity_sample_count,weight_sample_count,period_seconds,sync_checksum}
+    daily/{day_start_timestamp}/{temperature_c?,humidity_percent?,weight_kg?,timestamp,sample_count,temperature_sample_count,humidity_sample_count,weight_sample_count,period_seconds,sync_checksum,raw_sample_count,raw_sync_checksum,raw_sync_version}
   status/
     firmware/version
     sd_card/{present,initialization_failures,error}
     device/{device_id,station_ssid,ip_address,wifi_rssi_dbm,uptime_days,uptime_hours,uptime_minutes,uptime_total_minutes,last_seen_timestamp,current_time_timestamp,time_source,rtc_present,rtc_valid,ntp_sync_pending,last_time_sync_timestamp}
     ota/{state,current_version,target_version,message,progress_percent,updated_at}
     history/{state,message,updated_at}
+    network_reset/{state,message,updated_at}
     load_cell/{state,message,updated_at}
     bme680/{ready,temperature_offset_c,humidity_offset_percent,state,message,updated_at}
   commands/
@@ -165,6 +182,8 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
   role: viewer
   owner_uid
   shared_at
+
+/users/{firebase_uid}/weather_preferences/{device_id}/show_weather
 
 /device_access/{device_id}/{viewer_uid}/
   role: viewer
@@ -185,8 +204,12 @@ Trenutna razvojna beta uporablja ločeno pot za vsak trajni ID naprave in lastni
 /device_claims/{device_id}/{firebase_uid}/activation_code
 ```
 
+Znak `?` pomeni, da vrednost pri delni meritvi ni na voljo. Lokalni status jo pošlje kot JSON `null`, Firebase Realtime Database pa jo lahko shrani kot odsotno lastnost. `sample_count` ostaja število vseh surovih vrstic za primerjavo zgodovine; števci po posamezni veličini določajo pravilni imenovalec povprečja.
+
 Ob odprtju brez prijave je cloud nadzorna plošča zaklenjena: prikaže se prijavni obrazec, navigacija in prazne nadzorne vsebine pa ostanejo skrite. Po uspešni prijavi se odpre pogled **Pregled**.
 
 Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku združi lastne naprave iz `/users/{firebase_uid}/devices` ter deljene naprave iz `/users/{firebase_uid}/shared_devices`. Vloga `viewer` dobi branje meritev in agregatov, ne pa statusa komponent ali poti `commands`. Trenutni beta skrbniški UID lahko bere celotno pot `/devices` in zato samodejno vidi vse panje brez aktivacije; lahko tudi počisti merilno zgodovino izbranega panja ter z atomsko posodobitvijo odjavi trenutnega lastnika in vse gledalce, ne more pa nastaviti novega lastnika ali brati zasebnih aktivacijskih podatkov. Popoln izbris uporabi akcijo `delete_history`, cloud tariranje akcijo `tare_load_cell`, kalibracija BME680 pa akcijo `set_bme680_calibration` v obstoječem ukazu `commands/firmware_update`, zato jih firmware preveri z istim zanesljivim 30-sekundnim ciklom kot OTA. Pred izvedbo ESP32 ukaz najprej odstrani, nato iz glavne zanke objavi končni uspeh ali napako; tako se Firebase zahteve ne prekrivajo. Zaključen izbris je v uporabniškem vmesniku označen kot zadnji izvedeni ukaz z datumom, saj po njem lahko že nastanejo nove meritve; staro besedilo Firebase ukaza se za ta prikaz namenoma ne uporabi. Uporabnik napravo prevzame z ID-jem in aktivacijsko kodo prek Firebase pravil. ESP32 za trenutno beta testiranje ostaja anonimen zapisovalec; omejitve in produkcijski načrt sta opisana v `docs/DEVICE_OWNERSHIP.md`.
+
+Glavni skrbnik ima v zavihku **Naprava** tudi ločen odsek **Ponastavitev omrežja**. Po potrditvi z besedo `WI-FI` pošlje akcijo `clear_wifi_credentials` v `commands/firmware_update`; Firebase pravila jo zavrnejo vsakemu drugemu uporabniku. ESP32 pred prekinitvijo povezave zapiše `/status/network_reset`, odstrani ukaz, izbriše poverilnice iz NVS, prekine STA povezavo in odpre provisioning AP. Ker po tem nima več domače povezave, cloud ne more poslati dodatne potrditve; uporabnik nadaljuje lokalno na `http://192.168.4.1`.
 
 Če cloud status tariranja ostane `queued` ali `taring` več kot 90 sekund, nadzorna plošča ga označi kot nedokončanega in ponovno omogoči gumb. Ob vsakem zagonu ESP32 objavi začetno stanje HX711, zato se zastarelo stanje prejšnjega zagona ponastavi.

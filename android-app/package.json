@@ -1,0 +1,24 @@
+{
+  "name": "pametni-cebelnjak-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Android aplikacija za provisioning in cloud nadzor Pametnega čebelnjaka.",
+  "scripts": {
+    "prepare:dashboard": "node scripts/sync-dashboard.mjs",
+    "build": "npm run prepare:dashboard && vite build",
+    "sync": "npm run build && cap sync android",
+    "open": "cap open android",
+    "run": "npm run sync && cap run android"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^8.4.0",
+    "@capacitor/core": "8.5.0",
+    "firebase": "^12.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.5.0",
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "8.5.0",
+    "vite": "^7.1.7"
+  }
+}

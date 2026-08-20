@@ -1,0 +1,589 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #f4f7f2;
+  background: #08150f;
+  font-synthesis: none;
+  --background: #08150f;
+  --surface: #10241a;
+  --surface-strong: #173124;
+  --border: #2b4a39;
+  --muted: #a7b6ad;
+  --green: #62ca91;
+  --green-dark: #2f8557;
+  --gold: #f5be3f;
+  --gold-dark: #be7f12;
+  --danger: #ff827a;
+  --shadow: 0 24px 70px rgb(0 0 0 / 28%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 10% 5%, rgb(44 123 76 / 18%), transparent 32rem),
+    radial-gradient(circle at 90% 0%, rgb(245 190 63 / 8%), transparent 26rem),
+    var(--background);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-shell {
+  width: min(100%, 920px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0 34px;
+}
+
+.brand-icon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 15px rgb(0 0 0 / 35%));
+}
+
+.brand-name,
+.brand-subtitle,
+.eyebrow,
+.lead,
+.action-card p,
+.setup-card p,
+footer {
+  margin: 0;
+}
+
+.brand-name {
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.brand-subtitle {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.view {
+  display: none;
+}
+
+.view.is-active,
+.setup-card.is-active {
+  display: block;
+}
+
+.hero {
+  padding: 20px 0 36px;
+}
+
+.hero--compact {
+  padding-bottom: 22px;
+}
+
+.eyebrow {
+  color: var(--green);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: -0.04em;
+}
+
+h1 {
+  margin-top: 12px;
+  font-size: clamp(2.65rem, 11vw, 5.6rem);
+  line-height: 0.94;
+}
+
+h2 {
+  margin-top: 8px;
+  font-size: clamp(1.55rem, 6vw, 2.1rem);
+  line-height: 1.08;
+}
+
+.lead {
+  max-width: 650px;
+  margin-top: 20px;
+  color: var(--muted);
+  font-size: 1.06rem;
+  line-height: 1.65;
+}
+
+.action-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.action-card,
+.setup-card {
+  position: relative;
+  overflow: hidden;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgb(21 48 34 / 96%), rgb(12 31 22 / 96%));
+  box-shadow: var(--shadow);
+}
+
+.action-card {
+  display: grid;
+  min-height: 300px;
+  align-content: space-between;
+  gap: 26px;
+}
+
+.action-card--primary::after {
+  position: absolute;
+  right: -80px;
+  bottom: -110px;
+  width: 230px;
+  height: 230px;
+  border: 1px solid rgb(245 190 63 / 35%);
+  border-radius: 50%;
+  content: "";
+}
+
+.action-card p:not(.eyebrow),
+.setup-card p:not(.eyebrow) {
+  margin-top: 14px;
+  color: var(--muted);
+  line-height: 1.58;
+}
+
+.card-number {
+  position: absolute;
+  top: 24px;
+  right: 26px;
+  color: rgb(255 255 255 / 15%);
+  font-size: 2.4rem;
+  font-weight: 900;
+}
+
+.button,
+.back-button,
+.icon-button,
+.password-field button {
+  border: 0;
+  cursor: pointer;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  padding: 14px 20px;
+  border-radius: 17px;
+  color: #f6fff9;
+  font-weight: 850;
+  text-align: center;
+}
+
+.button--primary {
+  background: linear-gradient(135deg, #3d9a66, #27774e);
+  box-shadow: 0 12px 30px rgb(45 145 91 / 24%);
+}
+
+.button--gold {
+  color: #241802;
+  background: linear-gradient(135deg, #ffd86b, #e9a619);
+  box-shadow: 0 12px 30px rgb(229 164 24 / 20%);
+}
+
+.button--quiet {
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  color: #7e8c83;
+  background: #203128;
+  box-shadow: none;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 750;
+}
+
+.progress-steps {
+  display: flex;
+  max-width: 420px;
+  align-items: center;
+  margin: 0 auto 26px;
+}
+
+.progress-step {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--surface);
+  font-weight: 850;
+}
+
+.progress-step.is-current,
+.progress-step.is-complete {
+  color: #062113;
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.progress-line {
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
+.setup-card {
+  display: none;
+}
+
+.setup-icon,
+.success-mark {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  margin-bottom: 24px;
+  place-items: center;
+  border-radius: 20px;
+  color: var(--gold);
+  background: rgb(245 190 63 / 10%);
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.setup-card .button {
+  width: 100%;
+  margin-top: 24px;
+}
+
+.notice {
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid rgb(245 190 63 / 30%);
+  border-radius: 16px;
+  color: #dfd6b8;
+  background: rgb(245 190 63 / 7%);
+  line-height: 1.5;
+}
+
+.setup-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.device-badge {
+  padding: 8px 11px;
+  border-radius: 999px;
+  color: var(--green);
+  background: rgb(98 202 145 / 10%);
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+label {
+  display: block;
+  margin: 24px 0 8px;
+  color: #d3ddd6;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+select,
+input {
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  outline: 0;
+  color: #f4f7f2;
+  background: #0d2017;
+}
+
+select {
+  padding: 0 44px 0 15px;
+}
+
+input {
+  padding: 0 52px 0 15px;
+}
+
+select:focus,
+input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 4px rgb(98 202 145 / 10%);
+}
+
+.field-row,
+.password-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-button,
+.password-field button {
+  width: 52px;
+  min-height: 56px;
+  flex: 0 0 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  color: #f4f7f2;
+  background: #14291e;
+}
+
+.icon-button svg,
+.password-field button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button.is-loading svg {
+  animation: rotate-control 900ms linear infinite;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  flex: 1;
+  padding-right: 58px;
+}
+
+.password-field button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 48px;
+  min-height: 48px;
+  height: 48px;
+  transform: translateY(-50%);
+  border-color: transparent;
+  background: transparent;
+}
+
+.password-field button[aria-pressed="false"] .password-icon--hide,
+.password-field button[aria-pressed="true"] .password-icon--show {
+  display: none;
+}
+
+.icon-button:focus-visible,
+.password-field button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@keyframes rotate-control {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.success-mark {
+  color: #062113;
+  background: var(--green);
+}
+
+.result-list {
+  margin: 24px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+
+.result-list div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-list div:last-child {
+  border-bottom: 0;
+}
+
+.result-list dt {
+  color: var(--muted);
+}
+
+.result-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+  text-align: right;
+}
+
+.status-message {
+  display: none;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  color: #dbe7df;
+  background: #162b20;
+  line-height: 1.45;
+}
+
+.status-message.is-visible {
+  display: block;
+}
+
+.status-message.is-error {
+  color: #ffd0cc;
+  background: rgb(150 43 39 / 28%);
+}
+
+footer {
+  padding-top: 28px;
+  color: #64756a;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+body.is-dashboard-open {
+  overflow: hidden;
+}
+
+body.is-dashboard-open .app-shell {
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  padding: 0;
+}
+
+body.is-dashboard-open .app-header,
+body.is-dashboard-open footer {
+  display: none;
+}
+
+body.is-dashboard-open main,
+.dashboard-view.is-active {
+  height: 100%;
+  min-height: 100dvh;
+}
+
+.dashboard-view.is-active {
+  position: relative;
+  display: block;
+}
+
+.dashboard-frame {
+  display: block;
+  width: 100%;
+  height: 100dvh;
+  border: 0;
+  background: var(--background);
+}
+
+.dashboard-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text);
+  font-weight: 800;
+  text-align: center;
+  background: var(--background);
+}
+
+.dashboard-loading[hidden] {
+  display: none;
+}
+
+@media (min-width: 720px) {
+  .app-shell {
+    padding-top: 36px;
+  }
+
+  .action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .setup-card {
+    padding: 38px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-shell {
+    padding-inline: 16px;
+  }
+
+  .app-header {
+    padding-bottom: 20px;
+  }
+
+  .brand-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .action-card,
+  .setup-card {
+    padding: 22px;
+    border-radius: 23px;
+  }
+
+  .setup-heading {
+    display: block;
+  }
+
+  .device-badge {
+    display: inline-block;
+    margin-top: 16px;
+  }
+}

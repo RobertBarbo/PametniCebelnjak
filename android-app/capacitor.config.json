@@ -1,0 +1,17 @@
+{
+  "appId": "si.pametnicebelnjak.app",
+  "appName": "Pametni čebelnjak",
+  "webDir": "dist",
+  "backgroundColor": "#08150f",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": [
+        "google.com"
+      ]
+    }
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

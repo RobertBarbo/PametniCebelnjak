@@ -19,6 +19,7 @@ Firmware za ESP32-S3, ki spremlja stanje čebeljega panja in podatke zapisuje na
 - Odzivna lokalna nadzorna plošča z merjenjem, SD zgodovino in grafi tudi brez interneta.
 - OTA posodobitev iz preverjenega GitHub Release manifesta in ročna lokalna posodobitev firmware-a ali LittleFS prek ElegantOTA.
 - Varen izbris cloud zgodovine ali celotne SD in cloud zgodovine za izbrani panj.
+- Android aplikacija za voden provisioning prek AP-ja naprave in nadaljevanje v obstoječo cloud nadzorno ploščo.
 
 ## Prvi zagon
 
@@ -49,6 +50,7 @@ Trenutna beta zapisuje vsako napravo v lastno Firebase pot `devices/{device_id}`
 - [Opis projekta in podatkovni model](docs/PROJECT.md)
 - [Lastništvo naprav in produkcijska varnost](docs/DEVICE_OWNERSHIP.md)
 - [Nastavitev Firebase Authentication](docs/FIREBASE_AUTH_SETUP.md)
+- [Android aplikacija in provisioning](docs/ANDROID_APP.md)
 - [Dnevnik sprememb](docs/CHANGELOG.md)
 - [Projektna navodila](AGENTS.md)
 

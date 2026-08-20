@@ -13,7 +13,20 @@ const SHARE_INVITATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
 const SHARE_INVITATION_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CHART_AXIS_HOUR_SECONDS = 60 * 60;
 const CHART_AXIS_DAY_SECONDS = 24 * CHART_AXIS_HOUR_SECONDS;
+const NATIVE_AUTH_REQUEST_TYPE = "pametni-cebelnjak-native-auth-request";
+const NATIVE_AUTH_RESULT_TYPE = "pametni-cebelnjak-native-auth-result";
+const NATIVE_AUTH_REQUEST_TIMEOUT_MS = 90_000;
+const ANDROID_DASHBOARD_FRAME_NAME = "pametni-cebelnjak-dashboard";
+const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const OPENSTREETMAP_REVERSE_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse";
+const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const CHART_AXIS_FORMATTERS = new Map();
+const isEmbeddedDashboard = window.parent !== window;
+const isAndroidAppDashboard =
+  new URLSearchParams(window.location.search).get("app") === "android"
+  || window.name === ANDROID_DASHBOARD_FRAME_NAME
+  || isEmbeddedDashboard;
 const UI_TEXT = {
   sl: { resetZoom: "Ponastavi zoom" },
   en: { resetZoom: "Reset zoom" },
@@ -61,6 +74,20 @@ const elements = {
   authTriggerLabel: document.querySelector("#auth-trigger-label"),
   authSignout: document.querySelector("#auth-signout"),
   accountManagement: document.querySelector("#account-management"),
+  weatherSettingsPanel: document.querySelector("#weather-settings-panel"),
+  weatherSettingsForm: document.querySelector("#weather-settings-form"),
+  weatherEnabled: document.querySelector("#weather-enabled"),
+  weatherSettingsFields: document.querySelector("#weather-settings-fields"),
+  weatherForecastDays: document.querySelector("#weather-forecast-days"),
+  weatherSavedLocation: document.querySelector("#weather-saved-location"),
+  weatherUseLocation: document.querySelector("#weather-use-location"),
+  weatherLocationQuery: document.querySelector("#weather-location-query"),
+  weatherSearchLocation: document.querySelector("#weather-search-location"),
+  weatherLocationResults: document.querySelector("#weather-location-results"),
+  weatherSettingsStatus: document.querySelector("#weather-settings-status"),
+  sharedWeatherSettingsPanel: document.querySelector("#shared-weather-settings-panel"),
+  sharedWeatherEnabled: document.querySelector("#shared-weather-enabled"),
+  sharedWeatherSettingsStatus: document.querySelector("#shared-weather-settings-status"),
   accountFormStack: document.querySelector("#account-form-stack"),
   deviceSelectionCard: document.querySelector("#device-selection-card"),
   devicePageSubtitle: document.querySelector("#device-page-subtitle"),
@@ -74,6 +101,9 @@ const elements = {
   unclaimDeviceStatus: document.querySelector("#unclaim-device-status"),
   deleteDeviceHistory: document.querySelector("#delete-device-history"),
   historyManagementStatus: document.querySelector("#history-management-status"),
+  networkResetControl: document.querySelector("#network-reset-control"),
+  clearCloudWifiCredentials: document.querySelector("#clear-cloud-wifi-credentials"),
+  cloudWifiResetStatus: document.querySelector("#cloud-wifi-reset-status"),
   claimDeviceForm: document.querySelector("#claim-device-form"),
   claimDeviceName: document.querySelector("#claim-device-name"),
   claimDeviceId: document.querySelector("#claim-device-id"),
@@ -96,6 +126,17 @@ const elements = {
   humidity: document.querySelector("#humidity-value"),
   weight: document.querySelector("#weight-value"),
   latestTime: document.querySelector("#last-measurement-time"),
+  weatherOverview: document.querySelector("#weather-overview"),
+  weatherOverviewHeading: document.querySelector("#weather-overview-heading"),
+  weatherLocationName: document.querySelector("#weather-location-name"),
+  weatherUpdated: document.querySelector("#weather-updated"),
+  weatherCurrentIcon: document.querySelector("#weather-current-icon"),
+  weatherCurrentCondition: document.querySelector("#weather-current-condition"),
+  weatherCurrentTemperature: document.querySelector("#weather-current-temperature"),
+  weatherCurrentHumidity: document.querySelector("#weather-current-humidity"),
+  weatherCurrentPressure: document.querySelector("#weather-current-pressure"),
+  weatherCurrentWind: document.querySelector("#weather-current-wind"),
+  weatherForecast: document.querySelector("#weather-forecast"),
   historySummary: document.querySelector("#history-summary"),
   ipAddress: document.querySelector("#ip-address"),
   cloudWifiSsidCard: document.querySelector("#cloud-wifi-ssid-card"),
@@ -207,6 +248,16 @@ const elements = {
   setDeviceTime: document.querySelector("#set-device-time"),
   syncDeviceTime: document.querySelector("#sync-device-time"),
   deviceTimeStatus: document.querySelector("#device-time-status"),
+  confirmationDialog: document.querySelector("#confirmation-dialog"),
+  confirmationDialogForm: document.querySelector("#confirmation-dialog-form"),
+  confirmationDialogEyebrow: document.querySelector("#confirmation-dialog-eyebrow"),
+  confirmationDialogTitle: document.querySelector("#confirmation-dialog-title"),
+  confirmationDialogMessage: document.querySelector("#confirmation-dialog-message"),
+  confirmationDialogInputLabel: document.querySelector("#confirmation-dialog-input-label"),
+  confirmationDialogInputHint: document.querySelector("#confirmation-dialog-input-hint"),
+  confirmationDialogInput: document.querySelector("#confirmation-dialog-input"),
+  confirmationDialogCancel: document.querySelector("#confirmation-dialog-cancel"),
+  confirmationDialogConfirm: document.querySelector("#confirmation-dialog-confirm"),
 };
 
 let climateChart;
@@ -248,6 +299,7 @@ let activeShareInvitationCode = "";
 const ownerEmailSyncedDeviceIds = new Set();
 let authControlsInitialized = false;
 let latestHistoryManagementStatus;
+let latestNetworkResetStatus;
 let latestLoadCellTareStatus;
 let latestBme680CalibrationStatus;
 let latestTimeStatus;
@@ -262,6 +314,18 @@ let wifiTransitionDeadline = 0;
 let wifiTransitionAddress = "";
 let wifiTransitionMode = "idle";
 let wifiTransitionProbeGeneration = 0;
+let latestWeatherSettings;
+let weatherFetchController;
+let weatherRequestKey = "";
+let weatherLastFetchedAt = 0;
+let weatherLocationSearchResults = [];
+let weatherLocationLookupKey = "";
+let weatherPublicPublishKey = "";
+let weatherSharedLocationLookupKey = "";
+let latestSharedWeatherPublicSettings;
+let sharedWeatherEnabled = false;
+let confirmationDialogResolver;
+let confirmationDialogRequiredText = "";
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -368,6 +432,9 @@ function showView(viewName, updateLocation = true) {
 
   if (selectedView === "history") {
     ensureHistoryViewReady().catch(showDataError);
+  }
+  if (selectedView === "overview") {
+    void refreshWeatherForecast();
   }
 }
 
@@ -481,7 +548,10 @@ function configureSelectedCloudDeviceAccess(deviceId) {
     elements.cloudUpdatesQuickLink.hidden = true;
     elements.unclaimDevice.hidden = true;
     elements.shareDevicePanel.hidden = true;
+    elements.networkResetControl.hidden = true;
     setCloudDeviceManagementVisibility(false);
+    renderWeatherSettings(null);
+    resetWeatherOverview();
     showView("device");
     return;
   }
@@ -506,6 +576,8 @@ function configureSelectedCloudDeviceAccess(deviceId) {
     ? "Deljeni panj · samo ogled. Dostop lahko kadarkoli odstraniš iz svojega računa."
     : "Izberi panj, katerega podatke želiš pregledovati.";
   setCloudDeviceManagementVisibility(Boolean(deviceId && currentCloudUser && canManage));
+  elements.networkResetControl.hidden = !(deviceId && currentCloudUser && isCloudAdministrator());
+  updateWeatherOverviewVisibility();
 
   if (isSharedViewer && elements.viewPanels.some((panel) => panel.dataset.viewPanel === "updates" && !panel.hidden)) {
     showView("device");
@@ -519,6 +591,14 @@ function setCloudDeviceManagementVisibility(isVisible) {
 }
 
 function clearCloudDeviceListeners() {
+  weatherFetchController?.abort();
+  weatherFetchController = undefined;
+  weatherRequestKey = "";
+  weatherLastFetchedAt = 0;
+  weatherPublicPublishKey = "";
+  weatherSharedLocationLookupKey = "";
+  latestSharedWeatherPublicSettings = undefined;
+  sharedWeatherEnabled = false;
   stopCloudDeviceListeners.forEach((unsubscribe) => unsubscribe());
   stopCloudDeviceListeners = [];
   stopHistoryListener?.();
@@ -531,6 +611,7 @@ function resetCloudDashboard() {
   latestDeviceStatus = undefined;
   latestSDCardStatus = undefined;
   latestHistoryManagementStatus = undefined;
+  latestNetworkResetStatus = undefined;
   latestOtaStatus = undefined;
   renderLatestMeasurement(null);
   renderDeviceStatus(null);
@@ -539,11 +620,15 @@ function resetCloudDashboard() {
   renderLoadCellTareStatus(null);
   renderBme680CalibrationStatus(null);
   renderTimeStatus(null);
+  renderWeatherSettings(null);
+  elements.sharedWeatherSettingsPanel.hidden = true;
+  resetWeatherOverview();
   elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
   resetOtaProgress();
   elements.otaActions.hidden = true;
   renderHistory([]);
   renderHistoryManagementStatus(null);
+  renderCloudWifiResetStatus(null);
 }
 
 function rebuildCloudDevices() {
@@ -655,20 +740,33 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     selectButton.append(identity, state, detail);
     card.append(selectButton);
 
+    const actions = document.createElement("div");
+    actions.className = "admin-device-actions";
+    const actionButtons = document.createElement("div");
+    actionButtons.className = "admin-device-action-buttons";
+    const actionStatus = document.createElement("small");
+    actionStatus.className = "admin-device-action-status";
+    actionStatus.setAttribute("aria-live", "polite");
+
     if (device.owner_uid) {
-      const actions = document.createElement("div");
-      actions.className = "admin-device-actions";
       const unclaimButton = document.createElement("button");
       unclaimButton.type = "button";
       unclaimButton.className = "secondary-button danger-button admin-unclaim-button";
       unclaimButton.textContent = "Odjavi lastnika";
-      const actionStatus = document.createElement("small");
-      actionStatus.className = "admin-device-action-status";
-      actionStatus.setAttribute("aria-live", "polite");
       unclaimButton.addEventListener("click", () => unclaimDeviceAsAdministrator(deviceId, unclaimButton, actionStatus));
-      actions.append(unclaimButton, actionStatus);
-      card.append(actions);
+      actionButtons.append(unclaimButton);
     }
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "secondary-button danger-button admin-delete-button";
+    deleteButton.textContent = "Izbriši napravo";
+    deleteButton.addEventListener("click", () =>
+      deleteDeviceAsAdministrator(deviceId, actionButtons, actionStatus),
+    );
+    actionButtons.append(deleteButton);
+    actions.append(actionButtons, actionStatus);
+    card.append(actions);
 
     elements.adminDeviceList.append(card);
   });
@@ -718,9 +816,12 @@ function selectCloudDevice(deviceId) {
   // Ne prikazuj stanja prej izbranega panja, dokler Firebase ne vrne novega odziva.
   renderDeviceStatus(null);
   renderHistoryManagementStatus(null);
+  renderCloudWifiResetStatus(null);
   renderLoadCellTareStatus(null);
   renderBme680CalibrationStatus(null);
   renderTimeStatus(null);
+  renderWeatherSettings(null);
+  resetWeatherOverview();
   localStorage.setItem(CLOUD_DEVICE_STORAGE_KEY, deviceId);
   const { database, onValue, ref } = firebaseDatabase;
   const subscribe = (path, renderer) => {
@@ -733,8 +834,17 @@ function selectCloudDevice(deviceId) {
     subscribe("status/firmware", renderFirmwareVersion);
     subscribe("status/ota", renderOtaDeviceStatus);
     subscribe("status/history", renderHistoryManagementStatus);
+    if (isCloudAdministrator()) subscribe("status/network_reset", renderCloudWifiResetStatus);
     subscribe("status/load_cell", renderLoadCellTareStatus);
     subscribe("status/bme680", renderBme680CalibrationStatus);
+    if (canManageCloudDevice(deviceId)) {
+      subscribe("weather", renderWeatherSettings);
+    }
+  } else {
+    subscribe("weather_public", renderSharedWeatherSettings);
+    stopCloudDeviceListeners.push(onValue(ref(database, `users/${currentCloudUser.uid}/weather_preferences/${deviceId}`), (snapshot) => {
+      renderSharedWeatherPreference(snapshot.val());
+    }, showDataError));
   }
   if (getCloudDeviceAccessRole(deviceId) === "owner") {
     stopCloudDeviceListeners.push(onValue(ref(database, `device_access/${deviceId}`), (snapshot) => {
@@ -783,8 +893,19 @@ function renderHeaderDeviceState() {
   );
 }
 
-function formatValue(value, decimals = 1) {
+function parseMeasurementValue(value) {
+  if (
+    (typeof value !== "number" && typeof value !== "string") ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
+    return null;
+  }
   const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function formatValue(value, decimals = 1) {
+  const numericValue = parseMeasurementValue(value);
   return Number.isFinite(numericValue) ? numericValue.toFixed(decimals) : "—";
 }
 
@@ -852,10 +973,21 @@ function formatRange(range) {
   return `${formatDashboardDateTime(range.from)} – ${formatDashboardDateTime(range.to)}`;
 }
 
+function renderLatestMetric(element, value, decimals, hasMeasurement) {
+  const numericValue = parseMeasurementValue(value);
+  const unavailable = numericValue === null;
+  const valueContainer = element.parentElement;
+  valueContainer?.classList.toggle("measurement-unavailable", unavailable && hasMeasurement);
+  const unit = valueContainer?.querySelector("small");
+  if (unit) unit.hidden = unavailable && hasMeasurement;
+  element.textContent = unavailable && hasMeasurement ? "Ni na voljo" : formatValue(value, decimals);
+}
+
 function renderLatestMeasurement(measurement) {
-  elements.temperature.textContent = formatValue(measurement?.temperature_c);
-  elements.humidity.textContent = formatValue(measurement?.humidity_percent);
-  elements.weight.textContent = formatValue(measurement?.weight_kg, 1);
+  const hasMeasurement = measurement !== null && measurement !== undefined;
+  renderLatestMetric(elements.temperature, measurement?.temperature_c, 1, hasMeasurement);
+  renderLatestMetric(elements.humidity, measurement?.humidity_percent, 1, hasMeasurement);
+  renderLatestMetric(elements.weight, measurement?.weight_kg, 1, hasMeasurement);
   elements.latestTime.textContent = formatDateTime(measurement);
 }
 
@@ -864,6 +996,530 @@ function renderSharedLatestMeasurement(measurement) {
   const timestamp = Number(measurement?.timestamp);
   latestDeviceStatus = Number.isFinite(timestamp) && timestamp > 0 ? { last_seen_timestamp: timestamp } : undefined;
   renderHeaderDeviceState();
+}
+
+function normalizeWeatherSettings(settings) {
+  const latitude = Number(settings?.latitude);
+  const longitude = Number(settings?.longitude);
+  return {
+    enabled: settings?.enabled === true,
+    forecastDays: Number(settings?.forecast_days) === 5 ? 5 : 3,
+    latitude: Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 ? latitude : null,
+    longitude: Number.isFinite(longitude) && longitude >= -180 && longitude <= 180 ? longitude : null,
+    locationName: String(settings?.location_name || "").trim(),
+  };
+}
+
+function weatherHasLocation(settings = latestWeatherSettings) {
+  return Number.isFinite(settings?.latitude) && Number.isFinite(settings?.longitude);
+}
+
+function weatherLocationLabel(settings = latestWeatherSettings) {
+  if (!weatherHasLocation(settings)) return "Lokacija še ni nastavljena.";
+  return settings.locationName || `Lokacija panja (${settings.latitude.toFixed(4)}, ${settings.longitude.toFixed(4)})`;
+}
+
+function weatherPlaceName(settings = latestWeatherSettings) {
+  if (!weatherHasLocation(settings)) return "izbrani lokaciji";
+  const name = String(settings.locationName || "").split(",")[0].trim();
+  return (name || "izbrani lokaciji").replace(/^Občina\s+/iu, "");
+}
+
+function updateWeatherOverviewTitle() {
+  elements.weatherOverviewHeading.textContent = `Vreme v kraju ${weatherPlaceName()}`;
+}
+
+const WEATHER_ICON_SVG = Object.freeze({
+  sunny: `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="13" fill="#fbbf24"/><g fill="none" stroke="#fbbf24" stroke-linecap="round" stroke-width="4"><path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/></g></svg>`,
+  partlyCloudy: `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="25" cy="23" r="12" fill="#fbbf24"/><g fill="none" stroke="#fbbf24" stroke-linecap="round" stroke-width="3"><path d="M25 5v5M8 23h5M12.3 10.3l3.5 3.5M37.7 10.3l-3.5 3.5"/></g><path d="M18 48h29a10 10 0 0 0 .8-20A15 15 0 0 0 20 32a8 8 0 0 0-2 16Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="2.5"/></svg>`,
+  cloudy: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 47h37a11 11 0 0 0 1-22A16 16 0 0 0 21 30a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/></svg>`,
+  fog: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M16 37h31a10 10 0 0 0 .6-20A14 14 0 0 0 22 22a8 8 0 0 0-6 15Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="2.5"/><g fill="none" stroke="#9ab7c6" stroke-linecap="round" stroke-width="3"><path d="M13 45h32M20 52h29"/></g></svg>`,
+  rain: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 39h37a11 11 0 0 0 1-22A16 16 0 0 0 21 22a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/><g fill="none" stroke="#45aee8" stroke-linecap="round" stroke-width="4"><path d="m22 47-2 7M34 47l-2 7M46 47l-2 7"/></g></svg>`,
+  snow: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 38h37a11 11 0 0 0 1-22A16 16 0 0 0 21 21a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/><g fill="none" stroke="#6ec2ec" stroke-linecap="round" stroke-width="2.8"><path d="M22 47v9m-4.5-4.5h9M34 47v9m-4.5-4.5h9M46 47v9m-4.5-4.5h9"/></g></svg>`,
+  thunder: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 38h37a11 11 0 0 0 1-22A16 16 0 0 0 21 21a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/><path d="m34 43-7 10h6l-2 7 9-12h-6l3-5Z" fill="#fbbf24" stroke="#e6a400" stroke-linejoin="round" stroke-width="1.5"/></svg>`,
+});
+
+function renderWeatherIcon(element, iconName) {
+  element.innerHTML = WEATHER_ICON_SVG[iconName] || WEATHER_ICON_SVG.partlyCloudy;
+}
+
+function weatherCodeInfo(weatherCode) {
+  const code = Number(weatherCode);
+  if (code === 0) return { label: "Jasno", icon: "sunny" };
+  if ([1, 2].includes(code)) return { label: "Delno oblačno", icon: "partlyCloudy" };
+  if (code === 3) return { label: "Oblačno", icon: "cloudy" };
+  if ([45, 48].includes(code)) return { label: "Megla", icon: "fog" };
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { label: code < 61 ? "Pršenje" : "Dež", icon: "rain" };
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return { label: "Sneg", icon: "snow" };
+  if ([95, 96, 99].includes(code)) return { label: "Nevihta", icon: "thunder" };
+  return { label: "Spremenljivo", icon: "partlyCloudy" };
+}
+
+function formatWindDirection(direction) {
+  const degrees = Number(direction);
+  if (!Number.isFinite(degrees)) return "—";
+  const labels = ["S", "SV", "V", "JV", "J", "JZ", "Z", "SZ"];
+  return labels[Math.round((((degrees % 360) + 360) % 360) / 45) % labels.length];
+}
+
+function isOverviewViewActive() {
+  return elements.viewPanels.some((panel) => panel.dataset.viewPanel === "overview" && !panel.hidden);
+}
+
+function updateWeatherOverviewVisibility() {
+  const isVisible = !isLocalDashboard && (canManageCloudDevice() || isSharedCloudDeviceSelected()) &&
+    latestWeatherSettings?.enabled === true && weatherHasLocation();
+  elements.weatherOverview.hidden = !isVisible;
+  if (!isVisible) {
+    weatherFetchController?.abort();
+    return;
+  }
+  updateWeatherOverviewTitle();
+  elements.weatherLocationName.textContent = weatherLocationLabel();
+  if (isOverviewViewActive()) void refreshWeatherForecast();
+}
+
+function renderWeatherSettings(settings) {
+  latestWeatherSettings = normalizeWeatherSettings(settings);
+  const hasLocation = weatherHasLocation();
+  elements.weatherEnabled.checked = latestWeatherSettings.enabled;
+  elements.weatherForecastDays.value = String(latestWeatherSettings.forecastDays);
+  elements.weatherSettingsFields.disabled = !latestWeatherSettings.enabled;
+  elements.weatherSavedLocation.textContent = weatherLocationLabel();
+  elements.weatherLocationQuery.value = "";
+  elements.weatherLocationResults.hidden = true;
+  elements.weatherLocationResults.replaceChildren();
+  weatherLocationSearchResults = [];
+  if (latestWeatherSettings.enabled && !hasLocation) {
+    elements.weatherSettingsStatus.textContent = "Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.";
+  } else if (elements.weatherSettingsStatus.textContent.startsWith("Za prikaz vremena")) {
+    elements.weatherSettingsStatus.textContent = "";
+  }
+  void updateGenericWeatherLocationName();
+  void publishPublicWeatherSettings();
+  updateWeatherOverviewVisibility();
+}
+
+function createPublicWeatherSettings(settings = latestWeatherSettings, updatedAt = Math.floor(Date.now() / 1000)) {
+  return {
+    enabled: settings?.enabled === true,
+    forecast_days: Number(settings?.forecastDays) === 5 ? 5 : 3,
+    location_name: String(settings?.locationName || "").trim(),
+    updated_at: updatedAt,
+  };
+}
+
+function publicWeatherSettingsKey(settings) {
+  return `${settings.enabled}:${settings.forecast_days}:${settings.location_name}`;
+}
+
+async function publishPublicWeatherSettings(settings = latestWeatherSettings, updatedAt = Math.floor(Date.now() / 1000)) {
+  if (!weatherSettingsCanBeChanged()) return;
+  const publicSettings = createPublicWeatherSettings(settings, updatedAt);
+  if (!publicSettings.location_name) return;
+  const publishKey = publicWeatherSettingsKey(publicSettings);
+  if (weatherPublicPublishKey === publishKey) return;
+  const { database, ref, update } = firebaseDatabase;
+  try {
+    await update(ref(database), {
+      [`${cloudDevicePath}/weather_public`]: publicSettings,
+    });
+    weatherPublicPublishKey = publishKey;
+  } catch (error) {
+    console.warn("Javnega prikaza vremena ni bilo mogoče posodobiti.", error);
+  }
+}
+
+async function renderSharedWeatherSettings(settings) {
+  latestSharedWeatherPublicSettings = normalizeWeatherSettings(settings);
+  updateSharedWeatherSettings();
+}
+
+function renderSharedWeatherPreference(preference) {
+  sharedWeatherEnabled = preference?.show_weather === true;
+  updateSharedWeatherSettings();
+}
+
+async function updateSharedWeatherSettings() {
+  const publicSettings = latestSharedWeatherPublicSettings;
+  const isSharedViewer = isSharedCloudDeviceSelected();
+  elements.sharedWeatherSettingsPanel.hidden = !isSharedViewer;
+  if (!isSharedViewer) return;
+
+  const hasPublicLocation = Boolean(publicSettings?.locationName);
+  elements.sharedWeatherEnabled.checked = sharedWeatherEnabled;
+  elements.sharedWeatherEnabled.disabled = !hasPublicLocation;
+  elements.sharedWeatherSettingsStatus.textContent = hasPublicLocation
+    ? "Nastavitev velja samo za tvoj pregled deljenega panja."
+    : "Lastnik za ta panj še ni nastavil kraja za vreme.";
+
+  latestWeatherSettings = {
+    ...publicSettings,
+    enabled: sharedWeatherEnabled && hasPublicLocation,
+  };
+  if (!latestWeatherSettings.enabled) {
+    weatherSharedLocationLookupKey = "";
+    updateWeatherOverviewVisibility();
+    return;
+  }
+
+  const lookupKey = `${cloudDevicePath}:${publicSettings.forecastDays}:${publicSettings.locationName}`;
+  if (weatherSharedLocationLookupKey === lookupKey) return;
+  weatherSharedLocationLookupKey = lookupKey;
+  try {
+    const url = new URL(OPEN_METEO_GEOCODING_URL);
+    url.searchParams.set("name", publicSettings.locationName);
+    url.searchParams.set("count", "1");
+    url.searchParams.set("language", "sl");
+    url.searchParams.set("format", "json");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Iskanje kraja ni uspelo (${response.status}).`);
+    const result = (await response.json()).results?.find((item) =>
+      Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)));
+    if (!result) throw new Error("Za shranjeni kraj ni koordinat.");
+    if (weatherSharedLocationLookupKey !== lookupKey) return;
+    latestWeatherSettings = {
+      ...publicSettings,
+      enabled: true,
+      latitude: Number(result.latitude),
+      longitude: Number(result.longitude),
+    };
+    updateWeatherOverviewVisibility();
+  } catch (error) {
+    console.warn("Kraja za deljeni prikaz vremena ni bilo mogoče določiti.", error);
+    weatherSharedLocationLookupKey = "";
+    elements.weatherUpdated.textContent = "Vremenskih podatkov za ta kraj ni mogoče pridobiti.";
+  }
+}
+
+function resetWeatherOverview() {
+  elements.weatherUpdated.textContent = "Čakam na podatke …";
+  renderWeatherIcon(elements.weatherCurrentIcon, "cloudy");
+  elements.weatherCurrentCondition.textContent = "—";
+  elements.weatherCurrentTemperature.textContent = "—";
+  elements.weatherCurrentHumidity.textContent = "—";
+  elements.weatherCurrentPressure.textContent = "—";
+  elements.weatherCurrentWind.textContent = "—";
+  elements.weatherForecast.replaceChildren();
+}
+
+function formatWeatherTemperature(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? `${numericValue.toFixed(0)}°` : "—";
+}
+
+function renderWeatherForecast(weather) {
+  const current = weather?.current;
+  const daily = weather?.daily;
+  if (!current || !daily) {
+    throw new Error("Vremenska storitev ni vrnila popolnih podatkov.");
+  }
+  const currentInfo = weatherCodeInfo(current.weather_code);
+  renderWeatherIcon(elements.weatherCurrentIcon, currentInfo.icon);
+  elements.weatherCurrentCondition.textContent = currentInfo.label;
+  elements.weatherCurrentTemperature.textContent = Number.isFinite(Number(current.temperature_2m))
+    ? Number(current.temperature_2m).toFixed(1)
+    : "—";
+  elements.weatherCurrentHumidity.textContent = Number.isFinite(Number(current.relative_humidity_2m))
+    ? `${Math.round(Number(current.relative_humidity_2m))} %`
+    : "—";
+  elements.weatherCurrentPressure.textContent = Number.isFinite(Number(current.pressure_msl))
+    ? `${Math.round(Number(current.pressure_msl))} hPa`
+    : "—";
+  const windSpeed = Number(current.wind_speed_10m);
+  elements.weatherCurrentWind.textContent = Number.isFinite(windSpeed)
+    ? `${Math.round(windSpeed)} km/h · ${formatWindDirection(current.wind_direction_10m)}`
+    : "—";
+  elements.weatherUpdated.textContent = current.time
+    ? `Posodobljeno: ${String(current.time).replace("T", " ")}`
+    : "Posodobljeno";
+
+  elements.weatherForecast.replaceChildren();
+  (daily.time ?? []).forEach((date, index) => {
+    const info = weatherCodeInfo(daily.weather_code?.[index]);
+    const day = document.createElement("article");
+    day.className = "weather-forecast-day";
+    const dateLabel = new Intl.DateTimeFormat("sl-SI", { weekday: "short", day: "numeric", month: "short" })
+      .format(new Date(`${date}T12:00:00`));
+    const precipitationProbability = Number(daily.precipitation_probability_max?.[index]);
+    const precipitationLabel = Number.isFinite(precipitationProbability)
+      ? `${Math.round(precipitationProbability)} % padavin`
+      : "Padavine —";
+    const dateElement = document.createElement("p");
+    dateElement.textContent = dateLabel;
+    const icon = document.createElement("span");
+    icon.className = "weather-forecast-icon";
+    icon.setAttribute("aria-hidden", "true");
+    renderWeatherIcon(icon, info.icon);
+    const temperatures = document.createElement("strong");
+    temperatures.textContent = `${formatWeatherTemperature(daily.temperature_2m_max?.[index])} `;
+    const minimumTemperature = document.createElement("small");
+    minimumTemperature.textContent = formatWeatherTemperature(daily.temperature_2m_min?.[index]);
+    temperatures.append(minimumTemperature);
+    const precipitation = document.createElement("small");
+    precipitation.textContent = precipitationLabel;
+    day.append(dateElement, icon, temperatures, precipitation);
+    elements.weatherForecast.append(day);
+  });
+}
+
+async function refreshWeatherForecast(force = false) {
+  const settings = latestWeatherSettings;
+  if (!isOverviewViewActive() || elements.weatherOverview.hidden || !settings?.enabled || !weatherHasLocation(settings)) return;
+  const deviceId = cloudDevicePath.replace("devices/", "");
+  const requestKey = `${deviceId}:${settings.latitude}:${settings.longitude}:${settings.forecastDays}`;
+  if (!force && requestKey === weatherRequestKey && Date.now() - weatherLastFetchedAt < WEATHER_REFRESH_INTERVAL_MS) return;
+
+  weatherFetchController?.abort();
+  const controller = new AbortController();
+  weatherFetchController = controller;
+  weatherRequestKey = requestKey;
+  elements.weatherUpdated.textContent = "Pridobivam vreme …";
+  try {
+    const url = new URL(OPEN_METEO_FORECAST_URL);
+    url.searchParams.set("latitude", String(settings.latitude));
+    url.searchParams.set("longitude", String(settings.longitude));
+    url.searchParams.set("current", "temperature_2m,relative_humidity_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code");
+    url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
+    url.searchParams.set("forecast_days", String(settings.forecastDays));
+    url.searchParams.set("timezone", "auto");
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Vremenska storitev je vrnila napako ${response.status}.`);
+    const weather = await response.json();
+    if (controller.signal.aborted || requestKey !== weatherRequestKey) return;
+    renderWeatherForecast(weather);
+    weatherLastFetchedAt = Date.now();
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.warn("Vremenskih podatkov ni bilo mogoče pridobiti.", error);
+    elements.weatherUpdated.textContent = "Vremenski podatki trenutno niso dosegljivi.";
+  }
+}
+
+function weatherSettingsCanBeChanged() {
+  return Boolean(firebaseDatabase && cloudDevicePath && canManageCloudDevice());
+}
+
+async function saveWeatherSettings(changes, successMessage) {
+  if (!weatherSettingsCanBeChanged()) return false;
+  const { database, ref, update } = firebaseDatabase;
+  const updatedAt = Math.floor(Date.now() / 1000);
+  const nextSettings = normalizeWeatherSettings({
+    enabled: latestWeatherSettings?.enabled,
+    forecast_days: latestWeatherSettings?.forecastDays,
+    latitude: latestWeatherSettings?.latitude,
+    longitude: latestWeatherSettings?.longitude,
+    location_name: latestWeatherSettings?.locationName,
+    ...changes,
+  });
+  const updates = Object.fromEntries(Object.entries({
+    ...changes,
+    updated_at: updatedAt,
+  }).map(([key, value]) => [`${cloudDevicePath}/weather/${key}`, value]));
+  const publicSettings = createPublicWeatherSettings(nextSettings, updatedAt);
+  if (publicSettings.location_name) {
+    updates[`${cloudDevicePath}/weather_public`] = publicSettings;
+  }
+  try {
+    await update(ref(database), updates);
+    if (publicSettings.location_name) weatherPublicPublishKey = publicWeatherSettingsKey(publicSettings);
+    elements.weatherSettingsStatus.textContent = successMessage;
+    return true;
+  } catch (error) {
+    console.error("Nastavitev vremena ni bilo mogoče shraniti.", error);
+    elements.weatherSettingsStatus.textContent = "Nastavitve vremena ni bilo mogoče shraniti.";
+    return false;
+  }
+}
+
+function canChangeSharedWeatherPreference() {
+  return Boolean(firebaseDatabase && cloudDevicePath && currentCloudUser && isSharedCloudDeviceSelected());
+}
+
+async function saveSharedWeatherPreference(showWeather) {
+  if (!canChangeSharedWeatherPreference()) return;
+  elements.sharedWeatherEnabled.disabled = true;
+  elements.sharedWeatherSettingsStatus.textContent = "Shranjujem nastavitev …";
+  try {
+    const { database, ref, set } = firebaseDatabase;
+    await set(ref(database, `users/${currentCloudUser.uid}/weather_preferences/${cloudDevicePath.replace("devices/", "")}`), {
+      show_weather: showWeather === true,
+    });
+    elements.sharedWeatherSettingsStatus.textContent = showWeather
+      ? "Vreme je prikazano na tvojem pregledu."
+      : "Vreme je skrito na tvojem pregledu.";
+  } catch (error) {
+    console.error("Nastavitve vremena za deljeni panj ni bilo mogoče shraniti.", error);
+    elements.sharedWeatherEnabled.checked = !showWeather;
+    elements.sharedWeatherSettingsStatus.textContent = "Nastavitve vremena ni bilo mogoče shraniti.";
+  } finally {
+    elements.sharedWeatherEnabled.disabled = !latestSharedWeatherPublicSettings?.locationName;
+  }
+}
+
+function getBrowserLocation() {
+  if (!navigator.geolocation) {
+    return Promise.reject(new Error("Brskalnik ne podpira določanja lokacije."));
+  }
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: false,
+      timeout: 15_000,
+      maximumAge: 5 * 60 * 1000,
+    });
+  });
+}
+
+function needsWeatherLocationName(settings = latestWeatherSettings) {
+  const name = String(settings?.locationName || "").trim();
+  return weatherHasLocation(settings) && (!name || name === "Trenutna lokacija" || name.startsWith("Lokacija brskalnika ("));
+}
+
+async function reverseGeocodeWeatherLocation(latitude, longitude) {
+  const fallbackName = `Lokacija brskalnika (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
+  const url = new URL(OPENSTREETMAP_REVERSE_GEOCODING_URL);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(latitude));
+  url.searchParams.set("lon", String(longitude));
+  url.searchParams.set("zoom", "10");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("accept-language", "sl");
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Določanje kraja ni uspelo (${response.status}).`);
+  const result = await response.json();
+  const address = result?.address ?? {};
+  const settlement = address.city || address.town || address.village || address.municipality || address.county;
+  return [settlement, address.country].filter(Boolean).join(", ") || fallbackName;
+}
+
+async function updateGenericWeatherLocationName() {
+  const settings = latestWeatherSettings;
+  if (!weatherSettingsCanBeChanged() || !needsWeatherLocationName(settings)) return;
+  const lookupKey = `${settings.latitude}:${settings.longitude}`;
+  if (weatherLocationLookupKey === lookupKey) return;
+  weatherLocationLookupKey = lookupKey;
+  try {
+    const locationName = await reverseGeocodeWeatherLocation(settings.latitude, settings.longitude);
+    if (latestWeatherSettings !== settings || !needsWeatherLocationName(settings)) return;
+    await saveWeatherSettings({ location_name: locationName }, `Lokacija ${locationName} je shranjena za ta panj.`);
+  } catch (error) {
+    console.warn("Kraja za shranjeno lokacijo ni bilo mogoče določiti.", error);
+  }
+}
+
+async function useBrowserWeatherLocation() {
+  if (!weatherSettingsCanBeChanged()) return;
+  elements.weatherUseLocation.disabled = true;
+  elements.weatherSettingsStatus.textContent = "Brskalnik čaka na dovoljenje za lokacijo …";
+  try {
+    const position = await getBrowserLocation();
+    const latitude = Number(position.coords.latitude.toFixed(5));
+    const longitude = Number(position.coords.longitude.toFixed(5));
+    let locationName;
+    try {
+      locationName = await reverseGeocodeWeatherLocation(latitude, longitude);
+    } catch (error) {
+      console.warn("Kraja za lokacijo brskalnika ni bilo mogoče določiti.", error);
+      locationName = `Lokacija brskalnika (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
+    }
+    await saveWeatherSettings({
+      latitude,
+      longitude,
+      location_name: locationName,
+    }, `Lokacija ${locationName} je shranjena za ta panj.`);
+  } catch (error) {
+    console.warn("Lokacije brskalnika ni bilo mogoče pridobiti.", error);
+    const message = error?.code === 1
+      ? "Dovoljenje za lokacijo je zavrnjeno. Kraj lahko poiščeš ročno."
+      : "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.";
+    elements.weatherSettingsStatus.textContent = message;
+  } finally {
+    elements.weatherUseLocation.disabled = false;
+  }
+}
+
+function weatherSearchResultLabel(result) {
+  return [result.name, result.admin1, result.country].filter(Boolean).join(", ");
+}
+
+function renderWeatherLocationResults(results) {
+  weatherLocationSearchResults = results;
+  elements.weatherLocationResults.replaceChildren();
+  elements.weatherLocationResults.hidden = results.length === 0;
+  results.forEach((result, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "weather-location-result";
+    button.textContent = weatherSearchResultLabel(result);
+    button.addEventListener("click", () => saveSearchedWeatherLocation(index));
+    elements.weatherLocationResults.append(button);
+  });
+}
+
+async function searchWeatherLocation() {
+  const query = elements.weatherLocationQuery.value.trim();
+  if (!query) {
+    elements.weatherSettingsStatus.textContent = "Vnesi kraj, ki ga želiš poiskati.";
+    return;
+  }
+  elements.weatherSearchLocation.disabled = true;
+  elements.weatherSettingsStatus.textContent = "Iščem kraj …";
+  try {
+    const url = new URL(OPEN_METEO_GEOCODING_URL);
+    url.searchParams.set("name", query);
+    url.searchParams.set("count", "5");
+    url.searchParams.set("language", "sl");
+    url.searchParams.set("format", "json");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Iskanje kraja ni uspelo (${response.status}).`);
+    const data = await response.json();
+    const results = (data.results ?? []).filter((result) =>
+      Number.isFinite(Number(result.latitude)) && Number.isFinite(Number(result.longitude)));
+    renderWeatherLocationResults(results);
+    elements.weatherSettingsStatus.textContent = results.length
+      ? "Izberi kraj za lokacijo panja."
+      : "Za vneseni kraj ni rezultatov.";
+  } catch (error) {
+    console.warn("Kraja ni bilo mogoče poiskati.", error);
+    elements.weatherSettingsStatus.textContent = "Iskanje kraja trenutno ni dosegljivo.";
+  } finally {
+    elements.weatherSearchLocation.disabled = false;
+  }
+}
+
+async function saveSearchedWeatherLocation(index) {
+  const result = weatherLocationSearchResults[index];
+  if (!result) return;
+  const saved = await saveWeatherSettings({
+    latitude: Number(Number(result.latitude).toFixed(5)),
+    longitude: Number(Number(result.longitude).toFixed(5)),
+    location_name: weatherSearchResultLabel(result),
+  }, `Lokacija ${weatherSearchResultLabel(result)} je shranjena za ta panj.`);
+  if (saved) {
+    elements.weatherLocationResults.hidden = true;
+    elements.weatherLocationResults.replaceChildren();
+    weatherLocationSearchResults = [];
+  }
+}
+
+function initializeWeatherSettings() {
+  elements.weatherSettingsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void searchWeatherLocation();
+  });
+  elements.weatherEnabled.addEventListener("change", () => {
+    void saveWeatherSettings({ enabled: elements.weatherEnabled.checked }, elements.weatherEnabled.checked
+      ? "Prikaz vremena je vključen."
+      : "Prikaz vremena je izključen.");
+  });
+  elements.weatherForecastDays.addEventListener("change", () => {
+    void saveWeatherSettings({ forecast_days: Number(elements.weatherForecastDays.value) === 5 ? 5 : 3 }, "Dolžina napovedi je shranjena.");
+  });
+  elements.weatherUseLocation.addEventListener("click", () => void useBrowserWeatherLocation());
+  elements.weatherSearchLocation.addEventListener("click", () => void searchWeatherLocation());
+  elements.sharedWeatherEnabled.addEventListener("change", () => {
+    void saveSharedWeatherPreference(elements.sharedWeatherEnabled.checked);
+  });
 }
 
 const COMPONENT_DEFINITIONS = [
@@ -976,6 +1632,7 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   renderBme680CalibrationStatus(latestBme680CalibrationStatus);
   if (!localDashboard) {
     renderHistoryManagementStatus(latestHistoryManagementStatus);
+    renderCloudWifiResetStatus(latestNetworkResetStatus);
     renderTimeStatus(status);
     renderCloudSynchronization(status?.history_sync, { station_connected: isOnline }, latestSDCardStatus);
   }
@@ -1469,8 +2126,135 @@ function renderHistoryManagementStatus(status) {
     : status?.message || messages[state] || "Stanje brisanja ni znano.";
 }
 
+function renderCloudWifiResetStatus(status) {
+  latestNetworkResetStatus = status;
+  if (!elements.networkResetControl || !isCloudAdministrator()) return;
+
+  const hasSelectedDevice = Boolean(cloudDevicePath && currentCloudUser && firebaseDatabase);
+  const state = status?.state;
+  const updatedAt = Number(status?.updated_at);
+  const lastSeenAt = Number(latestDeviceStatus?.last_seen_timestamp);
+  // Zapis `queued` mora po izbrisu ostati v Firebase, ker se naprava nato odklopi.
+  // Nov odziv naprave po poznejši Wi-Fi nastavitvi zato pomeni nov zagon povezave in ne
+  // sme trajno blokirati naslednje ponastavitve.
+  const resetBelongsToCurrentConnection = !Number.isFinite(updatedAt) || !Number.isFinite(lastSeenAt) ||
+    lastSeenAt <= updatedAt;
+  const isProcessing = (state === "queued" || state === "resetting") && resetBelongsToCurrentConnection;
+  const isSelectedDeviceOnline = hasSelectedDevice && isDeviceOnline(latestDeviceStatus);
+  elements.clearCloudWifiCredentials.disabled = !isSelectedDeviceOnline || isProcessing;
+
+  if (!hasSelectedDevice) {
+    elements.cloudWifiResetStatus.textContent = "Izberi panj za ponastavitev omrežja.";
+  } else if (state === "completed") {
+    elements.cloudWifiResetStatus.textContent = Number.isFinite(updatedAt) && updatedAt > 0
+      ? `Wi-Fi poverilnice so izbrisane (${formatDashboardDateTime(new Date(updatedAt * 1000))}). Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.`
+      : "Wi-Fi poverilnice so izbrisane. Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.";
+  } else if (state === "error") {
+    elements.cloudWifiResetStatus.textContent = status?.message || "Brisanje Wi-Fi poverilnic ni uspelo; naprava ostaja povezana.";
+  } else if (isProcessing) {
+    elements.cloudWifiResetStatus.textContent = status?.message || "Naprava ponastavlja shranjeno Wi-Fi omrežje …";
+  } else if (!isSelectedDeviceOnline) {
+    elements.cloudWifiResetStatus.textContent = "Panj je offline; ponastavitev omrežja trenutno ni mogoča.";
+  } else {
+    elements.cloudWifiResetStatus.textContent = "Naprava je online in pripravljena na ponastavitev omrežja.";
+  }
+}
+
+function updateConfirmationDialogState() {
+  const requiresTypedConfirmation = Boolean(confirmationDialogRequiredText);
+  elements.confirmationDialogConfirm.disabled = requiresTypedConfirmation &&
+    elements.confirmationDialogInput.value !== confirmationDialogRequiredText;
+}
+
+function settleConfirmationDialog(confirmed) {
+  const resolver = confirmationDialogResolver;
+  confirmationDialogResolver = undefined;
+  confirmationDialogRequiredText = "";
+  if (elements.confirmationDialog.open) {
+    elements.confirmationDialog.close();
+  }
+  resolver?.(confirmed);
+}
+
+function initializeConfirmationDialog() {
+  elements.confirmationDialogCancel.addEventListener("click", () => settleConfirmationDialog(false));
+  elements.confirmationDialogInput.addEventListener("input", updateConfirmationDialogState);
+  elements.confirmationDialogForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (elements.confirmationDialogConfirm.disabled) {
+      elements.confirmationDialogInput.focus();
+      return;
+    }
+    settleConfirmationDialog(true);
+  });
+  elements.confirmationDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    settleConfirmationDialog(false);
+  });
+  elements.confirmationDialog.addEventListener("close", () => {
+    if (confirmationDialogResolver) {
+      settleConfirmationDialog(false);
+    }
+  });
+}
+
+function confirmDashboardAction({
+  title,
+  message,
+  confirmLabel = "Nadaljuj",
+  requiredText = "",
+  danger = false,
+}) {
+  if (confirmationDialogResolver) {
+    return Promise.resolve(false);
+  }
+
+  elements.confirmationDialogEyebrow.textContent = danger ? "Nevarno dejanje" : "Potrditev dejanja";
+  elements.confirmationDialogTitle.textContent = title;
+  elements.confirmationDialogMessage.textContent = message;
+  elements.confirmationDialogConfirm.textContent = confirmLabel;
+  elements.confirmationDialog.classList.toggle("confirmation-dialog-danger", danger);
+  confirmationDialogRequiredText = requiredText;
+  elements.confirmationDialogInput.value = "";
+  elements.confirmationDialogInputLabel.hidden = !requiredText;
+  elements.confirmationDialogInput.required = Boolean(requiredText);
+  elements.confirmationDialogInputHint.textContent = requiredText
+    ? `Za potrditev vpiši ${requiredText}.`
+    : "";
+  updateConfirmationDialogState();
+
+  return new Promise((resolve) => {
+    confirmationDialogResolver = resolve;
+    elements.confirmationDialog.showModal();
+    window.setTimeout(() => {
+      if (!elements.confirmationDialog.open) return;
+      if (requiredText) {
+        elements.confirmationDialogInput.focus();
+      } else {
+        elements.confirmationDialogConfirm.focus();
+      }
+    }, 0);
+  });
+}
+
 function confirmPermanentHistoryDeletion(message) {
-  return window.prompt(`${message}\n\nZa potrditev vpiši IZBRIŠI.`) === "IZBRIŠI";
+  return confirmDashboardAction({
+    title: "Trajni izbris meritev",
+    message,
+    confirmLabel: "Trajno izbriši",
+    requiredText: "IZBRIŠI",
+    danger: true,
+  });
+}
+
+function confirmCloudWifiCredentialReset() {
+  return confirmDashboardAction({
+    title: "Izbriši Wi-Fi poverilnice",
+    message: "Naprava bo trajno izbrisala shranjeno domače Wi-Fi omrežje, prekinila cloud povezavo in odprla lokalni nastavitveni dostop. Nato se poveži z njenim provisioning Wi-Fi omrežjem in odpri 192.168.4.1.",
+    confirmLabel: "Izbriši Wi-Fi",
+    requiredText: "WI-FI",
+    danger: true,
+  });
 }
 
 async function deleteDeviceHistory() {
@@ -1484,7 +2268,7 @@ async function deleteDeviceHistory() {
     elements.deleteDeviceHistory.disabled = true;
     return;
   }
-  if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
+  if (!await confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
 
   elements.deleteDeviceHistory.disabled = true;
   elements.historyManagementStatus.textContent = "Ukaz za popoln izbris pošiljam napravi …";
@@ -1499,6 +2283,30 @@ async function deleteDeviceHistory() {
     console.error(error);
     elements.historyManagementStatus.textContent = "Pošiljanje ukaza za brisanje ni uspelo.";
     renderHistoryManagementStatus(latestHistoryManagementStatus);
+  }
+}
+
+async function clearCloudWifiCredentials() {
+  if (!isCloudAdministrator() || !cloudDevicePath || !firebaseDatabase) return;
+  if (!isDeviceOnline(latestDeviceStatus)) {
+    renderCloudWifiResetStatus(latestNetworkResetStatus);
+    return;
+  }
+  if (!await confirmCloudWifiCredentialReset()) return;
+
+  elements.clearCloudWifiCredentials.disabled = true;
+  elements.cloudWifiResetStatus.textContent = "Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …";
+  try {
+    const { database, ref, set } = firebaseDatabase;
+    await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
+      action: "clear_wifi_credentials",
+      requested_at: Math.floor(Date.now() / 1000),
+    });
+    elements.cloudWifiResetStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
+  } catch (error) {
+    console.error(error);
+    elements.cloudWifiResetStatus.textContent = "Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.";
+    renderCloudWifiResetStatus(latestNetworkResetStatus);
   }
 }
 
@@ -1630,7 +2438,12 @@ async function scanWiFiNetworks() {
 }
 
 async function forgetWiFiConfiguration() {
-  if (!window.confirm("Izbrišem shranjeni Wi‑Fi? Naprava bo nato odprla svojo dostopno točko.")) return;
+  if (!await confirmDashboardAction({
+    title: "Izbriši shranjeni Wi‑Fi",
+    message: "Naprava bo nato odprla svojo dostopno točko.",
+    confirmLabel: "Izbriši Wi‑Fi",
+    danger: true,
+  })) return;
 
   elements.wifiForget.disabled = true;
   showForgottenWiFiTransition();
@@ -1659,7 +2472,11 @@ async function resetCloudHistorySynchronization() {
     elements.cloudResync.disabled = true;
     return;
   }
-  if (!window.confirm("Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve. Nadaljujem?")) return;
+  if (!await confirmDashboardAction({
+    title: "Ponovno sinhroniziraj zgodovino",
+    message: "Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve.",
+    confirmLabel: "Začni sinhronizacijo",
+  })) return;
 
   elements.cloudResync.disabled = true;
   elements.cloudSyncStatus.textContent = "Pripravljam primerjavo SD zgodovine in Firebase …";
@@ -1695,7 +2512,7 @@ async function deleteLocalMeasurementHistory() {
     elements.deleteLocalMeasurementLog.disabled = true;
     return;
   }
-  if (!confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.")) return;
+  if (!await confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.")) return;
 
   elements.deleteLocalMeasurementLog.disabled = true;
   elements.localMeasurementLogStatus.textContent = "Zahtevo za brisanje pošiljam napravi …";
@@ -1716,7 +2533,11 @@ async function requestLoadCellTare() {
     statusElement.textContent = "HX711 ni pripravljen; tariranje trenutno ni možno.";
     return;
   }
-  if (!window.confirm("Odstrani panj in vse uteži s ploščadi. Trenutno stanje bo nastavljeno na 0,00 kg. Nadaljujem?")) return;
+  if (!await confirmDashboardAction({
+    title: "Tariraj tehtnico",
+    message: "Odstrani panj in vse uteži s ploščadi. Trenutno stanje bo nastavljeno na 0,00 kg.",
+    confirmLabel: "Tariraj",
+  })) return;
 
   const previousStatus = latestLoadCellTareStatus;
   const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
@@ -2070,7 +2891,11 @@ async function checkForFirmwareRelease() {
 
 async function requestFirmwareUpdate() {
   if (!firebaseDatabase || !availableOtaRelease || otaCommandPending) return;
-  if (!window.confirm(`Ali želiš napravo posodobiti na verzijo ${availableOtaRelease.version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.`)) return;
+  if (!await confirmDashboardAction({
+    title: "Namesti posodobitev",
+    message: `Napravo posodobim na verzijo ${availableOtaRelease.version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.`,
+    confirmLabel: "Začni posodobitev",
+  })) return;
 
   otaCommandPending = true;
   updateOtaActionState();
@@ -2138,27 +2963,53 @@ function aggregateReadings(readings, range) {
 
   readings.forEach((reading) => {
     const timestamp = Number(reading.timestamp);
-    const temperature = Number(reading.temperature_c);
-    const humidity = Number(reading.humidity_percent);
-    const weight = Number(reading.weight_kg);
-    if (![timestamp, temperature, humidity, weight].every(Number.isFinite)) return;
-    const sampleCount = Math.max(1, Number(reading.sample_count) || 1);
+    const temperature = parseMeasurementValue(reading.temperature_c);
+    const humidity = parseMeasurementValue(reading.humidity_percent);
+    const weight = parseMeasurementValue(reading.weight_kg);
+    if (!Number.isFinite(timestamp) || (temperature === null && humidity === null && weight === null)) return;
+    const reportedSampleCount = Math.floor(Number(reading.sample_count));
+    const sampleCount = Number.isFinite(reportedSampleCount) && reportedSampleCount > 0
+      ? reportedSampleCount
+      : 1;
+    const getComponentSampleCount = (value) => {
+      const count = Math.floor(Number(value));
+      return Number.isFinite(count) && count > 0 ? count : sampleCount;
+    };
 
     const bucket = Math.floor(timestamp / bucketSeconds) * bucketSeconds;
-    const current = buckets.get(bucket) ?? { timestamp: bucket, count: 0, temperature: 0, humidity: 0, weight: 0 };
-    current.count += sampleCount;
-    current.temperature += temperature * sampleCount;
-    current.humidity += humidity * sampleCount;
-    current.weight += weight * sampleCount;
+    const current = buckets.get(bucket) ?? {
+      timestamp: bucket,
+      temperature: 0,
+      humidity: 0,
+      weight: 0,
+      temperatureCount: 0,
+      humidityCount: 0,
+      weightCount: 0,
+    };
+    if (temperature !== null) {
+      const temperatureCount = getComponentSampleCount(reading.temperature_sample_count);
+      current.temperature += temperature * temperatureCount;
+      current.temperatureCount += temperatureCount;
+    }
+    if (humidity !== null) {
+      const humidityCount = getComponentSampleCount(reading.humidity_sample_count);
+      current.humidity += humidity * humidityCount;
+      current.humidityCount += humidityCount;
+    }
+    if (weight !== null) {
+      const weightCount = getComponentSampleCount(reading.weight_sample_count);
+      current.weight += weight * weightCount;
+      current.weightCount += weightCount;
+    }
     buckets.set(bucket, current);
   });
 
   return [...buckets.values()]
     .map((bucket) => ({
       timestamp: bucket.timestamp,
-      temperature_c: bucket.temperature / bucket.count,
-      humidity_percent: bucket.humidity / bucket.count,
-      weight_kg: bucket.weight / bucket.count,
+      temperature_c: bucket.temperatureCount > 0 ? bucket.temperature / bucket.temperatureCount : null,
+      humidity_percent: bucket.humidityCount > 0 ? bucket.humidity / bucket.humidityCount : null,
+      weight_kg: bucket.weightCount > 0 ? bucket.weight / bucket.weightCount : null,
     }))
     .sort((first, second) => first.timestamp - second.timestamp);
 }
@@ -2261,9 +3112,9 @@ function buildUPlotData(readings) {
     const timestamp = Number(reading?.timestamp);
     if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
     measurementsByTimestamp.set(timestamp, {
-      temperature: Number.isFinite(Number(reading?.temperature_c)) ? Number(reading.temperature_c) : null,
-      humidity: Number.isFinite(Number(reading?.humidity_percent)) ? Number(reading.humidity_percent) : null,
-      weight: Number.isFinite(Number(reading?.weight_kg)) ? Number(reading.weight_kg) : null,
+      temperature: parseMeasurementValue(reading?.temperature_c),
+      humidity: parseMeasurementValue(reading?.humidity_percent),
+      weight: parseMeasurementValue(reading?.weight_kg),
     });
   }
 
@@ -2386,9 +3237,9 @@ function updateChartTooltip(chart, tooltip) {
   let hasValue = false;
   tooltip.timestamp.textContent = formatDashboardDateTime(new Date(timestamp * 1000));
   tooltip.rows.forEach(({ row, value, seriesIndex }) => {
-    const measurement = Number(chart.data[seriesIndex]?.[index]);
+    const measurement = parseMeasurementValue(chart.data[seriesIndex]?.[index]);
     const isVisible = chart.series[seriesIndex]?.show !== false;
-    const isValid = Number.isFinite(measurement);
+    const isValid = measurement !== null;
     row.hidden = !isVisible || !isValid;
     if (isValid) {
       value.textContent = formatValue(measurement);
@@ -3396,8 +4247,22 @@ async function registerEmailAccount() {
 async function signInWithGoogle() {
   elements.authStatus.textContent = "Odpiram Google prijavo …";
   try {
-    const provider = new firebaseAuthModule.GoogleAuthProvider();
-    await firebaseAuthModule.signInWithPopup(firebaseAuth, provider);
+    if (isAndroidAppDashboard) {
+      const result = await requestNativeAuthentication("google-sign-in");
+      const idToken = result?.idToken;
+      if (!idToken) {
+        throw new Error("Google prijava ni vrnila veljavnega identifikacijskega žetona.");
+      }
+
+      const credential = firebaseAuthModule.GoogleAuthProvider.credential(
+        idToken,
+        result.accessToken || undefined,
+      );
+      await firebaseAuthModule.signInWithCredential(firebaseAuth, credential);
+    } else {
+      const provider = new firebaseAuthModule.GoogleAuthProvider();
+      await firebaseAuthModule.signInWithPopup(firebaseAuth, provider);
+    }
     elements.authDialog.close();
   } catch (error) {
     console.error(error);
@@ -3405,9 +4270,77 @@ async function signInWithGoogle() {
   }
 }
 
+function requestNativeAuthentication(action) {
+  if (!isAndroidAppDashboard || window.parent === window) {
+    return Promise.reject(new Error("Nativna prijava ni na voljo. Posodobi ali znova namesti aplikacijo."));
+  }
+
+  try {
+    const nativeBridge = window.parent.PametniCebelnjakNativeAuth;
+    if (typeof nativeBridge?.request === "function") {
+      return Promise.resolve().then(() => nativeBridge.request(action));
+    }
+  } catch (error) {
+    console.warn("Neposredni Android auth most ni dosegljiv; uporabljam rezervni postMessage most.", error);
+  }
+
+  const requestId = window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Nativna prijava se ni odzvala. Poskusi znova."));
+    }, NATIVE_AUTH_REQUEST_TIMEOUT_MS);
+
+    function cleanup() {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("message", handleResult);
+    }
+
+    function handleResult(event) {
+      if (event.source !== window.parent) {
+        return;
+      }
+
+      const response = event.data;
+      if (!response || response.type !== NATIVE_AUTH_RESULT_TYPE || response.requestId !== requestId) {
+        return;
+      }
+
+      cleanup();
+      if (response.ok) {
+        resolve(response.payload || {});
+        return;
+      }
+
+      const error = new Error(response.error?.message || "Nativna prijava ni uspela.");
+      if (response.error?.code) {
+        error.code = response.error.code;
+      }
+      reject(error);
+    }
+
+    window.addEventListener("message", handleResult);
+    window.parent.postMessage({
+      type: NATIVE_AUTH_REQUEST_TYPE,
+      requestId,
+      action,
+    }, "*");
+  });
+}
+
 async function signOutCurrentUser() {
   try {
     await firebaseAuthModule.signOut(firebaseAuth);
+    if (isAndroidAppDashboard) {
+      try {
+        await requestNativeAuthentication("sign-out");
+      } catch (nativeError) {
+        console.warn("Nativne Google seje ni bilo mogoče počistiti.", nativeError);
+      }
+    }
   } catch (error) {
     console.error(error);
     setConnectionState("Odjava ni uspela", "error");
@@ -3642,7 +4575,12 @@ function renderSharedViewerList(deviceId, accessRecords) {
 
 async function revokeSharedViewer(deviceId, viewerUid, viewerEmail, button) {
   if (!currentCloudUser || !firebaseDatabase || getCloudDeviceAccessRole(deviceId) !== "owner") return;
-  if (!window.confirm(`Prekličem dostop samo za ogled uporabniku ${viewerEmail || viewerUid}?`)) return;
+  if (!await confirmDashboardAction({
+    title: "Prekliči deljeni dostop",
+    message: `Prekličem dostop samo za ogled uporabniku ${viewerEmail || viewerUid}?`,
+    confirmLabel: "Prekliči dostop",
+    danger: true,
+  })) return;
 
   button.disabled = true;
   elements.shareDeviceStatus.textContent = "Preklicujem deljeni dostop …";
@@ -3651,6 +4589,7 @@ async function revokeSharedViewer(deviceId, viewerUid, viewerEmail, button) {
     await update(ref(database), {
       [`device_access/${deviceId}/${viewerUid}`]: null,
       [`users/${viewerUid}/shared_devices/${deviceId}`]: null,
+      [`users/${viewerUid}/weather_preferences/${deviceId}`]: null,
     });
     elements.shareDeviceStatus.textContent = "Dostop uporabnika je preklican.";
   } catch (error) {
@@ -3666,6 +4605,17 @@ async function appendSharedViewerRemovalUpdates(deviceId, updates) {
   Object.keys(accessSnapshot.val() ?? {}).forEach((viewerUid) => {
     updates[`device_access/${deviceId}/${viewerUid}`] = null;
     updates[`users/${viewerUid}/shared_devices/${deviceId}`] = null;
+    updates[`users/${viewerUid}/weather_preferences/${deviceId}`] = null;
+  });
+}
+
+async function appendDeviceShareInvitationRemovalUpdates(deviceId, updates) {
+  const { database, get, ref } = firebaseDatabase;
+  const invitationsSnapshot = await get(ref(database, "share_invites"));
+  Object.entries(invitationsSnapshot.val() ?? {}).forEach(([invitationCode, invitation]) => {
+    if (invitation?.device_id === deviceId) {
+      updates[`share_invites/${invitationCode}`] = null;
+    }
   });
 }
 
@@ -3681,9 +4631,12 @@ async function unclaimDevice() {
   }
 
   const displayName = cloudDevices[deviceId].display_name || deviceId;
-  const isConfirmed = window.confirm(
-    `Ali želiš odregistrirati panj »${displayName}«?\n\nMeritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.`,
-  );
+  const isConfirmed = await confirmDashboardAction({
+    title: "Odregistriraj panj",
+    message: `Ali želiš panj »${displayName}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.`,
+    confirmLabel: "Odregistriraj",
+    danger: true,
+  });
   if (!isConfirmed) return;
 
   const { database, ref, update } = firebaseDatabase;
@@ -3712,9 +4665,12 @@ async function removeSharedDeviceAccess(deviceId) {
   if (!currentCloudUser || !firebaseDatabase || getCloudDeviceAccessRole(deviceId) !== "viewer") return;
 
   const displayName = cloudDevices[deviceId]?.display_name || deviceId;
-  const isConfirmed = window.confirm(
-    `Ali želiš deljeni panj »${displayName}« odstraniti iz svojega računa?\n\nLastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.`,
-  );
+  const isConfirmed = await confirmDashboardAction({
+    title: "Odstrani deljeni panj",
+    message: `Ali želiš deljeni panj »${displayName}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.`,
+    confirmLabel: "Odstrani",
+    danger: true,
+  });
   if (!isConfirmed) return;
 
   const { database, ref, update } = firebaseDatabase;
@@ -3725,6 +4681,7 @@ async function removeSharedDeviceAccess(deviceId) {
     await update(ref(database), {
       [`device_access/${deviceId}/${currentCloudUser.uid}`]: null,
       [`users/${currentCloudUser.uid}/shared_devices/${deviceId}`]: null,
+      [`users/${currentCloudUser.uid}/weather_preferences/${deviceId}`]: null,
     });
 
     if (localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY) === deviceId) {
@@ -3740,12 +4697,23 @@ async function removeSharedDeviceAccess(deviceId) {
 
 function confirmAdministratorUnclaim(deviceId, ownerEmail) {
   const ownerDescription = ownerEmail ? `uporabnika ${ownerEmail}` : "trenutnega uporabnika";
-  const confirmation = window.prompt(
-    `Ali želiš panj ${deviceId} odjaviti od ${ownerDescription}?\n\n` +
-    "Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.\n\n" +
-    "Za potrditev vpiši ODJAVI.",
-  );
-  return confirmation === "ODJAVI";
+  return confirmDashboardAction({
+    title: "Odjavi lastnika",
+    message: `Ali želiš panj ${deviceId} odjaviti od ${ownerDescription}? Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.`,
+    confirmLabel: "Odjavi lastnika",
+    requiredText: "ODJAVI",
+    danger: true,
+  });
+}
+
+function confirmAdministratorDeviceDeletion(deviceId) {
+  return confirmDashboardAction({
+    title: "Trajno izbriši napravo",
+    message: `Ali želiš napravo ${deviceId} trajno izbrisati iz Firebase? Izbrisani bodo lastništvo, meritve, agregati, stanje naprave, ukazi, aktivacijska koda, zahtevki in deljeni dostopi. Tega ni mogoče razveljaviti. Če je naprava še povezana, lahko z istim firmwareom začne znova pošiljati nove podatke.`,
+    confirmLabel: "Trajno izbriši",
+    requiredText: "IZBRIŠI",
+    danger: true,
+  });
 }
 
 async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
@@ -3757,7 +4725,7 @@ async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
     statusElement.textContent = "Panj nima registriranega lastnika.";
     return;
   }
-  if (!confirmAdministratorUnclaim(deviceId, device.owner_email)) return;
+  if (!await confirmAdministratorUnclaim(deviceId, device.owner_email)) return;
 
   button.disabled = true;
   statusElement.textContent = "Odjavljam lastnika …";
@@ -3776,6 +4744,45 @@ async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
     console.error(error);
     statusElement.textContent = "Odjava lastnika ni uspela. Panj ostaja povezan z računom.";
     button.disabled = false;
+  }
+}
+
+async function deleteDeviceAsAdministrator(deviceId, actionButtons, statusElement) {
+  if (!isCloudAdministrator() || !firebaseDatabase) return;
+  if (!await confirmAdministratorDeviceDeletion(deviceId)) return;
+
+  const device = cloudDevices[deviceId] ?? {};
+  actionButtons.querySelectorAll("button").forEach((button) => {
+    button.disabled = true;
+  });
+  statusElement.textContent = "Brišem napravo in njene Firebase zapise …";
+
+  try {
+    const { database, ref, update } = firebaseDatabase;
+    const updates = {
+      [`devices/${deviceId}`]: null,
+      [`device_secrets/${deviceId}`]: null,
+      [`device_claims/${deviceId}`]: null,
+    };
+    const ownerUid = String(device.owner_uid ?? "");
+    if (ownerUid) {
+      updates[`users/${ownerUid}/devices/${deviceId}`] = null;
+    }
+    await appendSharedViewerRemovalUpdates(deviceId, updates);
+    await appendDeviceShareInvitationRemovalUpdates(deviceId, updates);
+    await update(ref(database), updates);
+
+    ownerEmailSyncedDeviceIds.delete(deviceId);
+    if (localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY) === deviceId) {
+      localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
+    }
+    statusElement.textContent = "Naprava in vsi njeni Firebase zapisi so izbrisani.";
+  } catch (error) {
+    console.error(error);
+    statusElement.textContent = "Izbris naprave ni uspel. Firebase zapisi ostanejo nespremenjeni.";
+    actionButtons.querySelectorAll("button").forEach((button) => {
+      button.disabled = false;
+    });
   }
 }
 
@@ -3854,6 +4861,7 @@ function initializeAuthControls() {
   elements.acceptShareForm.addEventListener("submit", acceptShareInvitation);
   elements.unclaimDevice.addEventListener("click", unclaimDevice);
   elements.deleteDeviceHistory.addEventListener("click", deleteDeviceHistory);
+  elements.clearCloudWifiCredentials.addEventListener("click", clearCloudWifiCredentials);
 }
 
 async function useLocalDataSource() {
@@ -3988,6 +4996,8 @@ async function startDashboard() {
   initializeTheme();
   initializeNavigation();
   initializeDateRangePicker();
+  initializeConfirmationDialog();
+  initializeWeatherSettings();
   initializeOtaControls();
   initializeProvisioningForm();
   setInterval(() => {
@@ -3995,11 +5005,18 @@ async function startDashboard() {
     if (isSharedCloudDeviceSelected()) renderHeaderDeviceState();
     else renderDeviceStatus(latestDeviceStatus);
   }, 15_000);
+  setInterval(() => {
+    void refreshWeatherForecast();
+  }, WEATHER_REFRESH_INTERVAL_MS);
 
-  try {
-    await useLocalDataSource();
-  } catch {
+  if (isAndroidAppDashboard) {
     await useFirebaseDataSource();
+  } else {
+    try {
+      await useLocalDataSource();
+    } catch {
+      await useFirebaseDataSource();
+    }
   }
   dashboardDataSourceReady = true;
   refreshVisibleHistory();

@@ -31,6 +31,10 @@ Lastnik lahko vidi seznam gledalcev in posamezen dostop prekliče. Gledalec lahk
 
 ## Skrbniški ogled
 
+Glavni skrbnik lahko v zavihku naprave s potrditvijo `WI-FI` tudi izbriše shranjene Wi-Fi poverilnice. Ukaz `clear_wifi_credentials` je v Firebase pravilih dovoljen izključno temu računu; naprava nato prekine cloud povezavo in odpre provisioning AP za novo nastavitev.
+
+Glavni skrbnik lahko na kartici naprave desno od gumba **Odjavi lastnika** uporabi tudi **Izbriši napravo**. Ta možnost je na voljo za registrirane in neregistrirane naprave.
+
 Za trenutni beta skrbniški UID so Firebase pravila določena neposredno v `database.rules.json`. Ta račun lahko bere celotno pot `/devices`, zato cloud nadzorna plošča samodejno prikaže vse registrirane in še neregistrirane panje brez aktivacijske kode. Skrbnik lahko za izbrani panj pošlje OTA ukaz, počisti merilno zgodovino in odjavi trenutnega lastnika; ne more pa nastaviti novega lastnika, brati zasebnih aktivacijskih podatkov ali upravljati uporabniških računov.
 
 Za nadaljnjo produkcijsko administracijo je treba ta enkratni UID zamenjati z vlogo Firebase custom claim, ki jo nastavi zaupanja vreden Admin SDK backend.
@@ -55,6 +59,16 @@ Ta beta namerno ne uporablja Cloud Functions in zato ne zahteva Blaze paketa. Ak
 Prijavljen lastnik lahko v cloud nadzorni plošči odregistrira izbrani panj. Po potrditvi se z eno atomsko posodobitvijo odstranijo povezava `/users/{uid}/devices/{deviceId}`, lastništvo pod `/devices/{deviceId}` in vsi deljeni dostopi.
 
 Meritve, status naprave, SD sinhronizacija in zasebna aktivacijska koda se ne brišejo. Panj zato ni več viden nobenemu uporabniku, novi lastnik pa ga lahko z istim ID-jem in aktivacijsko kodo ponovno registrira. Firebase pravilo dovoli brisanje `owner_uid` trenutnemu lastniku ali trenutnemu beta skrbniškemu UID-ju. Skrbniška kartica zahteva besedo `ODJAVI` in nato z enim atomarnim zapisom odstrani `owner_uid`, `owner_email` ter `/users/{lastnik_uid}/devices/{deviceId}`, zato ne more nastati delno odjavljen panj.
+
+## Trajni izbris naprave za skrbnika
+
+Skrbnik mora v potrditveno polje vnesti `IZBRIŠI`. En atomski Firebase zapis nato odstrani `/devices/{deviceId}`, `/device_secrets/{deviceId}`, `/device_claims/{deviceId}`, lastnikovo povezavo v `/users`, vse deljene dostope ter njihove povezave v `/users`, pa tudi vsa odprta `/share_invites`, vezana na napravo.
+
+Ker firmware ostane nespremenjen in beta dovoljuje anonimne zapise naprave, lahko še povezan ESP32 po izbrisu znova ustvari sveže zapise za isti `device_id`. Izbris zato zanesljivo odstrani obstoječe cloud podatke in lastništvo, ne pomeni pa izklopa fizične naprave.
+
+## Lokacija vremena
+
+Nastavitev vremena pod `/devices/{deviceId}/weather` je zasebna za lastnika in beta skrbnika, saj vsebuje koordinate lokacije panja. Deljeni uporabniki je ne morejo brati ali spreminjati. Lastnikova stran ob shranitvi izdela še ločen zapis `/devices/{deviceId}/weather_public` z vklopom, dolžino napovedi in imenom kraja, brez koordinat. Deljeni uporabnik lahko prebere samo ta javni vremenski opis, nato pa z lastnim stikalom pod `/users/{uid}/weather_preferences/{deviceId}/show_weather` določi prikaz kartice na svojem pregledu. Ta nastavitev ne spremeni lastnikovega prikaza, kraja ali napovedi. Open-Meteo z imenom kraja poišče približno lokacijo za prikaz kartice. Cloud stran zaprosi za lokacijo samo po uporabnikovem kliku, lahko pa lastnik tudi ročno poišče kraj. Koordinate se ob uporabnikovi izbiri enkrat pretvorijo v ime kraja prek povratnega geokodiranja OpenStreetMap; pri starejši shranjeni oznaki »Trenutna lokacija« se enaka dopolnitev izvede ob naslednjem odpiranju nastavitev. Open-Meteo dobi samo shranjene koordinate za lastnikovo vremensko napoved. Ko je prikaz izključen za ta uporabniški pregled, vremenski API ni poklican; med odprtim pregledom se osveži največ enkrat na 15 minut.
 
 ## Pomembna omejitev
 

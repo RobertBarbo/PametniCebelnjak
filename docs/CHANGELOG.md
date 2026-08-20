@@ -2,11 +2,53 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [Unreleased]
+
+### Added
+
+- Glavni skrbnik lahko v cloud zavihku **Naprava** pod brisanjem zgodovine z vpisom `WI-FI` pošlje ukaz **Izbriši Wi-Fi poverilnice**. ESP32 pred prekinitvijo povezave zapiše stanje ukaza, izbriše NVS poverilnice in odpre provisioning AP za novo nastavitev; upravljanje je na mobilnih zaslonih enako odzivno kot preostali odseki.
+- Glavni skrbnik ima na kartici vsake naprave poleg gumba **Odjavi lastnika** gumb **Izbriši napravo**. Po vnosu `IZBRIŠI` z enim atomarnim Firebase zapisom odstrani napravo, lastništvo, meritve, agregate, stanje, ukaze, aktivacijsko kodo, zahtevke, deljene dostope in odprta povabila.
+- Dodani sta kartica **Vreme v kraju [kraj]** na pregledu in kartica **Nastavitve vremena** med računom ter stanjem sistema. Lastnik oziroma skrbnik lahko za posamezen panj vključi prikaz, izbere 3- ali 5-dnevno napoved in shrani lokacijo brskalnika ali ročno izbran kraj; lokacija brskalnika se prikaže z imenom kraja.
+- Deljeni uporabnik ima pri izbranem panju lastno stikalo za prikaz vremenske kartice na svojem pregledu. Ne more spreminjati kraja ali dolžine napovedi; Firebase mu razkrije samo ime kraja in dolžino napovedi, nikoli koordinat panja.
+
+### Changed
+
+- Vsa spletna potrditvena okna zdaj uporablja enoten prilagojen modal namesto brskalniških `confirm()` in `prompt()` dialogov. Nevarna dejanja še vedno zahtevajo ustrezno vneseno potrditveno besedo.
+- Vremenski podatki se pridobijo neposredno iz brezplačnega Open-Meteo API-ja samo, kadar je prikaz vremena za izbrani panj vključen. Med odprtim pogledom **Pregled** se osvežijo največ enkrat na 15 minut, ob spremembi kraja ali dolžine napovedi pa se podatki pridobijo znova.
+- Vremenska kartica uporablja enotne barvne SVG ikone za stanje vremena, temperaturo, vlago, tlak in veter. Pod naslovom prikaže polno ime shranjenega kraja.
+
+## [0.1.0-rc.38] - 2026-08-20
+
+### Changed
+
+- Merilni cikel ima ločeno veljavnost BME680 in HX711. Če odpove le eden od njiju, se veljavne vrednosti drugega še vedno posodobijo v `latest`, zapišejo v SD dnevnik in pošljejo v Firebase.
+- Manjkajoče vrednosti so v SD CSV dnevniku prazna polja, v lokalnem API-ju in Firebase pa `null` oziroma odsotna lastnost. Lokalni in cloud grafi jih prikažejo kot vrzel ter posamezne serije povprečijo samo iz veljavnih vzorcev.
+- Urni in dnevni Firebase agregati poleg `sample_count` hranijo ločene števce veljavnih temperatur, vlag in tež. Spremenjeni model ob prvi uporabi varno ponovno izdela agregate iz SD zgodovine.
+
+### Fixed
+
+- Ponovno povezana naprava po uspešni ponastavitvi Wi-Fi-ja ne ostane več zaklenjena zaradi starega Firebase stanja `queued`; nov online odziv odklene skrbniški gumb za morebitno naslednjo ponastavitev.
+- Okvara HX711 ne ustavi več temperature in relativne vlage, okvara BME680 pa ne ustavi več teže panja. Kartica trenutne meritve pri dejansko manjkajoči vrednosti pokaže **Ni na voljo**, obstoječa opozorila komponent pa ostanejo nespremenjena.
+
 ## [0.1.0-rc.37] - 2026-08-14
 
 ### Added
 
 - Uporabnik lahko izbrani deljeni panj odstrani iz svojega računa z gumbom **Odstrani deljeni panj**; odstranita se samo njegov dostop in povezava v izbirniku, lastni panj ter meritve pa ostanejo nespremenjeni.
+- Dodana je samostojna Android aplikacija `0.1.0`, ki prek sistemskega Wi-Fi izbirnika poveže telefon s provisioning AP-jem, vodi nastavitev domačega omrežja in nato odpre obstoječo cloud nadzorno ploščo.
+
+### Changed
+
+- Android aplikacija cloud nadzorno ploščo odpre v lastnem Capacitor WebView namesto v zunanjem brskalniku.
+- Gumb za odpiranje nadzorne plošče takoj prikaže stanje nalaganja, preden aplikacijski WebView preide na cloud stran.
+
+### Fixed
+
+- Gumba za prikaz Wi-Fi gesla in ponovno iskanje omrežij uporabljata poravnani SVG ikoni pravilnih mer, zato njun položaj ni več odvisen od prikaza emojijev na telefonu.
+- Skrbniški gumb **Odjavi lastnika** na ozkih zaslonih ostane znotraj kartice panja in se prilagodi njeni širini.
+- Google prijava v Android aplikaciji uporablja nativni Android izbirnik računa in Firebase poverilnico vrne istemu WebViewu, zato se ne odpre več v Firefoxu in ne izgubi OAuth začetnega stanja.
+- Gostovana cloud stran v aplikacijskem WebViewu dinamično registrira nativni `FirebaseAuthentication` most in v Android aplikaciji ne uporabi spletnega popup/redirect toka; s tem je odpravljena napaka Firebase **missing initial state**.
+- Gumb **Odpri nadzorno ploščo** cloud stran odpre ob prvem dotiku brez zakasnitve dveh animacijskih okvirjev.
 
 ## [0.1.0-rc.36] - 2026-08-14
 

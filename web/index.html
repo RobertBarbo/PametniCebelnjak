@@ -103,6 +103,27 @@
           </div>
         </section>
 
+        <section class="weather-overview surface" id="weather-overview" aria-labelledby="weather-overview-heading" hidden>
+          <div class="section-heading weather-heading">
+            <div>
+              <p class="eyebrow">Vreme</p>
+              <h2 id="weather-overview-heading">Vreme v kraju</h2>
+              <p class="muted" id="weather-location-name">—</p>
+            </div>
+            <small class="weather-updated" id="weather-updated" aria-live="polite">Čakam na podatke …</small>
+          </div>
+          <div class="weather-current" id="weather-current">
+            <div class="weather-condition"><span class="weather-icon" id="weather-current-icon" aria-hidden="true">☁</span><div><strong id="weather-current-condition">—</strong></div></div>
+            <div class="weather-temperature"><span class="weather-detail-icon weather-detail-icon-temperature" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14V5a2 2 0 1 1 4 0v9"/><circle cx="12" cy="17" r="4"/><path d="M12 8v9"/></svg></span><strong id="weather-current-temperature">—</strong><small>°C</small></div>
+            <dl class="weather-current-details">
+              <div><dt><span class="weather-detail-icon weather-detail-icon-humidity" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3s-6 6.1-6 10.4a6 6 0 0 0 12 0C18 9.1 12 3 12 3Z"/></svg></span>Vlaga</dt><dd id="weather-current-humidity">—</dd></div>
+              <div><dt><span class="weather-detail-icon weather-detail-icon-pressure" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 15a8 8 0 1 1 16 0"/><path d="m12 12 4-3M4 18h16"/></svg></span>Tlak</dt><dd id="weather-current-pressure">—</dd></div>
+              <div><dt><span class="weather-detail-icon weather-detail-icon-wind" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 8h12a3 3 0 1 0-3-3"/><path d="M3 12h16"/><path d="M3 16h11a3 3 0 1 1-3 3"/></svg></span>Veter</dt><dd id="weather-current-wind">—</dd></div>
+            </dl>
+          </div>
+          <div class="weather-forecast" id="weather-forecast" aria-live="polite"></div>
+        </section>
+
         <div class="overview-links">
           <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Podrobnosti naprave</strong></button>
           <button class="quick-link cloud-only-link" id="cloud-updates-quick-link" type="button" data-view-target="updates"><span>Različica</span><strong>Preveri posodobitve</strong></button>
@@ -214,6 +235,33 @@
               </form>
             </div>
           </div>
+        </section>
+
+        <section class="weather-settings-panel surface" id="weather-settings-panel" data-cloud-device-management aria-labelledby="weather-settings-heading" hidden>
+          <div class="section-heading">
+            <div><p class="eyebrow">Vreme na pregledu</p><h2 id="weather-settings-heading">Nastavitve vremena</h2><p class="muted">Vremenski podatki se pridobivajo iz storitve Open-Meteo glede na shranjeno lokacijo in se osvežujejo vsakih 15 minut.</p></div>
+          </div>
+          <form class="weather-settings-form" id="weather-settings-form">
+            <label class="weather-enabled-control" for="weather-enabled"><span><strong>Prikaži vreme</strong><small>Na pregledu prikaži trenutno vreme in napoved.</small></span><input id="weather-enabled" type="checkbox" role="switch" /></label>
+            <fieldset class="weather-settings-fields" id="weather-settings-fields">
+              <label class="account-field">Dolžina napovedi<select id="weather-forecast-days"><option value="3">3 dni</option><option value="5">5 dni</option></select></label>
+              <div class="weather-location-setting">
+                <div><strong>Lokacija panja</strong><p class="muted" id="weather-saved-location">Lokacija še ni nastavljena.</p></div>
+                <button class="secondary-button" id="weather-use-location" type="button">Uporabi mojo lokacijo</button>
+              </div>
+              <div class="weather-location-search"><label class="account-field">Poišči kraj<input id="weather-location-query" type="search" maxlength="80" placeholder="npr. Ljubljana" autocomplete="off" /></label><button class="secondary-button" id="weather-search-location" type="button">Poišči</button></div>
+              <div class="weather-location-results" id="weather-location-results" hidden></div>
+              <p class="form-status" id="weather-settings-status" aria-live="polite"></p>
+            </fieldset>
+          </form>
+        </section>
+
+        <section class="weather-settings-panel shared-weather-settings-panel surface" id="shared-weather-settings-panel" aria-labelledby="shared-weather-settings-heading" hidden>
+          <div class="section-heading">
+            <div><p class="eyebrow">Vreme na pregledu</p><h2 id="shared-weather-settings-heading">Vreme deljenega panja</h2><p class="muted">To nastavitev vidiš samo ti. Ne spreminja kraja ali nastavitev lastnika.</p></div>
+          </div>
+          <label class="weather-enabled-control" for="shared-weather-enabled"><span><strong>Prikaži vreme</strong><small>Na svojem pregledu prikaži trenutno vreme in napoved.</small></span><input id="shared-weather-enabled" type="checkbox" role="switch" /></label>
+          <p class="form-status" id="shared-weather-settings-status" aria-live="polite"></p>
         </section>
 
         <section class="provisioning-section surface" id="provisioning-section" aria-labelledby="provisioning-heading" hidden>
@@ -374,6 +422,13 @@
             <button class="secondary-button danger-button" id="delete-device-history" type="button" disabled>Izbriši merilno zgodovino</button>
             <p class="form-status" id="history-management-status" aria-live="polite">Izberi panj za upravljanje zgodovine.</p>
           </section>
+          <section class="network-reset-control" id="network-reset-control" aria-labelledby="network-reset-heading" hidden>
+            <p class="eyebrow">Ponastavitev omrežja</p>
+            <h3 id="network-reset-heading">Izbriši Wi-Fi poverilnice</h3>
+            <p class="muted">Ukaz trajno izbriše shranjeno domače Wi-Fi omrežje. Naprava prekine cloud povezavo in odpre lokalni nastavitveni dostop za novo povezavo.</p>
+            <button class="secondary-button danger-button" id="clear-cloud-wifi-credentials" type="button" disabled>Izbriši Wi-Fi poverilnice</button>
+            <p class="form-status" id="cloud-wifi-reset-status" aria-live="polite">Izberi online panj za ponastavitev omrežja.</p>
+          </section>
         </section>
 
       </section>
@@ -474,6 +529,22 @@
           <button class="primary-button" id="local-ota-warning-proceed" type="button">Nadaljuj na posodobitev</button>
         </div>
       </section>
+    </dialog>
+
+    <dialog class="confirmation-dialog" id="confirmation-dialog" aria-labelledby="confirmation-dialog-title" aria-describedby="confirmation-dialog-message">
+      <form class="confirmation-dialog-content" id="confirmation-dialog-form">
+        <p class="eyebrow" id="confirmation-dialog-eyebrow">Potrditev dejanja</p>
+        <h2 id="confirmation-dialog-title">Ali želiš nadaljevati?</h2>
+        <p class="muted" id="confirmation-dialog-message"></p>
+        <label class="confirmation-dialog-input" id="confirmation-dialog-input-label" hidden>
+          <span id="confirmation-dialog-input-hint"></span>
+          <input id="confirmation-dialog-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+        </label>
+        <div class="confirmation-dialog-actions">
+          <button class="secondary-button" id="confirmation-dialog-cancel" type="button">Prekliči</button>
+          <button class="primary-button" id="confirmation-dialog-confirm" type="submit">Nadaljuj</button>
+        </div>
+      </form>
     </dialog>
   </body>
 </html>

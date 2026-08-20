@@ -6,6 +6,9 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Skrita lokalna pot **`/sd_card`** ponuja zaščiten raziskovalec SD kartice za pregled map, prenos, nalaganje in trajno brisanje datotek. Dostop uporablja Basic Auth z uporabniškim imenom `admin`; začetno geslo je lokalna aktivacijska koda, nato pa ga je mogoče na isti strani zamenjati in se ločeno shrani v NVS naprave.
+- Pri nalaganju datoteke z obstoječim imenom raziskovalec prikaže prilagojen modal za potrditev prepisa. Potrjena zamenjava po končanem nalaganju uporabi začasno datoteko, nato pa zamenja staro datoteko; posebej za `measurements.csv` vmesnik zahteva predhodno varnostno kopijo.
+
 - Glavni skrbnik lahko v cloud zavihku **Naprava** pod brisanjem zgodovine z vpisom `WI-FI` pošlje ukaz **Izbriši Wi-Fi poverilnice**. ESP32 pred prekinitvijo povezave zapiše stanje ukaza, izbriše NVS poverilnice in odpre provisioning AP za novo nastavitev; upravljanje je na mobilnih zaslonih enako odzivno kot preostali odseki.
 - Glavni skrbnik ima na kartici vsake naprave poleg gumba **Odjavi lastnika** gumb **Izbriši napravo**. Po vnosu `IZBRIŠI` z enim atomarnim Firebase zapisom odstrani napravo, lastništvo, meritve, agregate, stanje, ukaze, aktivacijsko kodo, zahtevke, deljene dostope in odprta povabila.
 - Dodani sta kartica **Vreme v kraju [kraj]** na pregledu in kartica **Nastavitve vremena** med računom ter stanjem sistema. Lastnik oziroma skrbnik lahko za posamezen panj vključi prikaz, izbere 3- ali 5-dnevno napoved in shrani lokacijo brskalnika ali ročno izbran kraj; lokacija brskalnika se prikaže z imenom kraja.
@@ -16,6 +19,11 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 - Vsa spletna potrditvena okna zdaj uporablja enoten prilagojen modal namesto brskalniških `confirm()` in `prompt()` dialogov. Nevarna dejanja še vedno zahtevajo ustrezno vneseno potrditveno besedo.
 - Vremenski podatki se pridobijo neposredno iz brezplačnega Open-Meteo API-ja samo, kadar je prikaz vremena za izbrani panj vključen. Med odprtim pogledom **Pregled** se osvežijo največ enkrat na 15 minut, ob spremembi kraja ali dolžine napovedi pa se podatki pridobijo znova.
 - Vremenska kartica uporablja enotne barvne SVG ikone za stanje vremena, temperaturo, vlago, tlak in veter. Pod naslovom prikaže polno ime shranjenega kraja.
+
+### Fixed
+
+- Lokalni raziskovalec SD kartice za izpis map uporabi neposredno FAT/POSIX iteracijo, zato zanesljivo prikaže datoteke in mape na FAT SD kartici.
+- Poti raziskovalca so dodane pred začetno potjo `/sd_card`, saj je ta prej prestregla tudi zahtevek `/sd_card/api/list` in namesto JSON-a vrnila HTML stran. Vmesnik zato ni dobil poti, zasedenosti ali seznama datotek.
 
 ## [0.1.0-rc.38] - 2026-08-20
 

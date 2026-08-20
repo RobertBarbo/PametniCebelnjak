@@ -1,6 +1,7 @@
 #define ENABLE_DATABASE
 
 #include <Arduino.h>
+#include <dirent.h>
 #include <Adafruit_BME680.h>
 #include <ArduinoOTA.h>
 #include <ElegantOTA.h>
@@ -23,11 +24,16 @@
 #include <esp_wifi.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
+#include <sys/stat.h>
 
 #include "project_config.h"
 #include "version.h"
 
 namespace {
+
+constexpr char SD_CARD_SETTINGS_NAMESPACE[] = "sd_card";  // NVS prostor za izključno lokalno geslo raziskovalca SD kartice.
+constexpr char SD_CARD_PASSWORD_KEY[] = "password";  // Ime ključa gesla lokalnega raziskovalca v NVS prostoru `sd_card`.
+constexpr char SD_CARD_USERNAME[] = "admin";  // Fiksno uporabniško ime Basic Auth za lokalni raziskovalec SD kartice.
 
 // === Intervali glavne zanke (v milisekundah) =================================
 // Spremeni jih samo, če razumeš vpliv na porabo, SD kartico in Firebase promet.
@@ -88,6 +94,11 @@ constexpr uint8_t CLOUD_SYNC_STATE_SAVE_INTERVAL = 12;  // Število uspešnih cl
 constexpr uint16_t DAILY_RECONCILIATION_LINES_PER_LOOP = 128;  // Največ SD vrstic preverjenih v enem prehodu dnevne obnove.
 constexpr uint32_t DAILY_RECONCILIATION_LOOP_BUDGET_MS = 8;  // Časovni proračun enega prehoda dnevne obnove.
 constexpr size_t MAX_DAILY_RECONCILIATION_DAYS = 1461;  // Največ dni (približno štiri leta), ki jih lahko ročno obnovimo iz zgodovine.
+
+constexpr uint16_t SD_CARD_DIRECTORY_ENTRY_LIMIT = 128;  // Največ prikazanih datotek ene mape v lokalnem raziskovalcu SD kartice.
+constexpr size_t SD_CARD_PATH_MAX_LENGTH = 128;  // Največja dovoljena dolžina poti v lokalnem raziskovalcu SD kartice.
+constexpr size_t SD_CARD_PASSWORD_MIN_LENGTH = 8;  // Najkrajše lokalno geslo za dostop do raziskovalca SD kartice.
+constexpr size_t SD_CARD_PASSWORD_MAX_LENGTH = 63;  // Najdaljše lokalno geslo za dostop do raziskovalca SD kartice.
 
 // === Datoteke na SD in Firebase poti ===========================================
 constexpr char DEVICE_DATABASE_ROOT[] = "/devices";  // Koren Firebase poti, pod katerim je ločena mapa vsake naprave.
@@ -375,6 +386,16 @@ enum class CloudReconciliationState : uint8_t {
 };
 
 // Firebase uporablja asinhrone zahteve, da beleženje ne ustavi glavne zanke.
+struct SdCardUploadContext {
+  File file;
+  String temporaryPath;
+  String targetPath;
+  String error;
+  int statusCode = 500;
+  bool overwrite = false;
+  bool failed = false;
+};
+
 WiFiClientSecure sslClient;
 WiFiClientSecure otaClient;
 WiFiClientSecure otaDownloadClient;
@@ -1814,6 +1835,17 @@ void createDeviceIdentity()
     aggregateMigrationRequired = true;
   }
   preferences.end();
+
+  // Raziskovalec SD do prve spremembe uporabi aktivacijsko kodo, nato pa svoje
+  // geslo hrani ločeno od poverilnic domačega Wi-Fi omrežja.
+  if (preferences.begin(SD_CARD_SETTINGS_NAMESPACE, false)) {
+    if (!preferences.isKey(SD_CARD_PASSWORD_KEY)) {
+      preferences.putString(SD_CARD_PASSWORD_KEY, activationCode);
+    }
+    preferences.end();
+  } else {
+    Serial.println("SD card explorer password storage could not be initialized.");
+  }
 
   if (aggregateMigrationRequired) {
     Serial.println("Cloud history will be replayed once to create aggregate data.");
@@ -4675,6 +4707,326 @@ void appendJsonEscaped(String &json, const String &value)
   }
 }
 
+bool normalizeSdCardPath(const String &candidate, String &path, bool allowRoot)
+{
+  if (candidate.isEmpty() || candidate.length() > SD_CARD_PATH_MAX_LENGTH || !candidate.startsWith("/") ||
+      candidate.indexOf('\\') >= 0 || candidate.indexOf("//") >= 0 || candidate.indexOf("..") >= 0) {
+    return false;
+  }
+  for (size_t index = 0; index < candidate.length(); ++index) {
+    if (static_cast<uint8_t>(candidate[index]) < 0x20) return false;
+  }
+
+  path = candidate;
+  while (path.length() > 1 && path.endsWith("/")) path.remove(path.length() - 1);
+  return allowRoot || path != "/";
+}
+
+bool isValidSdCardFileName(const String &name)
+{
+  if (name.isEmpty() || name.length() > 64 || name == "." || name == ".." || name.indexOf('/') >= 0 ||
+      name.indexOf('\\') >= 0 || name.indexOf("..") >= 0) {
+    return false;
+  }
+  for (size_t index = 0; index < name.length(); ++index) {
+    if (static_cast<uint8_t>(name[index]) < 0x20) return false;
+  }
+  return true;
+}
+
+String sdCardPathName(const String &path)
+{
+  const int separator = path.lastIndexOf('/');
+  return separator >= 0 ? path.substring(separator + 1) : path;
+}
+
+bool authenticateSdCardRequest(AsyncWebServerRequest *request)
+{
+  String password;
+  if (!preferences.begin(SD_CARD_SETTINGS_NAMESPACE, true)) {
+    request->send(500, "text/plain; charset=utf-8", "SD card access password is unavailable.");
+    return false;
+  }
+  password = preferences.getString(SD_CARD_PASSWORD_KEY, "");
+  preferences.end();
+
+  if (password.length() < SD_CARD_PASSWORD_MIN_LENGTH ||
+      !request->authenticate(SD_CARD_USERNAME, password.c_str())) {
+    request->requestAuthentication("SD kartica");
+    return false;
+  }
+  return true;
+}
+
+void sendSdCardError(AsyncWebServerRequest *request, int statusCode, const char *message)
+{
+  String escapedMessage;
+  appendJsonEscaped(escapedMessage, message);
+  sendLocalJsonResponse(request, statusCode, String("{\"error\":\"") + escapedMessage + "\"}");
+}
+
+void sendSdCardDirectory(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  if (!sdCardReady) {
+    sendSdCardError(request, 503, "SD card is unavailable");
+    return;
+  }
+
+  String path;
+  if (!normalizeSdCardPath(request->arg("path"), path, true)) {
+    sendSdCardError(request, 400, "Invalid SD card path");
+    return;
+  }
+
+  File directory = SD.open(path);
+  if (!directory || !directory.isDirectory()) {
+    if (directory) directory.close();
+    sendSdCardError(request, 404, "Folder is unavailable");
+    return;
+  }
+  directory.close();
+
+  String jsonPayload;
+  jsonPayload.reserve(1536);
+  jsonPayload = "{\"path\":\"";
+  appendJsonEscaped(jsonPayload, path);
+  jsonPayload += "\",\"total_bytes\":" + String(static_cast<unsigned long long>(SD.totalBytes()));
+  jsonPayload += ",\"used_bytes\":" + String(static_cast<unsigned long long>(SD.usedBytes()));
+  jsonPayload += ",\"entries\":[";
+
+  const String nativeDirectoryPath = String("/sd") + path;
+  DIR *nativeDirectory = opendir(nativeDirectoryPath.c_str());
+  if (nativeDirectory == nullptr) {
+    sendSdCardError(request, 500, "Folder could not be enumerated");
+    return;
+  }
+
+  // Arduinojev File::openNextFile() pri nekaterih FAT karticah dobi `DT_UNKNOWN`
+  // in zato preskoči vse vnose. POSIX readdir() vrne imena neposredno, stat() pa
+  // zanesljivo določi vrsto in velikost posameznega vnosa.
+  bool firstEntry = true;
+  bool truncated = false;
+  uint16_t entryCount = 0;
+  while (dirent *nativeEntry = readdir(nativeDirectory)) {
+    const String entryName = nativeEntry->d_name;
+    if (entryName == "." || entryName == "..") continue;
+    if (entryCount >= SD_CARD_DIRECTORY_ENTRY_LIMIT) {
+      truncated = true;
+      break;
+    }
+
+    const String entryPath = path == "/" ? "/" + entryName : path + "/" + entryName;
+    const String nativeEntryPath = String("/sd") + entryPath;
+    struct stat entryInfo {};
+    if (stat(nativeEntryPath.c_str(), &entryInfo) != 0) continue;
+    if (!firstEntry) jsonPayload += ',';
+    firstEntry = false;
+    jsonPayload += "{\"name\":\"";
+    appendJsonEscaped(jsonPayload, entryName);
+    jsonPayload += "\",\"path\":\"";
+    appendJsonEscaped(jsonPayload, entryPath);
+    jsonPayload += "\",\"directory\":";
+    jsonPayload += S_ISDIR(entryInfo.st_mode) ? "true" : "false";
+    jsonPayload += ",\"size\":" + String(static_cast<unsigned long long>(entryInfo.st_size)) + '}';
+    ++entryCount;
+  }
+  closedir(nativeDirectory);
+  jsonPayload += "],\"truncated\":";
+  jsonPayload += truncated ? "true}" : "false}";
+  sendLocalJsonResponse(request, 200, jsonPayload);
+}
+
+void downloadSdCardFile(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  if (!sdCardReady) {
+    request->send(503, "text/plain; charset=utf-8", "SD card is unavailable.");
+    return;
+  }
+
+  String path;
+  if (!normalizeSdCardPath(request->arg("path"), path, false)) {
+    request->send(400, "text/plain; charset=utf-8", "Invalid SD card path.");
+    return;
+  }
+  File file = SD.open(path, FILE_READ);
+  if (!file || file.isDirectory()) {
+    if (file) file.close();
+    request->send(404, "text/plain; charset=utf-8", "File is unavailable.");
+    return;
+  }
+  file.close();
+  request->send(SD, path, contentTypeForPath(path), true);
+}
+
+void deleteSdCardFile(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  if (!sdCardReady) {
+    sendSdCardError(request, 503, "SD card is unavailable");
+    return;
+  }
+
+  String path;
+  if (!normalizeSdCardPath(request->arg("path"), path, false)) {
+    sendSdCardError(request, 400, "Invalid SD card path");
+    return;
+  }
+  File entry = SD.open(path);
+  if (!entry) {
+    sendSdCardError(request, 404, "File or folder is unavailable");
+    return;
+  }
+  const bool directory = entry.isDirectory();
+  entry.close();
+  const bool deleted = directory ? SD.rmdir(path) : SD.remove(path);
+  if (!deleted) {
+    sendSdCardError(request, 409, directory ? "Folder is not empty or could not be deleted" : "File could not be deleted");
+    return;
+  }
+  sendLocalJsonResponse(request, 200, "{\"state\":\"deleted\"}");
+}
+
+void handleSdCardUpload(AsyncWebServerRequest *request, const String &filename, size_t index,
+                        uint8_t *data, size_t length, bool final)
+{
+  if (index == 0) {
+    if (!authenticateSdCardRequest(request) || !sdCardReady) return;
+
+    auto *context = new SdCardUploadContext();
+    if (context == nullptr) return;
+    request->_tempObject = context;
+
+    String directory;
+    if (!normalizeSdCardPath(request->arg("path"), directory, true) || !isValidSdCardFileName(filename) ||
+        !SD.exists(directory)) {
+      context->failed = true;
+      context->statusCode = 400;
+      context->error = "Izbrana mapa ali ime datoteke ni veljavno";
+      return;
+    }
+    const String targetPath = directory == "/" ? "/" + filename : directory + "/" + filename;
+    context->targetPath = targetPath;
+    context->overwrite = request->arg("overwrite") == "1";
+    if (targetPath.length() + 7 > SD_CARD_PATH_MAX_LENGTH) {
+      context->failed = true;
+      context->statusCode = 400;
+      context->error = "Ime datoteke je predolgo";
+      return;
+    }
+    if (SD.exists(targetPath) && !context->overwrite) {
+      context->failed = true;
+      context->statusCode = 409;
+      context->error = "Datoteka s tem imenom že obstaja";
+      return;
+    }
+    context->temporaryPath = targetPath + ".upload";
+    if (SD.exists(context->temporaryPath)) SD.remove(context->temporaryPath);
+    context->file = SD.open(context->temporaryPath, FILE_WRITE);
+    if (!context->file) {
+      context->failed = true;
+      context->statusCode = 500;
+      context->error = "Temporary file could not be created";
+    }
+  }
+
+  auto *context = static_cast<SdCardUploadContext *>(request->_tempObject);
+  if (context == nullptr || context->failed) return;
+  if (length > 0 && context->file.write(data, length) != length) {
+    context->failed = true;
+    context->statusCode = 500;
+    context->error = "Writing to SD card failed";
+  }
+  if (!final) return;
+
+  context->file.close();
+  if (!context->failed && context->overwrite && SD.exists(context->targetPath) &&
+      !SD.remove(context->targetPath)) {
+    context->failed = true;
+    context->statusCode = 409;
+    context->error = "Obstoječe datoteke ni bilo mogoče zamenjati";
+  }
+  if (!context->failed && !SD.rename(context->temporaryPath, context->targetPath)) {
+    context->failed = true;
+    context->statusCode = 500;
+    context->error = "Uploaded file could not be finalized";
+  }
+}
+
+void finishSdCardUpload(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  auto *context = static_cast<SdCardUploadContext *>(request->_tempObject);
+  if (context == nullptr) {
+    sendSdCardError(request, sdCardReady ? 400 : 503, sdCardReady ? "Upload could not be started" : "SD card is unavailable");
+    return;
+  }
+
+  if (context->file) context->file.close();
+  if (context->failed) {
+    if (!context->temporaryPath.isEmpty()) SD.remove(context->temporaryPath);
+    const String error = context->error.isEmpty() ? "Upload failed" : context->error;
+    const int statusCode = context->statusCode;
+    delete context;
+    request->_tempObject = nullptr;
+    sendSdCardError(request, statusCode, error.c_str());
+    return;
+  }
+  delete context;
+  request->_tempObject = nullptr;
+  sendLocalJsonResponse(request, 201, "{\"state\":\"uploaded\"}");
+}
+
+void changeSdCardPassword(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  if (!request->hasParam("current_password", true) || !request->hasParam("new_password", true)) {
+    sendSdCardError(request, 400, "Current and new password are required");
+    return;
+  }
+
+  const String currentPassword = request->getParam("current_password", true)->value();
+  const String newPassword = request->getParam("new_password", true)->value();
+  if (newPassword.length() < SD_CARD_PASSWORD_MIN_LENGTH || newPassword.length() > SD_CARD_PASSWORD_MAX_LENGTH) {
+    sendSdCardError(request, 400, "New password must contain 8 to 63 characters");
+    return;
+  }
+  if (!preferences.begin(SD_CARD_SETTINGS_NAMESPACE, false)) {
+    sendSdCardError(request, 500, "Password storage is unavailable");
+    return;
+  }
+  const String storedPassword = preferences.getString(SD_CARD_PASSWORD_KEY, "");
+  if (currentPassword != storedPassword) {
+    preferences.end();
+    sendSdCardError(request, 403, "Current password is incorrect");
+    return;
+  }
+  const bool saved = preferences.putString(SD_CARD_PASSWORD_KEY, newPassword) > 0;
+  preferences.end();
+  if (!saved) {
+    sendSdCardError(request, 500, "New password could not be saved");
+    return;
+  }
+  sendLocalJsonResponse(request, 200, "{\"state\":\"password_changed\"}");
+}
+
+void serveSdCardPage(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  if (!serveLocalAsset(request, "/sd_card.html")) {
+    request->send(500, "text/plain; charset=utf-8", "SD card page is unavailable. Upload LittleFS assets.");
+  }
+}
+
+void serveSdCardScript(AsyncWebServerRequest *request)
+{
+  if (!authenticateSdCardRequest(request)) return;
+  if (!serveLocalAsset(request, "/sd_card.js")) {
+    request->send(500, "text/plain; charset=utf-8", "SD card script is unavailable. Upload LittleFS assets.");
+  }
+}
+
 void sendAvailableWiFiNetworks(AsyncWebServerRequest *request)
 {
   if (wifiConnectionAttemptBusy()) {
@@ -5194,7 +5546,25 @@ void initializeLocalWebServer()
   localServer.on("/api/wifi/networks", HTTP_GET, sendAvailableWiFiNetworks);
   localServer.on("/measurements", HTTP_GET, serveMeasurementLog);
   localServer.on("/measurements.csv", HTTP_GET, serveMeasurementLog);
+  localServer.on("/sd_card/api/list", HTTP_GET, sendSdCardDirectory);
+  localServer.on("/sd_card/download", HTTP_GET, downloadSdCardFile);
+  localServer.on("/sd_card/api/file", HTTP_DELETE, deleteSdCardFile);
+  localServer.on("/sd_card/api/password", HTTP_POST, changeSdCardPassword);
+  localServer.on("/sd_card/api/upload", HTTP_POST, finishSdCardUpload, handleSdCardUpload);
+  // ESPAsyncWebServer ob izbiri handlerja uporabi prvo ujemanje predpone,
+  // zato morajo biti specifične API poti dodane pred začetno `/sd_card` potjo.
+  localServer.on("/sd_card.js", HTTP_GET, serveSdCardScript);
+  localServer.on("/sd_card.html", HTTP_GET, serveSdCardPage);
+  localServer.on("/sd_card/", HTTP_GET, serveSdCardPage);
+  localServer.on("/sd_card", HTTP_GET, serveSdCardPage);
   localServer.onNotFound([](AsyncWebServerRequest *request) {
+    // Tudi neposreden poskus dostopa do morebitne stisnjene ali neznane datoteke
+    // pod `/sd_card` ne sme obiti zaščite namenskih poti raziskovalca.
+    if (request->url().startsWith("/sd_card")) {
+      if (!authenticateSdCardRequest(request)) return;
+      request->send(404, "text/plain; charset=utf-8", "Not found");
+      return;
+    }
     if (!serveLocalAsset(request, request->url())) request->send(404, "text/plain", "Not found");
   });
   localServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) { serveLocalAsset(request, "/"); });

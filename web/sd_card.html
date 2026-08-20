@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="sl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>SD kartica · Pametni čebelnjak</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; --bg:#08150f; --surface:#10241a; --surface-soft:#173124; --border:#2b4a39; --text:#f4f7f2; --muted:#a7b6ad; --green:#62ca91; --danger:#ff827a; }
+    * { box-sizing:border-box; } body { margin:0; min-width:320px; min-height:100vh; color:var(--text); background:radial-gradient(circle at 12% 0%,rgb(47 133 87 / .2),transparent 30rem),var(--bg); }
+    main { width:min(100% - 32px,1100px); margin:0 auto; padding:clamp(28px,5vw,64px) 0 56px; } .eyebrow { margin:0 0 8px; color:var(--green); font-size:.78rem; font-weight:900; letter-spacing:.16em; text-transform:uppercase; }
+    h1,h2 { margin:0; letter-spacing:-.035em; } h1 { font-size:clamp(2rem,6vw,3.6rem); } h2 { font-size:1.22rem; } .lead,.muted { color:var(--muted); line-height:1.55; } .lead { max-width:720px; margin:12px 0 28px; }
+    .notice { margin:0 0 22px; padding:13px 15px; border:1px solid #735b39; border-radius:14px; color:#ead6a5; background:rgb(111 86 37 / .18); line-height:1.5; } .surface { margin-top:20px; padding:clamp(18px,4vw,30px); border:1px solid var(--border); border-radius:22px; background:var(--surface); box-shadow:0 18px 50px rgb(0 0 0 / .18); }
+    .toolbar,.header-row,.file-actions,.form-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; } .header-row { justify-content:space-between; margin-bottom:18px; } .toolbar { margin-bottom:18px; } button,.button,input { min-height:44px; border:1px solid var(--border); border-radius:12px; padding:10px 14px; color:var(--text); background:#102018; font:inherit; font-weight:800; } button,.button { cursor:pointer; text-decoration:none; } button:hover,.button:hover { border-color:var(--green); } button.danger { color:var(--danger); } button:disabled { cursor:not-allowed; opacity:.5; }
+    .path { min-width:0; flex:1; overflow-wrap:anywhere; color:var(--muted); font-family:ui-monospace,monospace; } .capacity { color:var(--muted); font-size:.9rem; } .status { min-height:1.5em; margin:14px 0 0; color:var(--muted); } .status.error { color:var(--danger); } .status.success { color:var(--green); }
+    .file-list { width:100%; border-collapse:collapse; } .file-list th,.file-list td { padding:13px 10px; border-top:1px solid var(--border); text-align:left; } .file-list th { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; } .file-name { display:inline-flex; align-items:center; gap:9px; min-width:0; color:var(--text); font-weight:800; text-decoration:none; overflow-wrap:anywhere; } .file-icon { width:1.4em; color:var(--green); text-align:center; } .file-actions { justify-content:flex-end; } .file-actions button,.file-actions .button { min-height:38px; padding:7px 10px; font-size:.88rem; }
+    .empty { padding:22px 0 6px; color:var(--muted); text-align:center; } .split { display:grid; grid-template-columns:1.2fr .8fr; gap:20px; } form { display:grid; gap:12px; } label { display:grid; gap:7px; color:var(--muted); font-size:.88rem; font-weight:800; } input { width:100%; background:#0d1d15; } input[type=file] { padding:9px; } .form-row > * { flex:1 1 160px; } .form-row button { flex:0 0 auto; } .hint { margin:0; color:var(--muted); font-size:.88rem; line-height:1.5; }
+    dialog { width:min(calc(100% - 32px),460px); border:1px solid var(--border); border-radius:20px; padding:0; color:var(--text); background:var(--surface); box-shadow:0 24px 80px rgb(0 0 0 / .55); } dialog::backdrop { background:rgb(0 0 0 / .62); } .dialog-body { padding:24px; } .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+    @media (max-width:700px) { main { width:min(100% - 24px,1100px); padding-top:30px; } .split { grid-template-columns:1fr; } .file-list thead { display:none; } .file-list,.file-list tbody,.file-list tr,.file-list td { display:block; width:100%; } .file-list tr { padding:12px 0; border-top:1px solid var(--border); } .file-list td { padding:5px 0; border:0; } .file-list td:nth-child(2)::before { content:"Velikost: "; color:var(--muted); } .file-list td:nth-child(3) { display:none; } .file-actions { justify-content:flex-start; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Lokalni skrbniški dostop</p>
+    <h1>SD kartica</h1>
+    <p class="lead">Upravljanje datotek na SD kartici naprave. Ta stran ni del običajne nadzorne plošče in je dosegljiva samo neposredno prek lokalnega naslova.</p>
+    <p class="notice">Brisanje ali prepis sistemskih datotek lahko prekine lokalne grafe oziroma sinhronizacijo zgodovine. Pred posegom v <code>measurements.csv</code> naredi prenos varnostne kopije.</p>
+
+    <section class="surface" aria-labelledby="files-heading">
+      <div class="header-row"><div><h2 id="files-heading">Datoteke</h2><p class="path" id="current-path">/</p></div><span class="capacity" id="capacity">Čakam na SD kartico …</span></div>
+      <div class="toolbar"><button id="go-up" type="button" disabled>Mapa nazaj</button><button id="refresh" type="button">Osveži</button></div>
+      <div id="file-container"><p class="empty">Nalagam vsebino mape …</p></div>
+      <p class="status" id="file-status" aria-live="polite"></p>
+    </section>
+
+    <div class="split">
+      <section class="surface" aria-labelledby="upload-heading"><h2 id="upload-heading">Naloži datoteko</h2><p class="hint">Datoteka se naloži v trenutno odprto mapo. Obstoječo datoteko je mogoče zamenjati šele po izrecni potrditvi.</p><form id="upload-form"><input id="upload-file" type="file" required /><button type="submit">Naloži na SD kartico</button></form><p class="status" id="upload-status" aria-live="polite"></p></section>
+      <section class="surface" aria-labelledby="settings-heading"><h2 id="settings-heading">Geslo dostopa</h2><p class="hint">Uporabniško ime je <code>admin</code>. Začetno geslo je aktivacijska koda naprave; po spremembi ostane geslo samo v NVS naprave.</p><form id="password-form"><label>Trenutno geslo<input id="current-password" type="password" autocomplete="current-password" required /></label><label>Novo geslo<input id="new-password" type="password" minlength="8" maxlength="63" autocomplete="new-password" required /></label><label>Ponovi novo geslo<input id="repeat-password" type="password" minlength="8" maxlength="63" autocomplete="new-password" required /></label><button type="submit">Shrani novo geslo</button></form><p class="status" id="password-status" aria-live="polite"></p></section>
+    </div>
+  </main>
+  <dialog id="delete-dialog"><form method="dialog" class="dialog-body"><p class="eyebrow">Trajno brisanje</p><h2 id="delete-title">Izbriši datoteko</h2><p class="lead" id="delete-message"></p><div class="dialog-actions"><button value="cancel">Prekliči</button><button class="danger" id="delete-confirm" value="confirm">Izbriši</button></div></form></dialog>
+  <dialog id="overwrite-dialog"><form method="dialog" class="dialog-body"><p class="eyebrow">Prepis datoteke</p><h2>Datoteka že obstaja</h2><p class="lead" id="overwrite-message"></p><p class="notice">Nova datoteka bo zamenjala trenutno različico. Pred potrditvijo prenesi varnostno kopijo, posebej pri <code>measurements.csv</code>.</p><div class="dialog-actions"><button value="cancel">Prekliči</button><button class="danger" id="overwrite-confirm" value="confirm">Zamenjaj datoteko</button></div></form></dialog>
+  <script src="/sd_card.js"></script>
+</body>
+</html>

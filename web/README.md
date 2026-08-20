@@ -17,6 +17,8 @@ Vmesnik je razdeljen na poglede **Pregled**, **Grafi**, **Naprava** in **Posodob
 
 Lokalni obrazec ima tudi gumb za brisanje shranjenega Wi-Fi-ja. Po potrditvi se ESP32 odklopi od domačega omrežja in znova odpre svoj AP.
 
+Skriti skrbniški raziskovalec SD kartice je na `http://<lokalni-ip>/sd_card`. Zahteva Basic Auth z uporabniškim imenom `admin`; začetno geslo je aktivacijska koda naprave. Na tej strani je geslo mogoče zamenjati, nato pa je shranjeno samo v NVS naprave. Pot ni prikazana v običajni navigaciji.
+
 Lokalni pogled ne prikazuje cloud prijave ali obrazca za registracijo. Aktivacijska koda je vidna na kartici **Aktivacijska koda** ob stanju naprave; uporabi se skupaj z ID-jem naprave v cloud pogledu.
 
 Lokalna grafa bereta `/measurements.csv` prek `/api/history`. uPlot 1.6.32 je priložen v `vendor/`, zato za grafa in obe temi ne potrebuje interneta. Knjižnica se naloži šele ob odpiranju zavihka **Grafi**. Izbirnik podpira hitra obdobja, začetek in konec z uro ter X-zoomiranje; dvojni klik na graf ponastavi zoom. Temperatura in relativna vlaga sta na prvem grafu, teža panja pa na drugem.

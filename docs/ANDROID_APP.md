@@ -28,6 +28,8 @@ Podprti lokalni klici so:
 
 Android dovoljuje nešifriran HTTP samo za lokalni naslov `192.168.4.1`. Cloud povezava vedno uporablja HTTPS.
 
+Vsebina WebViewa samodejno upošteva višino zgornje statusne vrstice in spodnje Android navigacije. Sistemskih elementov zato ne prekriva niti cloud nadzorna plošča niti lokalni provisioning pogled.
+
 Google prijava v aplikaciji ne uporablja spletnega `signInWithPopup`, ker bi se OAuth stran odprla v zunanjem brskalniku in izgubila Firebase stanje iz aplikacijskega WebViewa. Android zato nativno izbere Google račun, pridobi Google ID žeton in ga v istem WebViewu zamenja za Firebase sejo prek `signInWithCredential`. Običajna cloud spletna stran v brskalniku še naprej uporablja standardno Firebase pojavno prijavo.
 
 Gostovana cloud stran ob zaznanem nativnem okolju dinamično registrira Capacitorjev `FirebaseAuthentication` most. Če most ni na voljo, aplikacija prijavo ustavi in ne pade nazaj na spletni popup/redirect tok, ki bi v zunanjem brskalniku povzročil napako **missing initial state**.

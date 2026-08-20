@@ -27,6 +27,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Android WebView zdaj prejme zgornji in spodnji sistemski odmik, zato statusna vrstica ter spodnja navigacija ne prekrivata več cloud ali provisioning vsebine.
 - Ponovno povezana naprava po uspešni ponastavitvi Wi-Fi-ja ne ostane več zaklenjena zaradi starega Firebase stanja `queued`; nov online odziv odklene skrbniški gumb za morebitno naslednjo ponastavitev.
 - Okvara HX711 ne ustavi več temperature in relativne vlage, okvara BME680 pa ne ustavi več teže panja. Kartica trenutne meritve pri dejansko manjkajoči vrednosti pokaže **Ni na voljo**, obstoječa opozorila komponent pa ostanejo nespremenjena.
 

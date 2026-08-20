@@ -53,7 +53,7 @@ constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10 * 1000;  // Najkrajši čas med o
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60 * 1000;  // Najdaljši zamik ponovnega poskusa po cloud napaki.
 constexpr uint32_t CLOUD_RECONCILIATION_INTERVAL_MS = 250;  // Premor med paketi pri ročni obnovi zgodovine.
 constexpr uint8_t RECONCILIATION_MEASUREMENTS_PER_REQUEST = 32;  // Število meritev v enem Firebase paketu ročne obnove.
-constexpr uint8_t DAILY_RAW_SYNC_VERSION = 3;  // Različica formata oznake dnevne sinhronizacije; spremeni ob spremembi modela.
+constexpr uint8_t DAILY_RAW_SYNC_VERSION = 4;  // Različica formata oznake dnevne sinhronizacije; spremeni ob spremembi modela.
 constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3 * 1000;  // Čas za asinhroni Firebase rezultat, preden zahtevo obravnavamo kot izgubljeno.
 constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;  // Najdaljše čakanje na posamezno Firebase zahtevo.
 constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor pred novim Firebase poskusom po omrežni napaki.
@@ -928,7 +928,7 @@ bool serializeMeasurementCsvLine(const Measurement &measurement, char *buffer, s
   formatOptionalCsvMeasurementValue(humidityValue, sizeof(humidityValue), measurement.humidityPercent,
                                     measurement.bme680Valid, 1);
   formatOptionalCsvMeasurementValue(weightValue, sizeof(weightValue), measurement.weightKg,
-                                    measurement.loadCellValid, 1);
+                                    measurement.loadCellValid, 2);
 
   const int written = snprintf(buffer, bufferSize, "%s,%s,%lu,%s,%s,%s\n", measurement.date,
                                measurement.time, static_cast<unsigned long>(measurement.timestamp),
@@ -1016,7 +1016,7 @@ uint32_t updateMeasurementChecksum(uint32_t checksum, const Measurement &measure
   formatOptionalMeasurementValue(humidityValue, sizeof(humidityValue), measurement.humidityPercent,
                                  measurement.bme680Valid, 1);
   formatOptionalMeasurementValue(weightValue, sizeof(weightValue), measurement.weightKg,
-                                 measurement.loadCellValid, 1);
+                                 measurement.loadCellValid, 2);
   snprintf(normalizedMeasurement, sizeof(normalizedMeasurement), "%lu,%s,%s,%s",
            static_cast<unsigned long>(measurement.timestamp), temperatureValue, humidityValue, weightValue);
 

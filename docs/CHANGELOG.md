@@ -16,6 +16,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
+- Nove meritve teže se v CSV dnevnik, `latest`, Firebase surovo zgodovino in agregate zapišejo na dve decimalki. Kartica teže, y-os in tooltip lokalnega ter cloud grafa zdaj vedno prikažejo dve decimalki; temperatura in vlaga ostaneta na eni. Oznaka dnevne surove sinhronizacije je povišana, da se cloud ob naslednji primerjavi varno uskladi z novim zapisom kontrolne vsote.
+
 - Vsa spletna potrditvena okna zdaj uporablja enoten prilagojen modal namesto brskalniških `confirm()` in `prompt()` dialogov. Nevarna dejanja še vedno zahtevajo ustrezno vneseno potrditveno besedo.
 - Vremenski podatki se pridobijo neposredno iz brezplačnega Open-Meteo API-ja samo, kadar je prikaz vremena za izbrani panj vključen. Med odprtim pogledom **Pregled** se osvežijo največ enkrat na 15 minut, ob spremembi kraja ali dolžine napovedi pa se podatki pridobijo znova.
 - Vremenska kartica uporablja enotne barvne SVG ikone za stanje vremena, temperaturo, vlago, tlak in veter. Pod naslovom prikaže polno ime shranjenega kraja.

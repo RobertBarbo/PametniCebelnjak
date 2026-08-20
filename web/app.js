@@ -987,7 +987,7 @@ function renderLatestMeasurement(measurement) {
   const hasMeasurement = measurement !== null && measurement !== undefined;
   renderLatestMetric(elements.temperature, measurement?.temperature_c, 1, hasMeasurement);
   renderLatestMetric(elements.humidity, measurement?.humidity_percent, 1, hasMeasurement);
-  renderLatestMetric(elements.weight, measurement?.weight_kg, 1, hasMeasurement);
+  renderLatestMetric(elements.weight, measurement?.weight_kg, 2, hasMeasurement);
   elements.latestTime.textContent = formatDateTime(measurement);
 }
 
@@ -3028,10 +3028,13 @@ function getChartXRange(chart) {
     : undefined;
 }
 
-function formatChartAxisNumber(value, decimals = 1) {
+function formatChartAxisNumber(value, decimals = 1, fixedDecimals = false) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue)
-    ? numericValue.toLocaleString("sl-SI", { maximumFractionDigits: decimals })
+    ? numericValue.toLocaleString("sl-SI", {
+      minimumFractionDigits: fixedDecimals ? decimals : 0,
+      maximumFractionDigits: decimals,
+    })
     : "";
 }
 
@@ -3191,7 +3194,7 @@ function createChartTooltip(chartHost, entries) {
     const value = document.createElement("strong");
     row.append(marker, label, value);
     tooltip.append(row);
-    return { row, value, seriesIndex: entry.seriesIndex };
+    return { row, value, seriesIndex: entry.seriesIndex, decimals: entry.decimals ?? 1 };
   });
 
   chartHost.append(tooltip);
@@ -3236,13 +3239,13 @@ function updateChartTooltip(chart, tooltip) {
 
   let hasValue = false;
   tooltip.timestamp.textContent = formatDashboardDateTime(new Date(timestamp * 1000));
-  tooltip.rows.forEach(({ row, value, seriesIndex }) => {
+  tooltip.rows.forEach(({ row, value, seriesIndex, decimals }) => {
     const measurement = parseMeasurementValue(chart.data[seriesIndex]?.[index]);
     const isVisible = chart.series[seriesIndex]?.show !== false;
     const isValid = measurement !== null;
     row.hidden = !isVisible || !isValid;
     if (isValid) {
-      value.textContent = formatValue(measurement);
+      value.textContent = formatValue(measurement, decimals);
       hasValue = true;
     }
   });
@@ -3772,7 +3775,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
         labelSize: 28,
         stroke: colors.textSoft,
         font: "600 12px Inter, system-ui, sans-serif",
-        values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value)),
+        values: (_chart, splits) => splits.map((value) => formatChartAxisNumber(value, 2, true)),
         ticks: { stroke: colors.border },
         border: { stroke: colors.border },
         grid: { stroke: colors.grid, width: 1 },
@@ -3869,7 +3872,7 @@ function createCharts(zoomRanges = {}) {
     "weight-chart",
     "weight",
     [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1 }],
-    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1 }],
+    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1, decimals: 2 }],
   );
   climateChart = new window.uPlot(
     createUPlotOptions("climate", climatePresentation.chartHost, climatePresentation.tooltip, climatePresentation.resetZoomButton),

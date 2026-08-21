@@ -6,9 +6,11 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Na pregledu je pod kartico trenutnih meritev dodana odzivna kartica **Sprememba mase**. Prikazuje razliko zadnje zaključene nočne mediane mase proti prejšnji noči in noči pred sedmimi koledarskimi dnevi; pri nepopolni zgodovini jasno prikaže **Ni dovolj podatkov**. Za 24 h uporablja spremembo zadnje noči, za 7 dni pa povprečno dnevno spremembo; prag `±0,20 kg/dan` jo označi kot **Prirast mase**, **Stabilno** ali **Izguba mase**. Barva sledi temu statusu, ne zgolj predznaku. Deluje iz Firebase ali lokalnega SD dnevnika tudi brez interneta, uporablja skupno matematično logiko, dark/light temo in prevode SL/HR/EN.
+
 - Začetni Android provisioning zaslon je lokaliziran v slovenščino, hrvaščino in angleščino. Izbirnik z zastavami shrani izbiro, jo pošlje v vgrajeno cloud nadzorno ploščo in prevaja vse korake nastavitve Wi-Fi-ja, obrazce, statuse, napake in dostopnostne oznake.
 - Cloud in lokalna nadzorna plošča sta lokalizirani v slovenščino, hrvaščino in angleščino. Izbirnik z zastavami je na namizju v glavi, na telefonu pa v meniju; izbira se shrani v brskalnik. Prevedeni so statični napisi, obrazci, modali, statusi, napake, grafi, vreme, OTA in skrbniški pogled SD kartice.
-- Glavni skrbnik ima v zavihku **Naprava** med vremenskimi nastavitvami in stanjem sistema nov odsek **Meritve in shranjevanje** za izbrani panj. Nastavi lahko prikaz teže na eno ali dve decimalki, interval meritev od 5 do 120 sekund ter interval zapisa SD zgodovine od 1 do 30 minut.
+- Glavni skrbnik ima v zavihku **Naprava** med vremenskimi nastavitvami in stanjem sistema nov odsek **Meritve in shranjevanje** za izbrani panj. Nastavi lahko prikaz mase na eno ali dve decimalki, interval meritev od 5 do 120 sekund ter interval zapisa SD zgodovine od 1 do 30 minut.
 - Skrita lokalna pot **`/sd_card`** ponuja zaščiten raziskovalec SD kartice za pregled map, prenos, nalaganje in trajno brisanje datotek. Dostop uporablja Basic Auth z uporabniškim imenom `admin`; začetno geslo je lokalna aktivacijska koda, nato pa ga je mogoče na isti strani zamenjati in se ločeno shrani v NVS naprave.
 - Pri nalaganju datoteke z obstoječim imenom raziskovalec prikaže prilagojen modal za potrditev prepisa. Potrjena zamenjava po končanem nalaganju uporabi začasno datoteko, nato pa zamenja staro datoteko; posebej za `measurements.csv` vmesnik zahteva predhodno varnostno kopijo.
 
@@ -19,13 +21,14 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
+- Uporabniški vmesnik in trenutna dokumentacija za podatek v kilogramih dosledno uporabljata izraz **masa**: slovensko **Masa/Masa panja**, hrvaško **Masa/Masa košnice** in angleško **Mass/Hive mass**. Imena podatkovnih polj, kot sta `weight_kg` in `weight_sample_count`, ostanejo zaradi združljivosti nespremenjena.
 - Skrbniški seznam panjev ne posluša več celotne Firebase veje `/devices`. Ob prijavi pridobi samo ID-je z avtenticirano RTDB REST zahtevo `shallow=true`, nato pa za vsak ID realtime spremlja le `owner_uid`, `owner_email` in `status/device`. Po trajnem izbrisu naprave se imenik enkrat znova pridobi z isto majhno shallow zahtevo.
 - Hitre izbire zgodovine z odprtim koncem, kot so **Zadnja ura**, **Zadnjih 24 ur**, **Zadnjih 7 dni** in koledarska obdobja do trenutka, na lokalnem in cloud pogledu zdaj vsakih 60 sekund samodejno pomaknejo časovno okno. Lokalni pogled osveži svoj API grafov, cloud pogled pa samo ponovno izriše že prejeto realtime predpomnjeno zgodovino brez nove Firebase poizvedbe; ročno določen interval in približan graf ostaneta fiksna.
 - Cloud grafi uporabljajo surove meritve samo do 24 ur z minutnimi koši. Od 24 ur do 7 dni berejo urne agregate in jih prikažejo po urah, od 7 do 31 dni iste agregate po 6 ur, do 6 mesecev po 12 ur, nato pa dnevne agregate po dnevih. Začetni omejeni prenos prebere samo še nepredpomnjeni del obdobja, realtime tok pa nato sprejema le nove, spremenjene ali odstranjene zapise posameznih ključev.
 - Cloud zgodovina ima RAM cache trenutne seje, ločen po napravi in Firebase viru. Ob ponovnem izboru v celoti že prebranega obdobja ne ustvari nove poizvedbe, pri delno pokritem obdobju pa prenese samo manjkajoči časovni razpon.
 - Realtime listenerji cloud grafov ne spremljajo več celotnega zgodovinskega intervala: `measurements` uporablja petminutni varnostni rep, `aggregates/hourly` trenutni urni bucket, `aggregates/daily` pa trenutni dnevni bucket in prihodnje ključe.
 - Privzeti interval zapisa SD zgodovine je 5 minut. Firmware nastavitve meritev vsakih 30 sekund prebere iz Firebase, jih preveri, shrani v NVS in jih zato uporablja tudi brez začasne cloud povezave. Firebase zgodovina nastaja iz istega intervala kot SD zapis.
-- Nove meritve teže se v CSV dnevnik, `latest`, Firebase surovo zgodovino in agregate zapišejo na dve decimalki. Kartica teže, y-os in tooltip lokalnega ter cloud grafa uporabljajo prikaz ene ali dveh decimalk, izbran za posamezen panj; temperatura in vlaga ostaneta na eni. Oznaka dnevne surove sinhronizacije je povišana, da se cloud ob naslednji primerjavi varno uskladi z novim zapisom kontrolne vsote.
+- Nove meritve mase se v CSV dnevnik, `latest`, Firebase surovo zgodovino in agregate zapišejo na dve decimalki. Kartica mase, y-os in tooltip lokalnega ter cloud grafa uporabljajo prikaz ene ali dveh decimalk, izbran za posamezen panj; temperatura in vlaga ostaneta na eni. Oznaka dnevne surove sinhronizacije je povišana, da se cloud ob naslednji primerjavi varno uskladi z novim zapisom kontrolne vsote.
 
 - Vsa spletna potrditvena okna zdaj uporablja enoten prilagojen modal namesto brskalniških `confirm()` in `prompt()` dialogov. Nevarna dejanja še vedno zahtevajo ustrezno vneseno potrditveno besedo.
 - Vremenski podatki se pridobijo neposredno iz brezplačnega Open-Meteo API-ja samo, kadar je prikaz vremena za izbrani panj vključen. Med odprtim pogledom **Pregled** se osvežijo največ enkrat na 15 minut, ob spremembi kraja ali dolžine napovedi pa se podatki pridobijo znova.
@@ -35,7 +38,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 - Ob izbiri praznega cloud obdobja se prejšnji podatki takoj počistijo in grafi z osjo izbranega časa prikažejo lokalizirano prazno stanje.
 - Ob menjavi jezika se zdaj pravilno osvežijo tudi že prikazana dinamična statusna sporočila vremena. Prevedeni so še OTA odgovori firmware-a, čas delovanja naprave, stanje kalibracijskih odmikov, oznake serij grafov in rezervna oznaka lokacije s koordinatami. V sinhronizaciji zgodovine se ne prikazuje več tehnični razmik ponovnih poskusov.
-- Y-os grafa teže uporablja korake 0,01 / 0,02 / 0,05 kg in večje natančne večkratnike. Dve različni vmesni vrednosti se zato po prikazu na dve decimalki ne moreta več izpisati z isto oznako.
+- Y-os grafa mase uporablja korake 0,01 / 0,02 / 0,05 kg in večje natančne večkratnike. Dve različni vmesni vrednosti se zato po prikazu na dve decimalki ne moreta več izpisati z isto oznako.
 - Lokalni raziskovalec SD kartice za izpis map uporabi neposredno FAT/POSIX iteracijo, zato zanesljivo prikaže datoteke in mape na FAT SD kartici.
 - Poti raziskovalca so dodane pred začetno potjo `/sd_card`, saj je ta prej prestregla tudi zahtevek `/sd_card/api/list` in namesto JSON-a vrnila HTML stran. Vmesnik zato ni dobil poti, zasedenosti ali seznama datotek.
 
@@ -45,13 +48,13 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 - Merilni cikel ima ločeno veljavnost BME680 in HX711. Če odpove le eden od njiju, se veljavne vrednosti drugega še vedno posodobijo v `latest`, zapišejo v SD dnevnik in pošljejo v Firebase.
 - Manjkajoče vrednosti so v SD CSV dnevniku prazna polja, v lokalnem API-ju in Firebase pa `null` oziroma odsotna lastnost. Lokalni in cloud grafi jih prikažejo kot vrzel ter posamezne serije povprečijo samo iz veljavnih vzorcev.
-- Urni in dnevni Firebase agregati poleg `sample_count` hranijo ločene števce veljavnih temperatur, vlag in tež. Spremenjeni model ob prvi uporabi varno ponovno izdela agregate iz SD zgodovine.
+- Urni in dnevni Firebase agregati poleg `sample_count` hranijo ločene števce veljavnih temperatur, vlag in mas. Spremenjeni model ob prvi uporabi varno ponovno izdela agregate iz SD zgodovine.
 
 ### Fixed
 
 - Android WebView zdaj prejme zgornji in spodnji sistemski odmik, zato statusna vrstica ter spodnja navigacija ne prekrivata več cloud ali provisioning vsebine.
 - Ponovno povezana naprava po uspešni ponastavitvi Wi-Fi-ja ne ostane več zaklenjena zaradi starega Firebase stanja `queued`; nov online odziv odklene skrbniški gumb za morebitno naslednjo ponastavitev.
-- Okvara HX711 ne ustavi več temperature in relativne vlage, okvara BME680 pa ne ustavi več teže panja. Kartica trenutne meritve pri dejansko manjkajoči vrednosti pokaže **Ni na voljo**, obstoječa opozorila komponent pa ostanejo nespremenjena.
+- Okvara HX711 ne ustavi več temperature in relativne vlage, okvara BME680 pa ne ustavi več mase panja. Kartica trenutne meritve pri dejansko manjkajoči vrednosti pokaže **Ni na voljo**, obstoječa opozorila komponent pa ostanejo nespremenjena.
 
 ## [0.1.0-rc.37] - 2026-08-14
 
@@ -313,7 +316,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
-- Klikabilna legenda uPlot grafov: temperaturo, vlago in težo je mogoče neodvisno skriti oziroma znova prikazati brez nove zahteve za zgodovino.
+- Klikabilna legenda uPlot grafov: temperaturo, vlago in maso je mogoče neodvisno skriti oziroma znova prikazati brez nove zahteve za zgodovino.
 
 ### Changed
 
@@ -360,7 +363,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
-- Pri eni veljavni meritvi je na temperaturi, vlagi in teži prikazana jasna točka premera 10 px; pri več meritvah markerji ostanejo skriti.
+- Pri eni veljavni meritvi je na temperaturi, vlagi in masi prikazana jasna točka premera 10 px; pri več meritvah markerji ostanejo skriti.
 
 ### Removed
 
@@ -377,7 +380,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
-- SD dnevnik `measurements.csv` težo zapisuje na eno decimalno mesto, enako kot prikaz na nadzornih ploščah.
+- SD dnevnik `measurements.csv` maso zapisuje na eno decimalno mesto, enako kot prikaz na nadzornih ploščah.
 - Kontrolni seštevek dnevnika uporablja enako natančnost kot CSV zapis, zato sinhronizacija ne zazna navideznih razlik.
 
 ## [0.1.0-rc.1] - 2026-08-10
@@ -903,7 +906,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
-- Vsi lokalni in cloud prikazi teže, tudi tooltip grafa, zdaj uporabljajo eno decimalno mesto; shranjeni podatki ostanejo natančni na dve decimalni mesti.
+- Vsi lokalni in cloud prikazi mase, tudi tooltip grafa, zdaj uporabljajo eno decimalno mesto; shranjeni podatki ostanejo natančni na dve decimalni mesti.
 
 ## [0.1.0-beta.52] - 2026-08-06
 
@@ -922,19 +925,19 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 ### Added
 
 - Lokalna in cloud nadzorna plošča omogočata varno tariranje HX711, kadar je merilna ploščad prazna.
-- ESP32 po tariranju odmik shrani v NVS, takoj izmeri novo trenutno težo in stanje postopka objavi v Firebase pod `status/load_cell`.
+- ESP32 po tariranju odmik shrani v NVS, takoj izmeri novo trenutno maso in stanje postopka objavi v Firebase pod `status/load_cell`.
 
 ## [0.1.0-beta.49] - 2026-08-06
 
 ### Fixed
 
-- Tooltipi grafov zdaj dosledno prikažejo temperaturo in relativno vlago na eno decimalko, težo pa na dve decimalni mesti.
+- Tooltipi grafov zdaj dosledno prikažejo temperaturo in relativno vlago na eno decimalko, maso pa na dve decimalni mesti.
 
 ## [0.1.0-beta.48] - 2026-08-06
 
 ### Fixed
 
-- Popravljena je nastavitev tooltipa grafa teže: masa panja se zdaj prikaže na dve decimalni mesti.
+- Popravljena je nastavitev tooltipa grafa mase: masa panja se zdaj prikaže na dve decimalni mesti.
 
 ## [0.1.0-beta.47] - 2026-08-06
 
@@ -946,13 +949,13 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
-- Tooltip grafa teže v lokalnem in cloud pogledu zdaj prikaže dve decimalni mesti v kilogramih.
+- Tooltip grafa mase v lokalnem in cloud pogledu zdaj prikaže dve decimalni mesti v kilogramih.
 
 ## [0.1.0-beta.45] - 2026-08-06
 
 ### Changed
 
-- Temperatura, relativna vlaga in teža se zdaj izmerijo ter posodobijo kot trenutne vrednosti lokalne in cloud nadzorne plošče vsakih `10` sekund.
+- Temperatura, relativna vlaga in masa se zdaj izmerijo ter posodobijo kot trenutne vrednosti lokalne in cloud nadzorne plošče vsakih `10` sekund.
 - SD CSV dnevnik in Firebase zgodovina se dopolnita le enkrat na minuto; s tem ostanejo zgodovinski grafi varčni s prostorom in številom Firebase zapisov.
 - Objavljanje aktivacijske kode ostane omejeno na petminutni interval in se ne pospeši skupaj s trenutnimi meritvami.
 
@@ -966,25 +969,25 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
-- Posamezna meritev teže zdaj povpreči `20` HX711 vzorcev namesto `5`, kar zmanjša naključni šum ADC in merilnih celic.
+- Posamezna meritev mase zdaj povpreči `20` HX711 vzorcev namesto `5`, kar zmanjša naključni šum ADC in merilnih celic.
 
 ## [0.1.0-beta.42] - 2026-08-06
 
 ### Changed
 
-- HX711 faktor teže je dodatno umerjen na `22500,0` z referenčnima utežema `1,464 kg` in `2,470 kg`, da bolje pokrije celotno preskušeno območje.
+- HX711 faktor mase je dodatno umerjen na `22500,0` z referenčnima utežema `1,464 kg` in `2,470 kg`, da bolje pokrije celotno preskušeno območje.
 
 ## [0.1.0-beta.41] - 2026-08-06
 
 ### Changed
 
-- HX711 faktor teže je umerjen na `22296,0` z referenčno utežjo `1,464 kg`; pri prvem testu je enaka utež prikazala `-4,63 kg` ob začetnem faktorju `-7050,0`.
+- HX711 faktor mase je umerjen na `22296,0` z referenčno utežjo `1,464 kg`; pri prvem testu je enaka utež prikazala `-4,63 kg` ob začetnem faktorju `-7050,0`.
 
 ## [0.1.0-beta.40] - 2026-08-06
 
 ### Added
 
-- Firmware bere temperaturo in relativno vlago z BME680 prek I²C (`SDA=8`, `SCL=9`) ter težo prek HX711 (`DOUT=4`, `SCK=5`).
+- Firmware bere temperaturo in relativno vlago z BME680 prek I²C (`SDA=8`, `SCL=9`) ter maso prek HX711 (`DOUT=4`, `SCK=5`).
 - HX711 ob prvem zagonu prazne merilne ploščadi izvede tariranje in njegov odmik shrani v NVS, zato se ob naslednjih zagonih ne ponovi.
 
 ### Changed
@@ -1192,7 +1195,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 - OTA izdaja zdaj vsebuje preverjen `littlefs.bin`; ESP32 ga najprej preverjeno prenese na SD, nato posodobi LittleFS in šele zatem firmware.
 - Glavna navigacija z ločenimi pogledi **Pregled**, **Grafi**, **Naprava** in **Posodobitve**.
 - Svetla in temna tema, ki upoštevata sistemsko nastavitev ter shranita uporabnikovo izbiro v brskalnik.
-- Ločena grafa za temperaturo z relativno vlago ter težo panja z enakim časovnim obdobjem.
+- Ločena grafa za temperaturo z relativno vlago ter maso panja z enakim časovnim obdobjem.
 
 ### Changed
 
@@ -1200,8 +1203,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 - Zavihek **Meritve** je odstranjen, **Zgodovina** pa je preimenovana v **Grafi**.
 - Vsi datumi v uporabniškem vmesniku so prikazani v obliki `d/m/y`.
 - Highcharts prevzame barve iz izbrane teme in v datumskih oznakah uporablja enak zapis kot preostali vmesnik.
-- Tooltipi grafov prikažejo temperaturo, relativno vlago in težo zaokroženo na eno decimalko.
-- Grafa temperature z vlago in teže panja sta zložena navpično za jasnejši pregled na vseh velikostih zaslona.
+- Tooltipi grafov prikažejo temperaturo, relativno vlago in maso zaokroženo na eno decimalko.
+- Grafa temperature z vlago in mase panja sta zložena navpično za jasnejši pregled na vseh velikostih zaslona.
 - Izbira uporabnikovega panja je preoblikovana v kompaktno kartico, registracija pa uporablja izraz »panj«.
 - Uporabnik lahko po potrditvi odregistrira izbrani panj, pri čemer meritve ostanejo shranjene.
 - Opis registracije ima več navpičnega razmika, kartici ESP32 in SD pa uporabljata enako nevtralno obliko kot preostale sistemske kartice.
@@ -1390,7 +1393,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 ### Added
 
 - Začetni ESP32-S3 firmware z Wi-Fi povezavo in Firebase Realtime Database.
-- Simulirane meritve temperature, relativne vlage in teže v 10-sekundnem intervalu.
+- Simulirane meritve temperature, relativne vlage in mase v 10-sekundnem intervalu.
 - NTP sinhronizacijo lokalnega slovenskega časa z upoštevanjem poletnega časa.
 - CSV dnevnik meritev na SD kartici prek SPI.
 - Zgodovino meritev, trenutno meritev in stanje SD kartice v Firebase.

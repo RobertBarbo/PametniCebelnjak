@@ -120,10 +120,34 @@
             </article>
             <article class="metric-card weight-card">
               <span class="metric-symbol" aria-hidden="true">⚖</span>
-              <p>Teža panja</p>
+              <p>Masa panja</p>
               <strong><span id="weight-value">—</span><small>kg</small></strong>
             </article>
           </div>
+        </section>
+
+        <section class="weight-change-panel surface" aria-labelledby="weight-change-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Masa panja</p>
+              <h2 id="weight-change-heading">Sprememba mase</h2>
+            </div>
+          </div>
+          <div class="weight-change-grid" aria-live="polite">
+            <article class="weight-change-item">
+              <p>24 h</p>
+              <strong class="weight-change-value neutral" id="weight-change-day">—</strong>
+              <span class="weight-change-trend" id="weight-change-day-trend" hidden></span>
+              <small id="weight-change-day-detail">Ni dovolj podatkov</small>
+            </article>
+            <article class="weight-change-item">
+              <p>7 dni</p>
+              <strong class="weight-change-value neutral" id="weight-change-week">—</strong>
+              <span class="weight-change-trend" id="weight-change-week-trend" hidden></span>
+              <small id="weight-change-week-detail">Ni dovolj podatkov</small>
+            </article>
+          </div>
+          <p class="weight-change-reference">Primerjava temelji na nočni masi panja</p>
         </section>
 
         <section class="weather-overview surface" id="weather-overview" aria-labelledby="weather-overview-heading" hidden>
@@ -176,10 +200,10 @@
           </article>
           <article class="surface chart-card">
             <div class="chart-card-heading">
-              <div><p class="eyebrow">Masa panja</p><h2>Teža panja</h2></div>
+              <div><p class="eyebrow">Masa panja</p><h2>Masa panja</h2></div>
               <span class="chart-unit">kg</span>
             </div>
-            <div id="weight-chart" aria-label="Graf teže panja" role="img"></div>
+            <div id="weight-chart" aria-label="Graf mase panja" role="img"></div>
           </article>
         </div>
           <p id="history-summary" class="chart-summary">Čakam na zgodovino meritev …</p>
@@ -292,7 +316,7 @@
             <div><p class="eyebrow">Meritve in shranjevanje</p><h2 id="measurement-settings-heading">Nastavitve meritev</h2><p class="muted">Nastavitve veljajo samo za izbrani panj. Naprava jih shrani tudi lokalno, zato ostanejo aktivne ob začasnem izpadu interneta.</p></div>
           </div>
           <form class="measurement-settings-form" id="measurement-settings-form">
-            <label class="account-field">Prikaz teže<select id="weight-display-decimals"><option value="1">1 decimalka</option><option value="2">2 decimalki</option></select><small>Podatki se vedno shranjujejo na dve decimalki.</small></label>
+            <label class="account-field">Prikaz mase<select id="weight-display-decimals"><option value="1">1 decimalka</option><option value="2">2 decimalki</option></select><small>Podatki se vedno shranjujejo na dve decimalki.</small></label>
             <label class="account-field">Interval meritev<input id="measurement-interval-seconds" type="number" min="5" max="120" step="1" inputmode="numeric" required /><small>Od 5 do 120 sekund. Trenutna meritev se posodobi po vsakem ciklu.</small></label>
             <label class="account-field">Zapis zgodovine na SD<input id="sd-archive-interval-minutes" type="number" min="1" max="30" step="1" inputmode="numeric" required /><small>Od 1 do 30 minut. Ti zapisi se prenesejo tudi v Firebase zgodovino.</small></label>
             <button class="primary-button" id="save-measurement-settings" type="submit">Shrani nastavitve</button>

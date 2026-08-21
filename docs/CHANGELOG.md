@@ -19,8 +19,10 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
-- Hitre izbire zgodovine z odprtim koncem, kot so **Zadnja ura**, **Zadnjih 24 ur**, **Zadnjih 7 dni** in koledarska obdobja do trenutka, na lokalnem in cloud pogledu zdaj vsakih 60 sekund samodejno pomaknejo časovno okno ter osvežijo samo podatke grafov. Celotna stran se ne naloži znova; ročno določen interval in približan graf ostaneta fiksna.
-- Cloud grafi uporabljajo gostejše prikazne koše: minutne do 7 dni, 30-minutne do 31 dni, urne do 3 mesecev, 12-urne do 6 mesecev in dnevne za daljša obdobja. Do 31 dni berejo surove meritve, nato urne oziroma dnevne Firebase agregate. Pri približanju izbranega cloud obdobja do 31 dni se surovi podatki znova združijo za dejansko vidni interval, zato ima približan enodnevni pogled minutne točke tudi, če je bil prvotno odprt daljši interval. Lokalni pogled ohrani svoje varčne koše, ker zgodovino pripravlja neposredno iz SD kartice brez interneta.
+- Skrbniški seznam panjev ne posluša več celotne Firebase veje `/devices`. Ob prijavi pridobi samo ID-je z avtenticirano RTDB REST zahtevo `shallow=true`, nato pa za vsak ID realtime spremlja le `owner_uid`, `owner_email` in `status/device`. Po trajnem izbrisu naprave se imenik enkrat znova pridobi z isto majhno shallow zahtevo.
+- Hitre izbire zgodovine z odprtim koncem, kot so **Zadnja ura**, **Zadnjih 24 ur**, **Zadnjih 7 dni** in koledarska obdobja do trenutka, na lokalnem in cloud pogledu zdaj vsakih 60 sekund samodejno pomaknejo časovno okno. Lokalni pogled osveži svoj API grafov, cloud pogled pa samo ponovno izriše že prejeto realtime predpomnjeno zgodovino brez nove Firebase poizvedbe; ročno določen interval in približan graf ostaneta fiksna.
+- Cloud grafi uporabljajo surove meritve samo do 24 ur z minutnimi koši. Od 24 ur do 7 dni berejo urne agregate in jih prikažejo po urah, od 7 do 31 dni iste agregate po 6 ur, do 6 mesecev po 12 ur, nato pa dnevne agregate po dnevih. Začetni omejeni prenos prebere samo še nepredpomnjeni del obdobja, realtime tok pa nato sprejema le nove, spremenjene ali odstranjene zapise posameznih ključev.
+- Cloud zgodovina ima RAM cache trenutne seje, ločen po napravi in Firebase viru. Ob ponovnem izboru v celoti že prebranega obdobja ne ustvari nove poizvedbe, pri delno pokritem obdobju pa prenese samo manjkajoči časovni razpon.
 - Privzeti interval zapisa SD zgodovine je 5 minut. Firmware nastavitve meritev vsakih 30 sekund prebere iz Firebase, jih preveri, shrani v NVS in jih zato uporablja tudi brez začasne cloud povezave. Firebase zgodovina nastaja iz istega intervala kot SD zapis.
 - Nove meritve teže se v CSV dnevnik, `latest`, Firebase surovo zgodovino in agregate zapišejo na dve decimalki. Kartica teže, y-os in tooltip lokalnega ter cloud grafa uporabljajo prikaz ene ali dveh decimalk, izbran za posamezen panj; temperatura in vlaga ostaneta na eni. Oznaka dnevne surove sinhronizacije je povišana, da se cloud ob naslednji primerjavi varno uskladi z novim zapisom kontrolne vsote.
 
@@ -30,6 +32,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Ob izbiri praznega cloud obdobja se prejšnji podatki takoj počistijo in grafi z osjo izbranega časa prikažejo lokalizirano prazno stanje.
 - Ob menjavi jezika se zdaj pravilno osvežijo tudi že prikazana dinamična statusna sporočila vremena. Prevedeni so še OTA odgovori firmware-a, čas delovanja naprave, stanje kalibracijskih odmikov, oznake serij grafov in rezervna oznaka lokacije s koordinatami. V sinhronizaciji zgodovine se ne prikazuje več tehnični razmik ponovnih poskusov.
 - Y-os grafa teže uporablja korake 0,01 / 0,02 / 0,05 kg in večje natančne večkratnike. Dve različni vmesni vrednosti se zato po prikazu na dve decimalki ne moreta več izpisati z isto oznako.
 - Lokalni raziskovalec SD kartice za izpis map uporabi neposredno FAT/POSIX iteracijo, zato zanesljivo prikaže datoteke in mape na FAT SD kartici.

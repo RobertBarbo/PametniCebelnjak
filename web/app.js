@@ -591,7 +591,11 @@ let climateChartHasUserZoom = false;
 let weightChartHasUserZoom = false;
 let lastZoomedChartType;
 let scheduledCloudZoomAggregation = 0;
-let stopHistoryListener;
+let stopHistoryListeners = [];
+let cloudHistoryReadingsByKey = new Map();
+let cloudHistoryRequestGeneration = 0;
+const cloudHistorySessionCache = new Map();
+let scheduledCloudHistoryRender = 0;
 let refreshHistory;
 let latestDeviceStatus;
 let isLocalDashboard = false;
@@ -615,9 +619,12 @@ let latestHistoryAlreadyAggregated = false;
 let cloudDevicePath = "";
 let firebaseAuth;
 let firebaseAuthModule;
+let firebaseDatabaseUrl = "";
 let currentCloudUser;
 let stopCloudDeviceListListener;
 let stopCloudSharedDeviceListListener;
+let stopAdminDeviceSummaryListeners = [];
+let adminDeviceDirectoryRequestGeneration = 0;
 let ownedCloudDevicesLoaded = false;
 let sharedCloudDevicesLoaded = false;
 let stopCloudDeviceListeners = [];
@@ -912,8 +919,32 @@ function updateLiveHistoryRange() {
 }
 
 function refreshLiveHistoryRange() {
-  if (!isHistoryViewActive() || historyViewLoading || !updateLiveHistoryRange()) return;
-  void ensureHistoryViewReady().catch(showDataError);
+  if (!isHistoryViewActive() || historyViewLoading) return;
+  const previousCloudSource = !isLocalDashboard && appliedRange
+    ? getCloudHistorySource(
+      Math.floor(appliedRange.from.getTime() / 1000),
+      Math.floor(appliedRange.to.getTime() / 1000),
+    )
+    : undefined;
+  if (!updateLiveHistoryRange()) return;
+  if (isLocalDashboard) {
+    void ensureHistoryViewReady().catch(showDataError);
+    return;
+  }
+  const nextCloudSource = getCloudHistorySource(
+    Math.floor(appliedRange.from.getTime() / 1000),
+    Math.floor(appliedRange.to.getTime() / 1000),
+  );
+  if (
+    previousCloudSource?.path !== nextCloudSource.path
+    || previousCloudSource?.periodSeconds !== nextCloudSource.periodSeconds
+  ) {
+    // Vir se je dejansko zamenjal (RAW ↔ hourly ↔ daily), zato enkrat varno zamenjaj listenerje.
+    void refreshHistory().catch(showDataError);
+    return;
+  }
+  // Sam prikazni koš se lahko spremeni; listener in Firebase poizvedba pri istem viru ostaneta nedotaknjena.
+  renderCloudHistoryFromCache();
 }
 
 function initializeNavigation() {
@@ -1053,8 +1084,7 @@ function clearCloudDeviceListeners() {
   latestMeasurementSettings = undefined;
   stopCloudDeviceListeners.forEach((unsubscribe) => unsubscribe());
   stopCloudDeviceListeners = [];
-  stopHistoryListener?.();
-  stopHistoryListener = undefined;
+  clearCloudHistoryListeners();
 }
 
 function resetCloudDashboard() {
@@ -1099,6 +1129,66 @@ function rebuildCloudDevices() {
   if (!Object.keys(cloudDevices).length && (!ownedCloudDevicesLoaded || !sharedCloudDevicesLoaded)) return;
   configureCloudAccountView();
   renderCloudDeviceSelector();
+}
+
+function clearAdminDeviceSummaryListeners() {
+  stopAdminDeviceSummaryListeners.forEach((unsubscribe) => unsubscribe());
+  stopAdminDeviceSummaryListeners = [];
+  adminDeviceDirectoryRequestGeneration += 1;
+}
+
+function updateAdminDeviceSummary(deviceId, property, value) {
+  const device = cloudDevices[deviceId];
+  if (!device) return;
+  if (property === "status") {
+    device.status = { ...(device.status ?? {}), device: value ?? null };
+  } else {
+    device[property] = value ?? "";
+  }
+  renderCloudDeviceSelector();
+}
+
+function subscribeAdminDeviceSummary(deviceId) {
+  if (!firebaseDatabase || !cloudDevices[deviceId]) return;
+  const { database, onValue, ref } = firebaseDatabase;
+  const subscribe = (path, property) => {
+    stopAdminDeviceSummaryListeners.push(onValue(
+      ref(database, `devices/${deviceId}/${path}`),
+      (snapshot) => updateAdminDeviceSummary(deviceId, property, snapshot.val()),
+      showDataError,
+    ));
+  };
+  subscribe("owner_uid", "owner_uid");
+  subscribe("owner_email", "owner_email");
+  subscribe("status/device", "status");
+}
+
+function applyAdminDeviceDirectory(deviceIds) {
+  clearAdminDeviceSummaryListeners();
+  cloudDevices = Object.fromEntries(deviceIds.map((deviceId) => [deviceId, { access_role: "administrator" }]));
+  deviceIds.forEach(subscribeAdminDeviceSummary);
+  renderCloudDeviceSelector();
+}
+
+async function refreshAdminDeviceDirectory() {
+  if (!isCloudAdministrator() || !firebaseDatabaseUrl || !currentCloudUser) return;
+  const requestGeneration = ++adminDeviceDirectoryRequestGeneration;
+  try {
+    const token = await currentCloudUser.getIdToken();
+    if (requestGeneration !== adminDeviceDirectoryRequestGeneration || !isCloudAdministrator()) return;
+    const directoryUrl = new URL(`${firebaseDatabaseUrl.replace(/\/+$/, "")}/devices.json`);
+    // RTDB REST sprejme Firebase ID token v parametru auth; shallow vrne samo ključe naprav.
+    directoryUrl.searchParams.set("shallow", "true");
+    directoryUrl.searchParams.set("auth", token);
+    const response = await fetch(directoryUrl, { cache: "no-store" });
+    if (!response.ok) throw new Error(`RTDB shallow device directory failed: ${response.status}`);
+    const shallowDirectory = await response.json();
+    if (requestGeneration !== adminDeviceDirectoryRequestGeneration || !isCloudAdministrator()) return;
+    const deviceIds = Object.keys(shallowDirectory ?? {}).filter(isValidDeviceId).sort();
+    applyAdminDeviceDirectory(deviceIds);
+  } catch (error) {
+    if (requestGeneration === adminDeviceDirectoryRequestGeneration) showDataError(error);
+  }
 }
 
 function renderCloudDeviceSelector() {
@@ -2832,6 +2922,9 @@ async function deleteDeviceHistory() {
       action: "delete_history",
       requested_at: Math.floor(Date.now() / 1000),
     });
+    // Ukaz bo zgodovino trajno izbrisal; za varnost ne uporabljaj več že prenesenih
+    // zapisov te naprave, tudi če naprava ukaz zaključi z zamikom.
+    clearCloudHistorySessionCacheForDevice(cloudDevicePath);
     elements.historyManagementStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
   } catch (error) {
     console.error(error);
@@ -3505,9 +3598,9 @@ function getLocalBucketSeconds(range) {
 
 function getCloudBucketSeconds(range) {
   const rangeSeconds = (range.to.getTime() - range.from.getTime()) / 1000;
-  if (rangeSeconds <= 7 * CHART_AXIS_DAY_SECONDS) return 60;
-  if (rangeSeconds <= CHART_AXIS_MONTH_SECONDS) return 30 * 60;
-  if (rangeSeconds <= CHART_AXIS_THREE_MONTHS_SECONDS) return CHART_AXIS_HOUR_SECONDS;
+  if (rangeSeconds <= CHART_AXIS_DAY_SECONDS) return 60;
+  if (rangeSeconds <= 7 * CHART_AXIS_DAY_SECONDS) return CHART_AXIS_HOUR_SECONDS;
+  if (rangeSeconds <= CHART_AXIS_MONTH_SECONDS) return 6 * CHART_AXIS_HOUR_SECONDS;
   if (rangeSeconds <= CHART_AXIS_SIX_MONTHS_SECONDS) return 12 * CHART_AXIS_HOUR_SECONDS;
   return 24 * 60 * 60;
 }
@@ -3518,13 +3611,121 @@ function getBucketSeconds(range) {
 
 function getCloudHistorySource(from, to) {
   const duration = to - from;
-  if (duration <= CHART_AXIS_MONTH_SECONDS) {
+  if (duration <= CHART_AXIS_DAY_SECONDS) {
     return { path: "measurements", periodSeconds: 0 };
   }
   if (duration <= CHART_AXIS_SIX_MONTHS_SECONDS) {
     return { path: "aggregates/hourly", periodSeconds: 60 * 60 };
   }
   return { path: "aggregates/daily", periodSeconds: 24 * 60 * 60 };
+}
+
+function getCloudHistorySessionCacheKey(devicePath, sourcePath) {
+  return `${devicePath}|${sourcePath}`;
+}
+
+function getCloudHistorySessionCacheEntry(devicePath, sourcePath) {
+  const cacheKey = getCloudHistorySessionCacheKey(devicePath, sourcePath);
+  let entry = cloudHistorySessionCache.get(cacheKey);
+  if (!entry) {
+    entry = {
+      readingsByKey: new Map(),
+      coveredRanges: [],
+    };
+    cloudHistorySessionCache.set(cacheKey, entry);
+  }
+  return entry;
+}
+
+function clearCloudHistorySessionCacheForDevice(devicePath) {
+  const prefix = `${devicePath}|`;
+  [...cloudHistorySessionCache.keys()].forEach((cacheKey) => {
+    if (cacheKey.startsWith(prefix)) cloudHistorySessionCache.delete(cacheKey);
+  });
+}
+
+function addCloudHistoryCacheCoverage(entry, from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) return;
+
+  const ranges = [...entry.coveredRanges, { from, to }]
+    .sort((first, second) => first.from - second.from);
+  entry.coveredRanges = ranges.reduce((mergedRanges, range) => {
+    const previous = mergedRanges[mergedRanges.length - 1];
+    if (!previous || range.from > previous.to + 1) {
+      mergedRanges.push({ ...range });
+    } else {
+      previous.to = Math.max(previous.to, range.to);
+    }
+    return mergedRanges;
+  }, []);
+}
+
+function getCloudHistoryCacheCoverageGaps(entry, from, to) {
+  if (from > to) return [];
+
+  const gaps = [];
+  let nextFrom = from;
+  for (const range of entry.coveredRanges) {
+    if (range.to < nextFrom) continue;
+    if (range.from > to) break;
+    if (range.from > nextFrom) {
+      gaps.push({ from: nextFrom, to: Math.min(to, range.from - 1) });
+    }
+    nextFrom = Math.max(nextFrom, range.to + 1);
+    if (nextFrom > to) break;
+  }
+  if (nextFrom <= to) gaps.push({ from: nextFrom, to });
+  return gaps;
+}
+
+function restoreCloudHistoryReadingsFromSessionCache(entry, from, to) {
+  cloudHistoryReadingsByKey = new Map();
+  entry.readingsByKey.forEach((reading, key) => {
+    const timestamp = Number(reading?.timestamp);
+    if (Number.isFinite(timestamp) && timestamp >= from && timestamp <= to) {
+      cloudHistoryReadingsByKey.set(key, reading);
+    }
+  });
+}
+
+function clearCloudHistoryListeners() {
+  stopHistoryListeners.forEach((unsubscribe) => unsubscribe());
+  stopHistoryListeners = [];
+  cloudHistoryReadingsByKey = new Map();
+  cloudHistoryRequestGeneration += 1;
+  if (scheduledCloudHistoryRender) {
+    cancelAnimationFrame(scheduledCloudHistoryRender);
+    scheduledCloudHistoryRender = 0;
+  }
+}
+
+function getCloudHistoryReadingsInAppliedRange() {
+  if (!appliedRange) return [];
+  const from = Math.floor(appliedRange.from.getTime() / 1000);
+  const to = Math.floor(appliedRange.to.getTime() / 1000);
+  const source = getCloudHistorySource(from, to);
+  const visibleFrom = source.periodSeconds > 0 ? Math.floor(from / source.periodSeconds) * source.periodSeconds : from;
+  const readings = [];
+
+  cloudHistoryReadingsByKey.forEach((reading, key) => {
+    const timestamp = Number(reading?.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp < visibleFrom) {
+      cloudHistoryReadingsByKey.delete(key);
+      return;
+    }
+    if (timestamp <= to) readings.push(reading);
+  });
+  return readings.sort((first, second) => Number(first.timestamp) - Number(second.timestamp));
+}
+
+function renderCloudHistoryFromCache() {
+  scheduledCloudHistoryRender = 0;
+  renderHistory(getCloudHistoryReadingsInAppliedRange());
+}
+
+function scheduleCloudHistoryRender() {
+  if (scheduledCloudHistoryRender) return;
+  scheduledCloudHistoryRender = requestAnimationFrame(renderCloudHistoryFromCache);
 }
 
 function aggregateReadings(readings, range) {
@@ -5424,11 +5625,14 @@ async function deleteDeviceAsAdministrator(deviceId, actionButtons, statusElemen
     await appendDeviceShareInvitationRemovalUpdates(deviceId, updates);
     await update(ref(database), updates);
 
+    clearCloudHistorySessionCacheForDevice(`devices/${deviceId}`);
     ownerEmailSyncedDeviceIds.delete(deviceId);
     if (localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY) === deviceId) {
       localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
     }
     statusElement.textContent = translateText("Naprava in vsi njeni Firebase zapisi so izbrisani.");
+    // Seznam se ne posluša na korenu /devices; po administrativnem izbrisu ga enkrat poceni osveži shallow REST zahteva.
+    await refreshAdminDeviceDirectory();
   } catch (error) {
     console.error(error);
     statusElement.textContent = translateText("Izbris naprave ni uspel. Firebase zapisi ostanejo nespremenjeni.");
@@ -5442,6 +5646,7 @@ function handleCloudAuthState(user) {
   clearCloudDeviceListeners();
   stopCloudDeviceListListener?.();
   stopCloudSharedDeviceListListener?.();
+  clearAdminDeviceSummaryListeners();
   stopCloudDeviceListListener = undefined;
   stopCloudSharedDeviceListListener = undefined;
   cloudDevices = {};
@@ -5473,15 +5678,12 @@ function handleCloudAuthState(user) {
   configureCloudAccountView();
   showView(DEFAULT_VIEW);
   renderHeaderDeviceState();
-  const { database, onValue, ref } = firebaseDatabase;
   if (isCloudAdministrator()) {
-    stopCloudDeviceListListener = onValue(ref(database, "devices"), (snapshot) => {
-      cloudDevices = snapshot.val() ?? {};
-      renderCloudDeviceSelector();
-    }, showDataError);
+    void refreshAdminDeviceDirectory();
     return;
   }
 
+  const { database, onValue, ref } = firebaseDatabase;
   stopCloudDeviceListListener = onValue(ref(database, `users/${user.uid}/devices`), (snapshot) => {
     ownedCloudDevices = snapshot.val() ?? {};
     ownedCloudDevicesLoaded = true;
@@ -5615,18 +5817,35 @@ async function useFirebaseDataSource() {
     import("https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js"),
     import("./firebase-config.js"),
   ]);
-  const { endAt, get, getDatabase, onValue, orderByKey, query, ref, remove, set, startAt, update } = databaseModule;
+  const {
+    endAt,
+    get,
+    getDatabase,
+    onChildAdded,
+    onChildChanged,
+    onChildRemoved,
+    onValue,
+    orderByKey,
+    query,
+    ref,
+    remove,
+    set,
+    startAt,
+    update,
+  } = databaseModule;
   const firebaseApp = initializeApp(configModule.firebaseConfig);
   const database = getDatabase(firebaseApp);
   firebaseAuth = authModule.getAuth(firebaseApp);
   firebaseAuthModule = authModule;
+  firebaseDatabaseUrl = String(configModule.firebaseConfig.databaseURL || "");
   firebaseDatabase = { database, get, onValue, ref, remove, set, update };
   elements.otaSection.hidden = true;
   elements.provisioningSection.hidden = true;
   initializeAuthControls();
 
   refreshHistory = async () => {
-    stopHistoryListener?.();
+    clearCloudHistoryListeners();
+    const requestGeneration = cloudHistoryRequestGeneration;
     if (!cloudDevicePath) {
       renderHistory([]);
       return;
@@ -5635,11 +5854,86 @@ async function useFirebaseDataSource() {
     const to = Math.floor(appliedRange.to.getTime() / 1000);
     const source = getCloudHistorySource(from, to);
     const queryFrom = source.periodSeconds > 0 ? Math.floor(from / source.periodSeconds) * source.periodSeconds : from;
-    const historyQuery = query(ref(database, `${cloudDevicePath}/${source.path}`), orderByKey(), startAt(String(queryFrom)), endAt(String(to)));
-    stopHistoryListener = onValue(historyQuery, (snapshot) => {
-      const readings = Object.entries(snapshot.val() ?? {}).map(([key, value]) => ({ ...value, timestamp: Number(value.timestamp ?? key) }));
-      renderHistory(readings);
-    }, showDataError);
+    const isLiveQuery = hasLiveHistoryRange() && !climateChartHasUserZoom && !weightChartHasUserZoom;
+    const historyReference = ref(database, `${cloudDevicePath}/${source.path}`);
+    const cacheEntry = getCloudHistorySessionCacheEntry(cloudDevicePath, source.path);
+    const realtimeUpdatedKeys = new Set();
+    const isCurrentRequest = () => requestGeneration === cloudHistoryRequestGeneration;
+    const getReadingFromSnapshot = (snapshot) => {
+      const value = snapshot.val();
+      if (!value || typeof value !== "object") return undefined;
+      return {
+        ...value,
+        timestamp: Number(value.timestamp ?? snapshot.key),
+      };
+    };
+    const saveReading = (snapshot) => {
+      const reading = getReadingFromSnapshot(snapshot);
+      if (!reading) return;
+      cacheEntry.readingsByKey.set(snapshot.key, reading);
+      cloudHistoryReadingsByKey.set(snapshot.key, reading);
+    };
+    const upsertReading = (snapshot) => {
+      if (!isCurrentRequest()) return;
+      realtimeUpdatedKeys.add(snapshot.key);
+      saveReading(snapshot);
+      scheduleCloudHistoryRender();
+    };
+    const removeReading = (snapshot) => {
+      if (!isCurrentRequest()) return;
+      realtimeUpdatedKeys.add(snapshot.key);
+      cacheEntry.readingsByKey.delete(snapshot.key);
+      cloudHistoryReadingsByKey.delete(snapshot.key);
+      scheduleCloudHistoryRender();
+    };
+
+    // Prejšnji graf se vedno počisti takoj. Tako prazna Firebase poizvedba ne more
+    // pustiti narisanih podatkov iz starega, že izbranega obdobja.
+    renderHistory([]);
+    restoreCloudHistoryReadingsFromSessionCache(cacheEntry, queryFrom, to);
+    renderCloudHistoryFromCache();
+
+    const missingRanges = getCloudHistoryCacheCoverageGaps(cacheEntry, queryFrom, to);
+    // Fiksno, v celoti predpomnjeno obdobje ne potrebuje niti nove Firebase poizvedbe.
+    // Živo obdobje pa kljub temu potrebuje majhne realtime listenerje za novi rep in spremembe.
+    if (!missingRanges.length && !isLiveQuery) return;
+
+    const historyQuery = isLiveQuery
+      ? query(historyReference, orderByKey(), startAt(String(queryFrom)))
+      : query(historyReference, orderByKey(), startAt(String(queryFrom)), endAt(String(to)));
+
+    // Začetni prenos ne uporablja onChildAdded nad celotnim intervalom: omejeni get()
+    // omogoča pokritost cache-a tudi ob praznem odgovoru. Realtime listenerji nato
+    // sprejemajo le spremembe, onChildAdded na repu živega intervala pa nove ključe.
+    stopHistoryListeners = [
+      onChildChanged(historyQuery, upsertReading, showDataError),
+      onChildRemoved(historyQuery, removeReading, showDataError),
+    ];
+    if (isLiveQuery) {
+      const liveTailQuery = query(historyReference, orderByKey(), startAt(String(to)));
+      stopHistoryListeners.push(onChildAdded(liveTailQuery, upsertReading, showDataError));
+    }
+
+    if (!missingRanges.length) return;
+
+    await Promise.all(missingRanges.map(async (missingRange) => {
+      const missingQuery = query(
+        historyReference,
+        orderByKey(),
+        startAt(String(missingRange.from)),
+        endAt(String(missingRange.to)),
+      );
+      const snapshot = await get(missingQuery);
+      if (!isCurrentRequest()) return;
+      snapshot.forEach((childSnapshot) => {
+        // Realtime dogodek je lahko prišel med začetnim branjem. Ne prepisi ga s
+        // starejšim posnetkom get(), ampak ohrani že prejeto novejšo vrednost.
+        if (!realtimeUpdatedKeys.has(childSnapshot.key)) saveReading(childSnapshot);
+      });
+      addCloudHistoryCacheCoverage(cacheEntry, missingRange.from, missingRange.to);
+    }));
+
+    if (isCurrentRequest()) renderCloudHistoryFromCache();
   };
 
   authModule.onAuthStateChanged(firebaseAuth, handleCloudAuthState);

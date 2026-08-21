@@ -21,7 +21,7 @@ Skriti skrbniški raziskovalec SD kartice je na `http://<lokalni-ip>/sd_card`. Z
 
 Lokalni pogled ne prikazuje cloud prijave ali obrazca za registracijo. Aktivacijska koda je vidna na kartici **Aktivacijska koda** ob stanju naprave; uporabi se skupaj z ID-jem naprave v cloud pogledu.
 
-Lokalna grafa bereta `/measurements.csv` prek `/api/history`. uPlot 1.6.32 je priložen v `vendor/`, zato za grafa in obe temi ne potrebuje interneta. Knjižnica se naloži šele ob odpiranju zavihka **Grafi**. Izbirnik podpira hitra obdobja, začetek in konec z uro ter X-zoomiranje; dvojni klik na graf ponastavi zoom. Temperatura in relativna vlaga sta na prvem grafu, teža panja pa na drugem.
+Lokalna grafa bereta `/measurements.csv` prek `/api/history`. uPlot 1.6.32 je priložen v `vendor/`, zato za grafa in obe temi ne potrebuje interneta. Knjižnica se naloži šele ob odpiranju zavihka **Grafi**. Izbirnik podpira hitra obdobja, začetek in konec z uro ter X-zoomiranje; dvojni klik na graf ponastavi zoom. Temperatura in relativna vlaga sta na prvem grafu, masa panja pa na drugem.
 
 ## Cloud razvojni pogled
 

@@ -31,6 +31,12 @@ const LIVE_HISTORY_REFRESH_INTERVAL_MS = 60 * 1000;
 // zakasnjen zapis oziroma ponoven priklop brskalnika brez poslušanja celih 24 ur.
 const LIVE_HISTORY_RAW_TAIL_OVERLAP_SECONDS = 5 * 60;
 const LIVE_HISTORY_PRESETS = new Set(["today", "week", "month", "year", "hour", "hours12", "hours24", "days7", "days30"]);
+// Nočno okno traja dve uri. Dvanajst enakomerno razporejenih vzorcev z največ
+// polurnimi vrzelmi dovolj zanesljivo izloči nepopolne noči tudi pri redkejšem SD zapisu.
+const MIN_NIGHT_REFERENCE_WEIGHT_SAMPLES = 12;
+const MAX_NIGHT_REFERENCE_WEIGHT_GAP_SECONDS = 30 * 60;
+// Največja povprečna dnevna sprememba mase, ki jo uporabniški vmesnik označi kot stabilno.
+const WEIGHT_CHANGE_STABLE_THRESHOLD_KG = 0.20;
 // Namenski koraki preprečijo podvojene oznake, ko uPlot vmesno vrednost zaokroži na prikazne decimalke.
 const WEIGHT_AXIS_INCREMENTS = Object.freeze([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]);
 const CHART_AXIS_FORMATTERS = new Map();
@@ -58,7 +64,8 @@ const TRANSLATIONS = {
     "Dobrodošel v pametnem panju": "Dobro došli u pametnu košnicu", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Trenutna mjerenja i brzi pregled zadnjeg stanja košnice.",
     "Odpri grafe": "Otvori grafove", "Opozorila naprave": "Upozorenja uređaja", "Potrebno je preveriti komponento": "Potrebno je provjeriti komponentu",
     "Zadnja meritev": "Zadnje mjerenje", "Meritve": "Mjerenja", "Čakam na podatke …": "Čekam podatke …",
-    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost", "Teža panja": "Težina košnice",
+    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost",
+    "Sprememba mase": "Promjena mase", "24 h": "24 h", "7 dni": "7 dana", "Prirast mase": "Porast mase", "Stabilno": "Stabilno", "Izguba mase": "Gubitak mase", "↑ Prirast mase": "↑ Porast mase", "→ Stabilno": "→ Stabilno", "↓ Izguba mase": "↓ Gubitak mase", "v primerjavi s prejšnjo nočjo": "u usporedbi s prethodnom noći", "v primerjavi z nočjo pred 7 dnevi": "u usporedbi s noći prije 7 dana", "Primerjava temelji na nočni masi panja": "Usporedba se temelji na noćnoj masi košnice", "Ni dovolj podatkov": "Nema dovoljno podataka",
     "Podrobnosti naprave": "Pojedinosti uređaja", "Različica": "Verzija", "Preveri posodobitve": "Provjeri ažuriranja",
     "Meritve in shranjevanje": "Mjerenja i pohrana", "Nastavitve vremena": "Postavke vremena", "Stanje sistema": "Stanje sustava",
     "Začetek – konec": "Početak – kraj", "Izberi časovno obdobje grafov.": "Odaberite vremensko razdoblje grafova.",
@@ -69,7 +76,7 @@ const TRANSLATIONS = {
     "Nalagam grafe in zgodovino meritev …": "Učitavam grafove i povijest mjerenja …", "Ni na voljo": "Nije dostupno",
     "Za izbrano obdobje še ni meritev.": "Za odabrano razdoblje još nema mjerenja.",
     "Prikazanih je {count} povprečnih točk. Za približanje povlecite po izbranem grafu.": "Prikazano je {count} prosječnih točaka. Za povećanje povucite po odabranom grafu.",
-    "Temperatura (°C)": "Temperatura (°C)", "Vlaga (%)": "Vlažnost (%)", "Teža (kg)": "Težina (kg)",
+    "Temperatura (°C)": "Temperatura (°C)", "Vlaga (%)": "Vlažnost (%)", "Masa (kg)": "Masa (kg)",
     "Lokacija še ni nastavljena.": "Lokacija još nije postavljena.", "izbrani lokaciji": "odabranom mjestu", "Vreme v kraju {place}": "Vrijeme u mjestu {place}",
     "Jasno": "Vedro", "Delno oblačno": "Djelomično oblačno", "Oblačno": "Oblačno", "Megla": "Magla", "Pršenje": "Rominjanje", "Dež": "Kiša", "Sneg": "Snijeg", "Nevihta": "Oluja", "Spremenljivo": "Promjenjivo",
     "Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.": "Za prikaz vremena najprije upotrijebi trenutačnu lokaciju ili potraži mjesto.",
@@ -113,7 +120,7 @@ const TRANSLATIONS = {
     "Pametni kontroler": "Pametni kontroler", "Moj račun": "Moj račun", "Izbrani panj": "Odabrana košnica", "Vsi registrirani panji": "Sve registrirane košnice", "Dodaj panj": "Dodaj košnicu", "Registriraj panj": "Registriraj košnicu", "Vnesi ID naprave in aktivacijsko kodo.": "Unesite ID uređaja i aktivacijski kod.",
     "Ime panja": "Naziv košnice", "ID naprave": "ID uređaja", "Aktivacijska koda": "Aktivacijski kod", "Deli panj": "Podijeli košnicu", "Dostop samo za ogled": "Pristup samo za pregled", "E-poštni naslov prejemnika": "Adresa e-pošte primatelja", "Ustvari povabilo": "Izradi poziv", "Koda povabila": "Kod poziva", "Kopiraj kodo": "Kopiraj kod", "Uporabniki z ogledom": "Korisnici s pristupom za pregled", "Panj še ni deljen.": "Košnica još nije podijeljena.",
     "Deljeno z mano": "Podijeljeno sa mnom", "Sprejmi povabilo": "Prihvati poziv", "Dodaj deljeni panj": "Dodaj dijeljenu košnicu", "Vreme na pregledu": "Vrijeme u pregledu", "Prikaži vreme": "Prikaži vrijeme", "Na pregledu prikaži trenutno vreme in napoved.": "U pregledu prikaži trenutačno vrijeme i prognozu.", "Dolžina napovedi": "Duljina prognoze", "3 dni": "3 dana", "5 dni": "5 dana", "Lokacija panja": "Lokacija košnice", "Uporabi mojo lokacijo": "Upotrijebi moju lokaciju", "Poišči kraj": "Pronađi mjesto", "Poišči": "Traži", "Vreme deljenega panja": "Vrijeme dijeljene košnice",
-    "Nastavitve meritev": "Postavke mjerenja", "Prikaz teže": "Prikaz težine", "1 decimalka": "1 decimala", "2 decimalki": "2 decimale", "Interval meritev": "Interval mjerenja", "Zapis zgodovine na SD": "Zapis povijesti na SD", "Shrani nastavitve": "Spremi postavke",
+    "Nastavitve meritev": "Postavke mjerenja", "Prikaz mase": "Prikaz mase", "1 decimalka": "1 decimala", "2 decimalki": "2 decimale", "Interval meritev": "Interval mjerenja", "Zapis zgodovine na SD": "Zapis povijesti na SD", "Shrani nastavitve": "Spremi postavke",
     "Nastavitev omrežja": "Postavljanje mreže", "Poveži panj z Wi‑Fi": "Poveži košnicu s Wi‑Fi mrežom", "Povezan si neposredno na dostopno točko naprave.": "Povezani ste izravno s pristupnom točkom uređaja.", "Povezano Wi‑Fi omrežje": "Povezana Wi‑Fi mreža", "Ime Wi‑Fi omrežja": "Naziv Wi‑Fi mreže", "Poišči omrežja": "Pronađi mreže", "Shrani in poveži": "Spremi i poveži", "Izbriši shranjeni Wi‑Fi": "Izbriši spremljeni Wi‑Fi", "Povezava je uspela": "Povezivanje je uspjelo", "Naprava je povezana": "Uređaj je povezan", "Spletna nadzorna plošča": "Web nadzorna ploča", "Novi lokalni naslov": "Nova lokalna adresa", "Odpri nadzorno ploščo": "Otvori nadzornu ploču", "Odpri lokalno": "Otvori lokalno", "Kopiraj lokalni naslov": "Kopiraj lokalnu adresu",
     "Wi‑Fi omrežje": "Wi‑Fi mreža", "IP naslov": "IP adresa", "Wi‑Fi signal": "Wi‑Fi signal", "Uptime": "Vrijeme rada", "Stanje naprave": "Stanje uređaja", "Različica naprave": "Verzija uređaja", "Čakam na stanje …": "Čekam stanje …", "Stanje komponent": "Stanje komponenti", "Senzorji in shranjevanje": "Senzori i pohrana", "Merilne celice": "Mjerne ćelije", "RTC ura": "RTC sat", "Dnevnik meritev": "Dnevnik mjerenja",
     "Tehtnica": "Vaga", "Tariranje tehtnice": "Tariranje vage", "Tariraj tehtnico": "Tariraj vagu", "Čakam na stanje tehtnice …": "Čekam stanje vage …", "Senzor BME680": "Senzor BME680", "Kalibracija temperature in vlage": "Kalibracija temperature i vlažnosti", "Odmik temperature (°C)": "Pomak temperature (°C)", "Odmik vlage (%)": "Pomak vlažnosti (%)", "Shrani kalibracijo": "Spremi kalibraciju", "Čakam na stanje BME680 …": "Čekam stanje BME680 …", "Čas sistema": "Vrijeme sustava", "Datum in ura": "Datum i vrijeme", "Ročna nastavitev": "Ručna postavka", "Nastavi datum in uro": "Postavi datum i vrijeme", "Sinhroniziraj z internetom": "Sinkroniziraj s internetom",
@@ -159,7 +166,7 @@ const TRANSLATIONS = {
     "Čakam na stanje kalibracije BME680 …": "Čekam stanje kalibracije BME680 …", "Ukaz za kalibracijo čaka na izvedbo.": "Naredba za kalibraciju čeka izvršenje.", "Shranjujem kalibracijo BME680 …": "Spremam kalibraciju BME680 …", "Kalibracija BME680 je shranjena in uporabljena pri novih meritvah.": "Kalibracija BME680 spremljena je i primjenjuje se na nova mjerenja.", "Kalibracije BME680 ni bilo mogoče shraniti.": "Kalibraciju BME680 nije bilo moguće spremiti.", "Panj je offline; kalibracije trenutno ni mogoče nastaviti.": "Košnica je izvan mreže; kalibraciju trenutačno nije moguće postaviti.", "Izberi online panj za kalibracijo.": "Odaberite online košnicu za kalibraciju.", "BME680 ni pripravljen; odmikov trenutno ni mogoče nastaviti.": "BME680 nije spreman; pomake trenutačno nije moguće postaviti.",
     "E-poštni naslov ali geslo ni pravilno.": "Adresa e-pošte ili lozinka nisu ispravni.", "Za ta e-poštni naslov račun že obstaja.": "Račun za ovu adresu e-pošte već postoji.", "Geslo mora imeti najmanj šest znakov.": "Lozinka mora imati najmanje šest znakova.", "Google prijava je bila zaprta.": "Google prijava je zatvorena.", "Ta način prijave še ni omogočen v Firebase Authentication.": "Ovaj način prijave još nije omogućen u Firebase Authenticationu.", "Postopka ni bilo mogoče dokončati. Poskusi znova.": "Postupak nije bilo moguće dovršiti. Pokušajte ponovno.", "Vnesi e-poštni naslov in geslo.": "Unesite adresu e-pošte i lozinku.", "Google račun": "Google račun",
     "Lokacija {name} je shranjena za ta panj.": "Lokacija {name} spremljena je za ovu košnicu.", "Dovoljenje za lokacijo je zavrnjeno. Kraj lahko poiščeš ročno.": "Dopuštenje za lokaciju je odbijeno. Mjesto možete potražiti ručno.", "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.": "Lokaciju nije bilo moguće dohvatiti. Pokušajte ponovno ili ručno potražite mjesto.", "Prikaz vremena je vključen.": "Prikaz vremena je uključen.", "Prikaz vremena je izključen.": "Prikaz vremena je isključen.", "Dolžina napovedi je shranjena.": "Duljina prognoze je spremljena.",
-    "Graf temperature in relativne vlage": "Graf temperature i relativne vlažnosti", "Graf teže panja": "Graf težine košnice", "Hitre izbire obdobja": "Brzi odabir razdoblja", "Koledar za izbiro obdobja": "Kalendar za odabir razdoblja", "Napredek OTA posodobitve": "Napredak OTA ažuriranja", "Naslednji mesec": "Sljedeći mjesec", "Prejšnji mesec": "Prethodni mjesec", "Odpri pregled": "Otvori pregled", "Moj panj": "Moja košnica", "npr. Ljubljana": "npr. Zagreb",
+    "Graf temperature in relativne vlage": "Graf temperature i relativne vlažnosti", "Graf mase panja": "Graf mase košnice", "Hitre izbire obdobja": "Brzi odabir razdoblja", "Koledar za izbiro obdobja": "Kalendar za odabir razdoblja", "Napredek OTA posodobitve": "Napredak OTA ažuriranja", "Naslednji mesec": "Sljedeći mjesec", "Prejšnji mesec": "Prethodni mjesec", "Odpri pregled": "Otvori pregled", "Moj panj": "Moja košnica", "npr. Ljubljana": "npr. Zagreb",
     "{label}: prikaži ali skrij serijo": "{label}: prikaži ili sakrij niz",
     "Panj": "Košnica", "ID naprave:": "ID uređaja:", "Aktivacijska koda:": "Aktivacijski kod:", "ali": "ili", "Pozor:": "Pažnja:", "Pomembno:": "Važno:", "programsko opremo": "programski softver", "lokalni spletni vmesnik": "lokalno web sučelje", "Na ločeni strani izberi": "Na zasebnoj stranici odaberite", "Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko": "Otvorit će se alat za ažuriranje. Odaberite samo pouzdanu datoteku", "za": "za", "za to napravo.": "za ovaj uređaj.", ". Po uspešni posodobitvi se naprava znova zažene.": ". Nakon uspješnog ažuriranja uređaj će se ponovno pokrenuti.", "med posodobitvijo naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "tijekom ažuriranja ne isključujte uređaj i ne prekidajte Wi‑Fi vezu.", "med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.": "tijekom prijenosa ne isključujte napajanje, ne zatvarajte preglednik i ne prekidajte Wi‑Fi vezu. Nakon uspješnog ažuriranja uređaj će se automatski ponovno pokrenuti.", "Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.": "Upotrijebite samo datoteke iz pouzdanog izdanja za ovaj uređaj. Programski softver i lokalno web sučelje instalirajte zasebno.",
     "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "Pomak temperature mora biti između -10,0 i +10,0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "Pomak vlažnosti mora biti između -30,0 i +30,0 %.", "Kalibracijo pošiljam napravi …": "Šaljem kalibraciju uređaju …", "Ukaz za kalibracijo pošiljam napravi …": "Šaljem naredbu za kalibraciju uređaju …", "Ročno nastavitev pošiljam napravi …": "Šaljem ručnu postavku uređaju …", "Ročno nastavitev pošiljam izbranemu panju …": "Šaljem ručnu postavku odabranoj košnici …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "Postavka je prihvaćena. Uređaj će ažurirati sistemski sat i DS3231.", "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.": "Naredba je poslana. Uređaj će je preuzeti u roku od 15 sekundi.", "NTP sinhronizacija je uvrščena.": "NTP sinkronizacija je stavljena u red čekanja.",
@@ -206,7 +213,8 @@ const TRANSLATIONS = {
     "Dobrodošel v pametnem panju": "Welcome to the smart hive", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Current measurements and a quick overview of the latest hive state.",
     "Odpri grafe": "Open charts", "Opozorila naprave": "Device alerts", "Potrebno je preveriti komponento": "A component needs attention",
     "Zadnja meritev": "Latest measurement", "Meritve": "Measurements", "Čakam na podatke …": "Waiting for data …",
-    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity", "Teža panja": "Hive weight",
+    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity",
+    "Sprememba mase": "Mass change", "24 h": "24 h", "7 dni": "7 days", "Prirast mase": "Mass gain", "Stabilno": "Stable", "Izguba mase": "Mass loss", "↑ Prirast mase": "↑ Mass gain", "→ Stabilno": "→ Stable", "↓ Izguba mase": "↓ Mass loss", "v primerjavi s prejšnjo nočjo": "compared with the previous night", "v primerjavi z nočjo pred 7 dnevi": "compared with the night 7 days ago", "Primerjava temelji na nočni masi panja": "Comparison is based on the hive's night-time mass", "Ni dovolj podatkov": "Not enough data",
     "Podrobnosti naprave": "Device details", "Različica": "Version", "Preveri posodobitve": "Check for updates",
     "Meritve in shranjevanje": "Measurements and storage", "Nastavitve vremena": "Weather settings", "Stanje sistema": "System status",
     "Začetek – konec": "Start – end", "Izberi časovno obdobje grafov.": "Choose the chart time period.",
@@ -217,7 +225,7 @@ const TRANSLATIONS = {
     "Nalagam grafe in zgodovino meritev …": "Loading charts and measurement history …", "Ni na voljo": "Not available",
     "Za izbrano obdobje še ni meritev.": "There are no measurements for the selected period yet.",
     "Prikazanih je {count} povprečnih točk. Za približanje povlecite po izbranem grafu.": "{count} averaged points are displayed. Drag on the selected chart to zoom in.",
-    "Temperatura (°C)": "Temperature (°C)", "Vlaga (%)": "Humidity (%)", "Teža (kg)": "Weight (kg)",
+    "Temperatura (°C)": "Temperature (°C)", "Vlaga (%)": "Humidity (%)", "Masa (kg)": "Mass (kg)",
     "Lokacija še ni nastavljena.": "Location has not been set yet.", "izbrani lokaciji": "the selected location", "Vreme v kraju {place}": "Weather in {place}",
     "Jasno": "Clear", "Delno oblačno": "Partly cloudy", "Oblačno": "Cloudy", "Megla": "Fog", "Pršenje": "Drizzle", "Dež": "Rain", "Sneg": "Snow", "Nevihta": "Thunderstorm", "Spremenljivo": "Variable",
     "Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.": "To display weather, first use your current location or search for a place.",
@@ -261,7 +269,7 @@ const TRANSLATIONS = {
     "Pametni kontroler": "Smart controller", "Moj račun": "My account", "Izbrani panj": "Selected hive", "Vsi registrirani panji": "All registered hives", "Dodaj panj": "Add hive", "Registriraj panj": "Register hive", "Vnesi ID naprave in aktivacijsko kodo.": "Enter the device ID and activation code.",
     "Ime panja": "Hive name", "ID naprave": "Device ID", "Aktivacijska koda": "Activation code", "Deli panj": "Share hive", "Dostop samo za ogled": "View-only access", "E-poštni naslov prejemnika": "Recipient email address", "Ustvari povabilo": "Create invitation", "Koda povabila": "Invitation code", "Kopiraj kodo": "Copy code", "Uporabniki z ogledom": "View-only users", "Panj še ni deljen.": "The hive has not been shared yet.",
     "Deljeno z mano": "Shared with me", "Sprejmi povabilo": "Accept invitation", "Dodaj deljeni panj": "Add shared hive", "Vreme na pregledu": "Weather on overview", "Prikaži vreme": "Show weather", "Na pregledu prikaži trenutno vreme in napoved.": "Show current weather and forecast on the overview.", "Dolžina napovedi": "Forecast length", "3 dni": "3 days", "5 dni": "5 days", "Lokacija panja": "Hive location", "Uporabi mojo lokacijo": "Use my location", "Poišči kraj": "Search for a place", "Poišči": "Search", "Vreme deljenega panja": "Shared hive weather",
-    "Nastavitve meritev": "Measurement settings", "Prikaz teže": "Weight display", "1 decimalka": "1 decimal", "2 decimalki": "2 decimals", "Interval meritev": "Measurement interval", "Zapis zgodovine na SD": "SD history recording", "Shrani nastavitve": "Save settings",
+    "Nastavitve meritev": "Measurement settings", "Prikaz mase": "Mass display", "1 decimalka": "1 decimal", "2 decimalki": "2 decimals", "Interval meritev": "Measurement interval", "Zapis zgodovine na SD": "SD history recording", "Shrani nastavitve": "Save settings",
     "Nastavitev omrežja": "Network setup", "Poveži panj z Wi‑Fi": "Connect hive to Wi‑Fi", "Povezan si neposredno na dostopno točko naprave.": "You are connected directly to the device access point.", "Povezano Wi‑Fi omrežje": "Connected Wi‑Fi network", "Ime Wi‑Fi omrežja": "Wi‑Fi network name", "Poišči omrežja": "Find networks", "Shrani in poveži": "Save and connect", "Izbriši shranjeni Wi‑Fi": "Delete saved Wi‑Fi", "Povezava je uspela": "Connection successful", "Naprava je povezana": "Device connected", "Spletna nadzorna plošča": "Web dashboard", "Novi lokalni naslov": "New local address", "Odpri nadzorno ploščo": "Open dashboard", "Odpri lokalno": "Open locally", "Kopiraj lokalni naslov": "Copy local address",
     "Wi‑Fi omrežje": "Wi‑Fi network", "IP naslov": "IP address", "Wi‑Fi signal": "Wi‑Fi signal", "Uptime": "Uptime", "Stanje naprave": "Device status", "Različica naprave": "Device version", "Čakam na stanje …": "Waiting for status …", "Stanje komponent": "Component status", "Senzorji in shranjevanje": "Sensors and storage", "Merilne celice": "Load cells", "RTC ura": "RTC clock", "Dnevnik meritev": "Measurement log",
     "Tehtnica": "Scale", "Tariranje tehtnice": "Scale tare", "Tariraj tehtnico": "Tare scale", "Čakam na stanje tehtnice …": "Waiting for scale status …", "Senzor BME680": "BME680 sensor", "Kalibracija temperature in vlage": "Temperature and humidity calibration", "Odmik temperature (°C)": "Temperature offset (°C)", "Odmik vlage (%)": "Humidity offset (%)", "Shrani kalibracijo": "Save calibration", "Čakam na stanje BME680 …": "Waiting for BME680 status …", "Čas sistema": "System time", "Datum in ura": "Date and time", "Ročna nastavitev": "Manual setting", "Nastavi datum in uro": "Set date and time", "Sinhroniziraj z internetom": "Synchronize with internet",
@@ -307,7 +315,7 @@ const TRANSLATIONS = {
     "Čakam na stanje kalibracije BME680 …": "Waiting for BME680 calibration status …", "Ukaz za kalibracijo čaka na izvedbo.": "The calibration command is waiting to run.", "Shranjujem kalibracijo BME680 …": "Saving BME680 calibration …", "Kalibracija BME680 je shranjena in uporabljena pri novih meritvah.": "BME680 calibration was saved and is applied to new measurements.", "Kalibracije BME680 ni bilo mogoče shraniti.": "BME680 calibration could not be saved.", "Panj je offline; kalibracije trenutno ni mogoče nastaviti.": "The hive is offline; calibration cannot currently be set.", "Izberi online panj za kalibracijo.": "Select an online hive to calibrate.", "BME680 ni pripravljen; odmikov trenutno ni mogoče nastaviti.": "BME680 is not ready; offsets cannot currently be set.",
     "E-poštni naslov ali geslo ni pravilno.": "The email address or password is incorrect.", "Za ta e-poštni naslov račun že obstaja.": "An account already exists for this email address.", "Geslo mora imeti najmanj šest znakov.": "The password must contain at least six characters.", "Google prijava je bila zaprta.": "Google sign-in was closed.", "Ta način prijave še ni omogočen v Firebase Authentication.": "This sign-in method is not enabled in Firebase Authentication yet.", "Postopka ni bilo mogoče dokončati. Poskusi znova.": "The operation could not be completed. Try again.", "Vnesi e-poštni naslov in geslo.": "Enter your email address and password.", "Google račun": "Google account",
     "Lokacija {name} je shranjena za ta panj.": "Location {name} was saved for this hive.", "Dovoljenje za lokacijo je zavrnjeno. Kraj lahko poiščeš ročno.": "Location permission was denied. You can search for a place manually.", "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.": "The location could not be retrieved. Try again or search for a place manually.", "Prikaz vremena je vključen.": "Weather display is enabled.", "Prikaz vremena je izključen.": "Weather display is disabled.", "Dolžina napovedi je shranjena.": "Forecast length was saved.",
-    "Graf temperature in relativne vlage": "Temperature and relative humidity chart", "Graf teže panja": "Hive weight chart", "Hitre izbire obdobja": "Quick period selections", "Koledar za izbiro obdobja": "Period selection calendar", "Napredek OTA posodobitve": "OTA update progress", "Naslednji mesec": "Next month", "Prejšnji mesec": "Previous month", "Odpri pregled": "Open overview", "Moj panj": "My hive", "npr. Ljubljana": "e.g. London",
+    "Graf temperature in relativne vlage": "Temperature and relative humidity chart", "Graf mase panja": "Hive mass chart", "Hitre izbire obdobja": "Quick period selections", "Koledar za izbiro obdobja": "Period selection calendar", "Napredek OTA posodobitve": "OTA update progress", "Naslednji mesec": "Next month", "Prejšnji mesec": "Previous month", "Odpri pregled": "Open overview", "Moj panj": "My hive", "npr. Ljubljana": "e.g. London",
     "{label}: prikaži ali skrij serijo": "{label}: show or hide series",
     "Panj": "Hive", "ID naprave:": "Device ID:", "Aktivacijska koda:": "Activation code:", "ali": "or", "Pozor:": "Warning:", "Pomembno:": "Important:", "programsko opremo": "firmware", "lokalni spletni vmesnik": "local web interface", "Na ločeni strani izberi": "On the separate page, select", "Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko": "The update tool will open. Select only a trusted file", "za": "for", "za to napravo.": "for this device.", ". Po uspešni posodobitvi se naprava znova zažene.": ". The device restarts after a successful update.", "med posodobitvijo naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "do not turn off the device or interrupt the Wi‑Fi connection during the update.", "med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.": "do not disconnect power, close the browser, or interrupt the Wi‑Fi connection during transfer. The device restarts automatically after a successful update.", "Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.": "Use only files from a trusted release for this device. Install the firmware and local web interface separately.",
     "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "The temperature offset must be between -10.0 and +10.0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "The humidity offset must be between -30.0 and +30.0%.", "Kalibracijo pošiljam napravi …": "Sending calibration to the device …", "Ukaz za kalibracijo pošiljam napravi …": "Sending the calibration command to the device …", "Ročno nastavitev pošiljam napravi …": "Sending the manual setting to the device …", "Ročno nastavitev pošiljam izbranemu panju …": "Sending the manual setting to the selected hive …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "The setting was accepted. The device will update the system clock and DS3231.", "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.": "Command sent. The device will retrieve it within 15 seconds.", "NTP sinhronizacija je uvrščena.": "NTP synchronization has been queued.",
@@ -454,6 +462,12 @@ const elements = {
   humidity: document.querySelector("#humidity-value"),
   weight: document.querySelector("#weight-value"),
   latestTime: document.querySelector("#last-measurement-time"),
+  weightChangeDay: document.querySelector("#weight-change-day"),
+  weightChangeDayTrend: document.querySelector("#weight-change-day-trend"),
+  weightChangeDayDetail: document.querySelector("#weight-change-day-detail"),
+  weightChangeWeek: document.querySelector("#weight-change-week"),
+  weightChangeWeekTrend: document.querySelector("#weight-change-week-trend"),
+  weightChangeWeekDetail: document.querySelector("#weight-change-week-detail"),
   weatherOverview: document.querySelector("#weather-overview"),
   weatherOverviewHeading: document.querySelector("#weather-overview-heading"),
   weatherLocationName: document.querySelector("#weather-location-name"),
@@ -656,6 +670,10 @@ let wifiTransitionProbeGeneration = 0;
 let latestWeatherSettings;
 let latestMeasurementSettings;
 let latestMeasurement;
+const nightReferenceSessionCache = new Map();
+let weightChangeRequestGeneration = 0;
+let weightChangeRefreshTimer;
+let latestWeightChangeReferences = [null, null, null];
 let weatherFetchController;
 let weatherRequestKey = "";
 let weatherLastFetchedAt = 0;
@@ -873,6 +891,7 @@ function showView(viewName, updateLocation = true) {
   }
   if (selectedView === "overview") {
     void refreshWeatherForecast();
+    void refreshWeightChangeOverview();
   }
 }
 
@@ -1099,6 +1118,7 @@ function resetCloudDashboard() {
   latestNetworkResetStatus = undefined;
   latestOtaStatus = undefined;
   renderLatestMeasurement(null);
+  resetWeightChangeOverview();
   renderDeviceStatus(null);
   renderSDStatus(null);
   renderFirmwareVersion(null);
@@ -1341,6 +1361,7 @@ function selectCloudDevice(deviceId) {
   bme680CalibrationRequestedAt = 0;
   elements.cloudBme680CalibrationForm.dataset.dirty = "false";
   cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
+  resetWeightChangeOverview();
   elements.cloudDeviceSelect.value = deviceId;
   renderAdminDeviceOverview();
   configureSelectedCloudDeviceAccess(deviceId);
@@ -1400,6 +1421,7 @@ function selectCloudDevice(deviceId) {
   }
   historyViewLoading = undefined;
   refreshVisibleHistory();
+  void refreshWeightChangeOverview();
 }
 
 function setConnectionState(text, state = "connected") {
@@ -1569,6 +1591,257 @@ function renderSharedLatestMeasurement(measurement) {
   const timestamp = Number(measurement?.timestamp);
   latestDeviceStatus = Number.isFinite(timestamp) && timestamp > 0 ? { last_seen_timestamp: timestamp } : undefined;
   renderHeaderDeviceState();
+}
+
+function getLocalCalendarDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function shiftLocalCalendarDate(date, days) {
+  const shiftedDate = new Date(date);
+  shiftedDate.setDate(shiftedDate.getDate() + days);
+  return shiftedDate;
+}
+
+function getLatestCompletedNightDate(now = new Date()) {
+  const nightDate = new Date(now);
+  nightDate.setHours(0, 0, 0, 0);
+  if (now.getHours() < 5) nightDate.setDate(nightDate.getDate() - 1);
+  return nightDate;
+}
+
+function getNightWindow(nightDate) {
+  const start = new Date(nightDate);
+  start.setHours(3, 0, 0, 0);
+  const end = new Date(nightDate);
+  end.setHours(5, 0, 0, 0);
+  return {
+    key: getLocalCalendarDateKey(nightDate),
+    from: Math.floor(start.getTime() / 1000),
+    to: Math.floor(end.getTime() / 1000),
+  };
+}
+
+function getNightReferenceCacheScope() {
+  if (isLocalDashboard) return "local";
+  return cloudDevicePath ? `cloud:${cloudDevicePath}` : "";
+}
+
+function clearNightReferenceSessionCacheForScope(scope) {
+  const prefix = `${scope}|`;
+  [...nightReferenceSessionCache.keys()].forEach((cacheKey) => {
+    if (cacheKey.startsWith(prefix)) nightReferenceSessionCache.delete(cacheKey);
+  });
+}
+
+function calculateMedianWeight(readings, window) {
+  const samples = (Array.isArray(readings) ? readings : [])
+    .map((reading) => ({
+      timestamp: Number(reading?.timestamp),
+      weight: parseMeasurementValue(reading?.weight_kg),
+    }))
+    .filter((sample) => Number.isFinite(sample.timestamp) && sample.timestamp >= window.from
+      && sample.timestamp < window.to && sample.weight !== null)
+    .sort((first, second) => first.timestamp - second.timestamp);
+
+  if (samples.length < MIN_NIGHT_REFERENCE_WEIGHT_SAMPLES) return null;
+  if (samples[0].timestamp > window.from + MAX_NIGHT_REFERENCE_WEIGHT_GAP_SECONDS
+    || samples[samples.length - 1].timestamp < window.to - MAX_NIGHT_REFERENCE_WEIGHT_GAP_SECONDS) {
+    return null;
+  }
+  for (let index = 1; index < samples.length; index += 1) {
+    if (samples[index].timestamp - samples[index - 1].timestamp > MAX_NIGHT_REFERENCE_WEIGHT_GAP_SECONDS) {
+      return null;
+    }
+  }
+
+  const weights = samples.map((sample) => sample.weight).sort((first, second) => first - second);
+  const middle = Math.floor(weights.length / 2);
+  const median = weights.length % 2 === 0
+    ? (weights[middle - 1] + weights[middle]) / 2
+    : weights[middle];
+  return Number.isFinite(median) ? { weight: median, sampleCount: samples.length } : null;
+}
+
+function getCloudHistoryReadingsInRange(entry, from, to) {
+  const readings = [];
+  entry.readingsByKey.forEach((reading) => {
+    const timestamp = Number(reading?.timestamp);
+    if (Number.isFinite(timestamp) && timestamp >= from && timestamp < to) readings.push(reading);
+  });
+  return readings;
+}
+
+async function fetchCloudNightWindowReadings(devicePath, window) {
+  if (!firebaseDatabase || !devicePath) throw new Error("Cloud zgodovina ni pripravljena.");
+  const { database, endAt, get, orderByKey, query, ref, startAt } = firebaseDatabase;
+  const cacheEntry = getCloudHistorySessionCacheEntry(devicePath, "measurements");
+  const missingRanges = getCloudHistoryCacheCoverageGaps(cacheEntry, window.from, window.to - 1);
+
+  await Promise.all(missingRanges.map(async (missingRange) => {
+    const snapshot = await get(query(
+      ref(database, `${devicePath}/measurements`),
+      orderByKey(),
+      startAt(String(missingRange.from)),
+      endAt(String(missingRange.to)),
+    ));
+    snapshot.forEach((childSnapshot) => {
+      const value = childSnapshot.val();
+      if (!value || typeof value !== "object") return;
+      cacheEntry.readingsByKey.set(childSnapshot.key, {
+        ...value,
+        timestamp: Number(value.timestamp ?? childSnapshot.key),
+      });
+    });
+    addCloudHistoryCacheCoverage(cacheEntry, missingRange.from, missingRange.to);
+  }));
+
+  return getCloudHistoryReadingsInRange(cacheEntry, window.from, window.to);
+}
+
+async function fetchLocalNightWindowReadings(window) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const response = await fetch(`/api/history?from=${window.from}&to=${window.to}`, { cache: "no-store" });
+    if (response.status === 202) {
+      await delay(250);
+      continue;
+    }
+    if (!response.ok) throw new Error("Lokalna nočna zgodovina ni dosegljiva.");
+    const history = await response.json();
+    return history.readings ?? [];
+  }
+  throw new Error("Priprava lokalne nočne zgodovine je trajala predolgo.");
+}
+
+async function getNightReference(scope, nightDate) {
+  const window = getNightWindow(nightDate);
+  const cacheKey = `${scope}|${window.key}`;
+  const cachedReference = nightReferenceSessionCache.get(cacheKey);
+  if (cachedReference) return cachedReference;
+
+  const request = (scope === "local"
+    ? fetchLocalNightWindowReadings(window)
+    : fetchCloudNightWindowReadings(scope.slice("cloud:".length), window))
+    .then((readings) => calculateMedianWeight(readings, window));
+  nightReferenceSessionCache.set(cacheKey, request);
+  try {
+    return await request;
+  } catch (error) {
+    nightReferenceSessionCache.delete(cacheKey);
+    throw error;
+  }
+}
+
+function getWeightChangeTrend(changeKg, days) {
+  if (!Number.isFinite(changeKg) || !Number.isFinite(days) || days <= 0) return null;
+
+  const dailyAverage = changeKg / days;
+  if (dailyAverage > WEIGHT_CHANGE_STABLE_THRESHOLD_KG) {
+    return { className: "gain", label: "↑ Prirast mase" };
+  }
+  if (dailyAverage < -WEIGHT_CHANGE_STABLE_THRESHOLD_KG) {
+    return { className: "loss", label: "↓ Izguba mase" };
+  }
+  return { className: "stable", label: "→ Stabilno" };
+}
+
+function renderWeightChangeValue(valueElement, trendElement, detailElement, change, days, detailText) {
+  const hasChange = Number.isFinite(change);
+  const trend = getWeightChangeTrend(change, days);
+  valueElement.classList.remove("gain", "stable", "loss", "neutral");
+  if (!hasChange) {
+    valueElement.classList.add("neutral");
+    valueElement.textContent = "—";
+    trendElement.hidden = true;
+    trendElement.className = "weight-change-trend";
+    trendElement.removeAttribute("data-i18n-source");
+    trendElement.textContent = "";
+    setTranslatedElementText(detailElement, "Ni dovolj podatkov");
+    return;
+  }
+
+  valueElement.classList.add(trend.className);
+  const sign = change > 0 ? "+" : change < 0 ? "−" : "";
+  valueElement.textContent = `${sign}${Math.abs(change).toFixed(currentWeightDisplayDecimals())} kg`;
+  trendElement.hidden = false;
+  trendElement.className = `weight-change-trend ${trend.className}`;
+  setTranslatedElementText(trendElement, trend.label);
+  setTranslatedElementText(detailElement, detailText);
+}
+
+function renderWeightChangeOverview(latestReference, previousReference, weekReference) {
+  latestWeightChangeReferences = [latestReference, previousReference, weekReference];
+  const dailyChange = latestReference && previousReference
+    ? latestReference.weight - previousReference.weight
+    : null;
+  const weeklyChange = latestReference && weekReference
+    ? latestReference.weight - weekReference.weight
+    : null;
+  renderWeightChangeValue(
+    elements.weightChangeDay,
+    elements.weightChangeDayTrend,
+    elements.weightChangeDayDetail,
+    dailyChange,
+    1,
+    "v primerjavi s prejšnjo nočjo",
+  );
+  renderWeightChangeValue(
+    elements.weightChangeWeek,
+    elements.weightChangeWeekTrend,
+    elements.weightChangeWeekDetail,
+    weeklyChange,
+    7,
+    "v primerjavi z nočjo pred 7 dnevi",
+  );
+}
+
+function resetWeightChangeOverview() {
+  renderWeightChangeOverview(null, null, null);
+}
+
+async function refreshWeightChangeOverview() {
+  const scope = getNightReferenceCacheScope();
+  if (!scope) {
+    resetWeightChangeOverview();
+    return;
+  }
+
+  const requestGeneration = ++weightChangeRequestGeneration;
+  const latestNightDate = getLatestCompletedNightDate();
+  const nightDates = [
+    latestNightDate,
+    shiftLocalCalendarDate(latestNightDate, -1),
+    shiftLocalCalendarDate(latestNightDate, -7),
+  ];
+  try {
+    // Lokalni ESP streže eno pripravljano history okno naenkrat, zato ga beremo
+    // zaporedno; Firebase lahko iste tri ozke nočne intervale bere vzporedno.
+    const references = scope === "local"
+      ? [
+        await getNightReference(scope, nightDates[0]),
+        await getNightReference(scope, nightDates[1]),
+        await getNightReference(scope, nightDates[2]),
+      ]
+      : await Promise.all(nightDates.map((nightDate) => getNightReference(scope, nightDate)));
+    if (requestGeneration !== weightChangeRequestGeneration || scope !== getNightReferenceCacheScope()) return;
+    renderWeightChangeOverview(references[0], references[1], references[2]);
+  } catch (error) {
+    if (requestGeneration !== weightChangeRequestGeneration) return;
+    console.warn("Nočne reference mase niso dosegljive.", error);
+    resetWeightChangeOverview();
+  }
+}
+
+function scheduleWeightChangeOverviewRefresh() {
+  clearTimeout(weightChangeRefreshTimer);
+  const now = new Date();
+  const nextRefresh = new Date(now);
+  nextRefresh.setHours(5, 0, 5, 0);
+  if (nextRefresh <= now) nextRefresh.setDate(nextRefresh.getDate() + 1);
+  weightChangeRefreshTimer = window.setTimeout(() => {
+    void refreshWeightChangeOverview();
+    scheduleWeightChangeOverviewRefresh();
+  }, nextRefresh.getTime() - now.getTime());
 }
 
 function normalizeWeatherSettings(settings) {
@@ -1890,6 +2163,7 @@ function renderMeasurementSettings(settings) {
     elements.sdArchiveIntervalMinutes.value = String(latestMeasurementSettings.sdArchiveIntervalMinutes);
   }
   if (latestMeasurement) renderLatestMeasurement(latestMeasurement);
+  renderWeightChangeOverview(...latestWeightChangeReferences);
   if (weightChart) updateChartTheme();
 }
 
@@ -3170,6 +3444,9 @@ async function deleteLocalMeasurementHistory() {
     const response = await fetch("/api/history", { method: "DELETE" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Brisanje meritev s SD kartice ni uspelo");
+    clearNightReferenceSessionCacheForScope("local");
+    weightChangeRequestGeneration += 1;
+    resetWeightChangeOverview();
     elements.localMeasurementLogStatus.textContent = translateText("Brisanje dnevnika je uvrščeno v čakalno vrsto …");
   } catch (error) {
     elements.localMeasurementLogStatus.textContent = error.message;
@@ -3652,6 +3929,11 @@ function clearCloudHistorySessionCacheForDevice(devicePath) {
   [...cloudHistorySessionCache.keys()].forEach((cacheKey) => {
     if (cacheKey.startsWith(prefix)) cloudHistorySessionCache.delete(cacheKey);
   });
+  clearNightReferenceSessionCacheForScope(`cloud:${devicePath}`);
+  if (getNightReferenceCacheScope() === `cloud:${devicePath}`) {
+    weightChangeRequestGeneration += 1;
+    resetWeightChangeOverview();
+  }
 }
 
 function addCloudHistoryCacheCoverage(entry, from, to) {
@@ -4600,7 +4882,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
     series: [
       {},
       {
-        label: translateText("Teža (kg)"),
+        label: translateText("Masa (kg)"),
         scale: "weight",
         show: isChartSeriesVisible("weight", 1),
         stroke: colors.weight,
@@ -4719,8 +5001,8 @@ function createCharts(zoomRanges = {}) {
   const weightPresentation = createChartPresentation(
     "weight-chart",
     "weight",
-    [{ label: translateText("Teža (kg)"), color: colors.weight, seriesIndex: 1 }],
-    [{ label: translateText("Teža (kg)"), color: colors.weight, seriesIndex: 1, decimals: currentWeightDisplayDecimals() }],
+    [{ label: translateText("Masa (kg)"), color: colors.weight, seriesIndex: 1 }],
+    [{ label: translateText("Masa (kg)"), color: colors.weight, seriesIndex: 1, decimals: currentWeightDisplayDecimals() }],
   );
   climateChart = new window.uPlot(
     createUPlotOptions("climate", climatePresentation.chartHost, climatePresentation.tooltip, climatePresentation.resetZoomButton),
@@ -5805,6 +6087,7 @@ async function useLocalDataSource() {
   };
 
   renderLocalStatus(initialStatus);
+  void refreshWeightChangeOverview();
   setInterval(() => refreshStatus().catch(showDataError), 5_000);
 }
 
@@ -5848,7 +6131,7 @@ async function useFirebaseDataSource() {
   firebaseAuth = authModule.getAuth(firebaseApp);
   firebaseAuthModule = authModule;
   firebaseDatabaseUrl = String(configModule.firebaseConfig.databaseURL || "");
-  firebaseDatabase = { database, get, onValue, ref, remove, set, update };
+  firebaseDatabase = { database, endAt, get, onValue, orderByKey, query, ref, remove, set, startAt, update };
   elements.otaSection.hidden = true;
   elements.provisioningSection.hidden = true;
   initializeAuthControls();
@@ -5975,6 +6258,7 @@ async function startDashboard() {
     }
   }
   dashboardDataSourceReady = true;
+  scheduleWeightChangeOverviewRefresh();
   refreshVisibleHistory();
 }
 

@@ -27,6 +27,9 @@ const OPENSTREETMAP_REVERSE_GEOCODING_URL = "https://nominatim.openstreetmap.org
 const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 // Živa relativna obdobja pomaknejo konec grafa brez osveževanja celotne strani.
 const LIVE_HISTORY_REFRESH_INTERVAL_MS = 60 * 1000;
+// RAW meritve so običajno nespremenljive; petminutni rep vseeno varno pokrije
+// zakasnjen zapis oziroma ponoven priklop brskalnika brez poslušanja celih 24 ur.
+const LIVE_HISTORY_RAW_TAIL_OVERLAP_SECONDS = 5 * 60;
 const LIVE_HISTORY_PRESETS = new Set(["today", "week", "month", "year", "hour", "hours12", "hours24", "days7", "days30"]);
 // Namenski koraki preprečijo podvojene oznake, ko uPlot vmesno vrednost zaokroži na prikazne decimalke.
 const WEIGHT_AXIS_INCREMENTS = Object.freeze([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]);
@@ -3620,6 +3623,13 @@ function getCloudHistorySource(from, to) {
   return { path: "aggregates/daily", periodSeconds: 24 * 60 * 60 };
 }
 
+function getCloudHistoryRealtimeTailStart(source, queryFrom, to) {
+  if (source.path === "measurements") {
+    return Math.max(queryFrom, to - LIVE_HISTORY_RAW_TAIL_OVERLAP_SECONDS);
+  }
+  return Math.floor(to / source.periodSeconds) * source.periodSeconds;
+}
+
 function getCloudHistorySessionCacheKey(devicePath, sourcePath) {
   return `${devicePath}|${sourcePath}`;
 }
@@ -5898,20 +5908,17 @@ async function useFirebaseDataSource() {
     // Živo obdobje pa kljub temu potrebuje majhne realtime listenerje za novi rep in spremembe.
     if (!missingRanges.length && !isLiveQuery) return;
 
-    const historyQuery = isLiveQuery
-      ? query(historyReference, orderByKey(), startAt(String(queryFrom)))
-      : query(historyReference, orderByKey(), startAt(String(queryFrom)), endAt(String(to)));
-
     // Začetni prenos ne uporablja onChildAdded nad celotnim intervalom: omejeni get()
-    // omogoča pokritost cache-a tudi ob praznem odgovoru. Realtime listenerji nato
-    // sprejemajo le spremembe, onChildAdded na repu živega intervala pa nove ključe.
-    stopHistoryListeners = [
-      onChildChanged(historyQuery, upsertReading, showDataError),
-      onChildRemoved(historyQuery, removeReading, showDataError),
-    ];
+    // omogoča pokritost cache-a tudi ob praznem odgovoru. Pri živem obdobju se
+    // realtime nikoli ne naroči na celotno zgodovino, temveč samo na majhen rep.
     if (isLiveQuery) {
-      const liveTailQuery = query(historyReference, orderByKey(), startAt(String(to)));
-      stopHistoryListeners.push(onChildAdded(liveTailQuery, upsertReading, showDataError));
+      const liveTailFrom = getCloudHistoryRealtimeTailStart(source, queryFrom, to);
+      const liveTailQuery = query(historyReference, orderByKey(), startAt(String(liveTailFrom)));
+      stopHistoryListeners = [
+        onChildAdded(liveTailQuery, upsertReading, showDataError),
+        onChildChanged(liveTailQuery, upsertReading, showDataError),
+        onChildRemoved(liveTailQuery, removeReading, showDataError),
+      ];
     }
 
     if (!missingRanges.length) return;

@@ -7,6 +7,7 @@ const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
 const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
 const THEME_STORAGE_KEY = "pametni-cebelnjak-theme";
+const LANGUAGE_STORAGE_KEY = "pametni-cebelnjak-language";
 const DEFAULT_VIEW = "overview";
 const SUPER_ADMIN_UID = "Uv2bGWlFt8h9YTsAFoxsNlNsRK72";
 const SHARE_INVITATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
@@ -37,8 +38,314 @@ const isAndroidAppDashboard =
   || isEmbeddedDashboard;
 const UI_TEXT = {
   sl: { resetZoom: "Ponastavi zoom" },
+  hr: { resetZoom: "Poništi zumiranje" },
   en: { resetZoom: "Reset zoom" },
 };
+const LANGUAGE_OPTIONS = {
+  sl: { flag: "🇸🇮", label: "Slovenščina" },
+  hr: { flag: "🇭🇷", label: "Hrvatski" },
+  en: { flag: "🇬🇧", label: "English" },
+};
+const TRANSLATIONS = {
+  hr: {
+    "SD kartica": "SD kartica",
+    "Pametni čebelnjak": "Pametna košnica", "Nadzorna plošča": "Nadzorna ploča", "Pregled": "Pregled",
+    "Grafi": "Grafovi", "Naprava": "Uređaj", "Posodobitve": "Ažuriranja", "Svetla tema": "Svijetla tema",
+    "Temna tema": "Tamna tema", "Odjava": "Odjava", "Prijava": "Prijava", "Panj · živ pogled": "Košnica · pregled uživo",
+    "Dobrodošel v pametnem panju": "Dobro došli u pametnu košnicu", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Trenutna mjerenja i brzi pregled zadnjeg stanja košnice.",
+    "Odpri grafe": "Otvori grafove", "Opozorila naprave": "Upozorenja uređaja", "Potrebno je preveriti komponento": "Potrebno je provjeriti komponentu",
+    "Zadnja meritev": "Zadnje mjerenje", "Meritve": "Mjerenja", "Čakam na podatke …": "Čekam podatke …",
+    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost", "Teža panja": "Težina košnice",
+    "Podrobnosti naprave": "Pojedinosti uređaja", "Različica": "Verzija", "Preveri posodobitve": "Provjeri ažuriranja",
+    "Meritve in shranjevanje": "Mjerenja i pohrana", "Nastavitve vremena": "Postavke vremena", "Stanje sistema": "Stanje sustava",
+    "Začetek – konec": "Početak – kraj", "Izberi časovno obdobje grafov.": "Odaberite vremensko razdoblje grafova.",
+    "Klima v panju": "Klima u košnici", "Temperatura in vlaga": "Temperatura i vlažnost", "Masa panja": "Masa košnice",
+    "Danes": "Danas", "Včeraj": "Jučer", "Ta teden": "Ovaj tjedan", "Ta mesec": "Ovaj mjesec", "To leto": "Ova godina",
+    "Zadnja ura": "Posljednji sat", "Zadnjih 12 ur": "Posljednjih 12 sati", "Zadnjih 24 ur": "Posljednja 24 sata",
+    "Zadnjih 7 dni": "Posljednjih 7 dana", "Zadnjih 30 dni": "Posljednjih 30 dana", "Uporabi": "Primijeni", "Prekliči": "Odustani",
+    "Nalagam grafe in zgodovino meritev …": "Učitavam grafove i povijest mjerenja …", "Ni na voljo": "Nije dostupno",
+    "Za izbrano obdobje še ni meritev.": "Za odabrano razdoblje još nema mjerenja.",
+    "Prikazanih je {count} povprečnih točk. Za približanje povlecite po izbranem grafu.": "Prikazano je {count} prosječnih točaka. Za povećanje povucite po odabranom grafu.",
+    "Temperatura (°C)": "Temperatura (°C)", "Vlaga (%)": "Vlažnost (%)", "Teža (kg)": "Težina (kg)",
+    "Lokacija še ni nastavljena.": "Lokacija još nije postavljena.", "izbrani lokaciji": "odabranom mjestu", "Vreme v kraju {place}": "Vrijeme u mjestu {place}",
+    "Jasno": "Vedro", "Delno oblačno": "Djelomično oblačno", "Oblačno": "Oblačno", "Megla": "Magla", "Pršenje": "Rominjanje", "Dež": "Kiša", "Sneg": "Snijeg", "Nevihta": "Oluja", "Spremenljivo": "Promjenjivo",
+    "Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.": "Za prikaz vremena najprije upotrijebi trenutačnu lokaciju ili potraži mjesto.",
+    "Nastavitev velja samo za tvoj pregled deljenega panja.": "Postavka vrijedi samo za tvoj pregled dijeljene košnice.", "Lastnik za ta panj še ni nastavil kraja za vreme.": "Vlasnik još nije postavio mjesto za vrijeme ove košnice.",
+    "Vremenskih podatkov za ta kraj ni mogoče pridobiti.": "Vremenske podatke za ovo mjesto nije moguće dohvatiti.", "Čakam na podatke …": "Čekam podatke …",
+    "Vsi panji": "Sve košnice", "Moji panji": "Moje košnice", "Skrbniški pregled": "Administratorski pregled",
+    "Skrbniški račun ima ogled vseh registriranih panjev.": "Administratorski račun ima pregled svih registriranih košnica.",
+    "Izberi panj, katerega podatke želiš pregledovati.": "Odaberite košnicu čije podatke želite pregledavati.",
+    "Registriraj svoj panj ali sprejmi povabilo za dostop do deljenega panja.": "Registrirajte svoju košnicu ili prihvatite poziv za pristup dijeljenoj košnici.",
+    "Deljeni panj imaš na voljo samo za ogled meritev in grafov.": "Dijeljena košnica dostupna je samo za pregled mjerenja i grafova.",
+    "Omrežje, identiteta, delovanje in stanje SD kartice.": "Mreža, identitet, rad i stanje SD kartice.",
+    "Odstrani deljeni panj": "Ukloni dijeljenu košnicu", "Odjavi izbrani panj": "Odjavi odabranu košnicu",
+    "Deljeni panj · samo ogled. Dostop lahko kadarkoli odstraniš iz svojega računa.": "Dijeljena košnica · samo pregled. Pristup možete ukloniti iz svojeg računa u bilo kojem trenutku.",
+    "Naprava še ni prejela OTA ukaza.": "Uređaj još nije primio OTA naredbu.", "Noben panj ni registriran": "Nijedna košnica nije registrirana",
+    "Deljeni z mano": "Podijeljeno sa mnom", " · samo ogled": " · samo pregled", "V Firebase še ni zaznan noben panj.": "U Firebaseu još nije otkrivena nijedna košnica.",
+    "Izberi panj {deviceId}": "Odaberite košnicu {deviceId}", "Lastnik še ni zabeležen.": "Vlasnik još nije zabilježen.",
+    "Online": "Online", "Offline": "Izvan mreže", "Zadnji odziv: {time}": "Posljednji odgovor: {time}",
+    "Naprava še ni poslala stanja.": "Uređaj još nije poslao stanje.", "Odjavi lastnika": "Odjavi vlasnika", "Izbriši napravo": "Izbriši uređaj",
+    "Posodobljeno: {time}": "Ažurirano: {time}", "Posodobljeno": "Ažurirano", "{value} % padavin": "{value} % oborina", "Padavine —": "Oborine —",
+    "Pridobivam vreme …": "Dohvaćam vrijeme …", "Vremenski podatki trenutno niso dosegljivi.": "Vremenski podaci trenutačno nisu dostupni.",
+    "Preveri dovoljene meje nastavitev.": "Provjerite dopuštene granice postavki.", "Zapis zgodovine na SD ne more biti pogostejši od meritev.": "Zapis povijesti na SD ne može biti češći od mjerenja.",
+    "Shranjujem nastavitve …": "Spremam postavke …", "Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.": "Postavke su spremljene. Uređaj će ih preuzeti u roku od 30 sekundi.",
+    "Nastavitev meritev ni bilo mogoče shraniti.": "Postavke mjerenja nije bilo moguće spremiti.", "Nastavitve vremena ni bilo mogoče shraniti.": "Postavke vremena nije bilo moguće spremiti.",
+    "Shranjujem nastavitev …": "Spremam postavku …", "Vreme je prikazano na tvojem pregledu.": "Vrijeme je prikazano u vašem pregledu.", "Vreme je skrito na tvojem pregledu.": "Vrijeme je skriveno u vašem pregledu.",
+    "Brskalnik ne podpira določanja lokacije.": "Preglednik ne podržava određivanje lokacije.", "Brskalnik čaka na dovoljenje za lokacijo …": "Preglednik čeka dopuštenje za lokaciju …",
+    "Vnesi kraj, ki ga želiš poiskati.": "Unesite mjesto koje želite pronaći.", "Iščem kraj …": "Tražim mjesto …", "Izberi kraj za lokacijo panja.": "Odaberite mjesto za lokaciju košnice.",
+    "Za vneseni kraj ni rezultatov.": "Nema rezultata za uneseno mjesto.", "Iskanje kraja trenutno ni dosegljivo.": "Pretraživanje mjesta trenutačno nije dostupno.",
+    "Lokalna povezava": "Lokalna veza", "Prijava je potrebna": "Potrebna je prijava", "Izberi panj": "Odaberite košnicu", "Naprava online": "Uređaj je online", "Naprava offline": "Uređaj je izvan mreže", "Čakam na odziv naprave …": "Čekam odgovor uređaja …",
+    "Čakam na preverjanje": "Čekam provjeru", "Deluje normalno": "Radi normalno", "Potrebno preverjanje": "Potrebna je provjera", "Napaka komponente": "Pogreška komponente",
+    "Komponenta trenutno ni dosegljiva; preverjanje se ponavlja.": "Komponenta trenutačno nije dostupna; provjera se ponavlja.", "Komponenta še ni preverjena.": "Komponenta još nije provjerena.", "Deluje normalno.": "Radi normalno.",
+    "Preveri povezavo ali napajanje.": "Provjerite vezu ili napajanje.", "RTC ura nima veljavnega časa.": "RTC sat nema valjano vrijeme.", "Dosegljiv prek lokalnega IP-ja.": "Dostupan putem lokalne IP adrese.", "Čakam na prvi odziv naprave.": "Čekam prvi odgovor uređaja.",
+    "Vir časa: DS3231 RTC": "Izvor vremena: DS3231 RTC", "Vir časa: internetna NTP ura": "Izvor vremena: internetski NTP sat", "Vir časa: ročna lokalna nastavitev": "Izvor vremena: ručna lokalna postavka", "Vir časa: ročna cloud nastavitev": "Izvor vremena: ručna cloud postavka", "Veljaven čas še ni na voljo": "Valjano vrijeme još nije dostupno",
+    "DS3231 ni zaznan. Ročna ali NTP ura se ob izpadu napajanja ne bo ohranila.": "DS3231 nije otkriven. Ručno ili NTP vrijeme neće se sačuvati nakon nestanka napajanja.",
+    "DS3231 je zaznan, vendar nima veljavnega časa. Preveri baterijo in nastavi uro.": "DS3231 je otkriven, ali nema valjano vrijeme. Provjerite bateriju i postavite sat.",
+    "DS3231 je zaznan in vsebuje veljaven čas.": "DS3231 je otkriven i sadrži valjano vrijeme.", "Čakam na internetno časovno sinhronizacijo …": "Čekam internetsku sinkronizaciju vremena …",
+    "DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.": "DS3231 nije spreman; postavljanje i sinkronizacija vremena trenutačno nisu mogući.",
+    "Panj je offline; nastavljanje datuma in ure trenutno ni možno.": "Košnica je izvan mreže; postavljanje datuma i vremena trenutačno nije moguće.", "Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.": "Uređaj je online; datum i vrijeme možete postaviti ili sinkronizirati s internetom.",
+    "Zaznana": "Otkrivena", "Ni zaznana": "Nije otkrivena", "Po petih poskusih ni bila zaznana.": "Nije otkrivena nakon pet pokušaja.",
+    "Odpri meni": "Otvori izbornik", "Glavna navigacija": "Glavna navigacija", "Opozorilo komponent": "Upozorenje komponenti", "Vzpostavljam povezavo …": "Uspostavljam vezu …", "Preklopi barvno temo": "Promijeni temu boja", "Izberi jezik": "Odaberite jezik",
+    "Vreme": "Vrijeme", "Vreme v kraju": "Vrijeme u mjestu", "Vlaga": "Vlažnost", "Tlak": "Tlak", "Veter": "Vjetar", "Nastavljam obdobje …": "Postavljam razdoblje …", "Čakam na zgodovino meritev …": "Čekam povijest mjerenja …",
+    "Pametni kontroler": "Pametni kontroler", "Moj račun": "Moj račun", "Izbrani panj": "Odabrana košnica", "Vsi registrirani panji": "Sve registrirane košnice", "Dodaj panj": "Dodaj košnicu", "Registriraj panj": "Registriraj košnicu", "Vnesi ID naprave in aktivacijsko kodo.": "Unesite ID uređaja i aktivacijski kod.",
+    "Ime panja": "Naziv košnice", "ID naprave": "ID uređaja", "Aktivacijska koda": "Aktivacijski kod", "Deli panj": "Podijeli košnicu", "Dostop samo za ogled": "Pristup samo za pregled", "E-poštni naslov prejemnika": "Adresa e-pošte primatelja", "Ustvari povabilo": "Izradi poziv", "Koda povabila": "Kod poziva", "Kopiraj kodo": "Kopiraj kod", "Uporabniki z ogledom": "Korisnici s pristupom za pregled", "Panj še ni deljen.": "Košnica još nije podijeljena.",
+    "Deljeno z mano": "Podijeljeno sa mnom", "Sprejmi povabilo": "Prihvati poziv", "Dodaj deljeni panj": "Dodaj dijeljenu košnicu", "Vreme na pregledu": "Vrijeme u pregledu", "Prikaži vreme": "Prikaži vrijeme", "Na pregledu prikaži trenutno vreme in napoved.": "U pregledu prikaži trenutačno vrijeme i prognozu.", "Dolžina napovedi": "Duljina prognoze", "3 dni": "3 dana", "5 dni": "5 dana", "Lokacija panja": "Lokacija košnice", "Uporabi mojo lokacijo": "Upotrijebi moju lokaciju", "Poišči kraj": "Pronađi mjesto", "Poišči": "Traži", "Vreme deljenega panja": "Vrijeme dijeljene košnice",
+    "Nastavitve meritev": "Postavke mjerenja", "Prikaz teže": "Prikaz težine", "1 decimalka": "1 decimala", "2 decimalki": "2 decimale", "Interval meritev": "Interval mjerenja", "Zapis zgodovine na SD": "Zapis povijesti na SD", "Shrani nastavitve": "Spremi postavke",
+    "Nastavitev omrežja": "Postavljanje mreže", "Poveži panj z Wi‑Fi": "Poveži košnicu s Wi‑Fi mrežom", "Povezan si neposredno na dostopno točko naprave.": "Povezani ste izravno s pristupnom točkom uređaja.", "Povezano Wi‑Fi omrežje": "Povezana Wi‑Fi mreža", "Ime Wi‑Fi omrežja": "Naziv Wi‑Fi mreže", "Poišči omrežja": "Pronađi mreže", "Shrani in poveži": "Spremi i poveži", "Izbriši shranjeni Wi‑Fi": "Izbriši spremljeni Wi‑Fi", "Povezava je uspela": "Povezivanje je uspjelo", "Naprava je povezana": "Uređaj je povezan", "Spletna nadzorna plošča": "Web nadzorna ploča", "Novi lokalni naslov": "Nova lokalna adresa", "Odpri nadzorno ploščo": "Otvori nadzornu ploču", "Odpri lokalno": "Otvori lokalno", "Kopiraj lokalni naslov": "Kopiraj lokalnu adresu",
+    "Wi‑Fi omrežje": "Wi‑Fi mreža", "IP naslov": "IP adresa", "Wi‑Fi signal": "Wi‑Fi signal", "Uptime": "Vrijeme rada", "Stanje naprave": "Stanje uređaja", "Različica naprave": "Verzija uređaja", "Čakam na stanje …": "Čekam stanje …", "Stanje komponent": "Stanje komponenti", "Senzorji in shranjevanje": "Senzori i pohrana", "Merilne celice": "Mjerne ćelije", "RTC ura": "RTC sat", "Dnevnik meritev": "Dnevnik mjerenja",
+    "Tehtnica": "Vaga", "Tariranje tehtnice": "Tariranje vage", "Tariraj tehtnico": "Tariraj vagu", "Čakam na stanje tehtnice …": "Čekam stanje vage …", "Senzor BME680": "Senzor BME680", "Kalibracija temperature in vlage": "Kalibracija temperature i vlažnosti", "Odmik temperature (°C)": "Pomak temperature (°C)", "Odmik vlage (%)": "Pomak vlažnosti (%)", "Shrani kalibracijo": "Spremi kalibraciju", "Čakam na stanje BME680 …": "Čekam stanje BME680 …", "Čas sistema": "Vrijeme sustava", "Datum in ura": "Datum i vrijeme", "Ročna nastavitev": "Ručna postavka", "Nastavi datum in uro": "Postavi datum i vrijeme", "Sinhroniziraj z internetom": "Sinkroniziraj s internetom",
+    "Sinhronizacija": "Sinkronizacija", "Sinhronizacija zgodovine": "Sinkronizacija povijesti", "Ponovno sinhroniziraj zgodovino": "Ponovno sinkroniziraj povijest", "Meritve na SD kartici": "Mjerenja na SD kartici", "Odpri dnevnik meritev": "Otvori dnevnik mjerenja", "Prenesi meritve": "Preuzmi mjerenja", "Izbriši meritve s SD kartice": "Izbriši mjerenja sa SD kartice", "Brisanje merilne zgodovine": "Brisanje povijesti mjerenja", "Trajno izbriši meritve": "Trajno izbriši mjerenja", "Izbriši merilno zgodovino": "Izbriši povijest mjerenja", "Ponastavitev omrežja": "Ponovno postavljanje mreže", "Izbriši Wi-Fi poverilnice": "Izbriši Wi‑Fi vjerodajnice",
+    "Posodobitev naprave": "Ažuriranje uređaja", "Razpoložljiva OTA posodobitev": "Dostupno OTA ažuriranje", "Trenutna različica naprave:": "Trenutačna verzija uređaja:", "Preverjam razpoložljive različice …": "Provjeravam dostupne verzije …", "Prezri": "Zanemari", "Posodobi napravo": "Ažuriraj uređaj", "Brez interneta": "Bez interneta", "Orodje za posodobitev": "Alat za ažuriranje", "Odpri orodje za posodobitev": "Otvori alat za ažuriranje",
+    "Izberi": "Odaberi", "Cloud dostop": "Cloud pristup", "Prijava uporabnika": "Prijava korisnika", "E-poštni naslov": "Adresa e-pošte", "Geslo": "Lozinka", "Prijava z e-pošto": "Prijava e-poštom", "Ustvari nov račun": "Izradi novi račun", "Nadaljuj z Googlom": "Nastavi s Googleom", "Zapri": "Zatvori", "Nadaljuj": "Nastavi", "Potrditev dejanja": "Potvrda radnje", "Ali želiš nadaljevati?": "Želite li nastaviti?",
+    "Nevarno dejanje": "Opasna radnja", "Za potrditev vpiši {text}.": "Za potvrdu upišite {text}.", "Trajni izbris meritev": "Trajno brisanje mjerenja", "Trajno izbriši": "Trajno izbriši", "Izbriši Wi‑Fi": "Izbriši Wi‑Fi",
+    "Za popoln izbris mora biti naprava online.": "Za potpuno brisanje uređaj mora biti online.", "Ukaz za popoln izbris pošiljam napravi …": "Šaljem uređaju naredbu za potpuno brisanje …", "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.": "Naredba je poslana. Uređaj će je provjeriti u roku od 30 sekundi.", "Pošiljanje ukaza za brisanje ni uspelo.": "Slanje naredbe za brisanje nije uspjelo.",
+    "Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …": "Šaljem uređaju naredbu za brisanje Wi‑Fi vjerodajnica …", "Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.": "Slanje naredbe za brisanje Wi‑Fi vjerodajnica nije uspjelo.",
+    "Vpiši ime Wi‑Fi omrežja.": "Unesite naziv Wi‑Fi mreže.", "Preverjam povezavo z Wi‑Fi omrežjem …": "Provjeravam vezu s Wi‑Fi mrežom …", "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …": "Uređaj provjerava vezu. Postavke će spremiti tek nakon uspjeha …", "Skrij Wi‑Fi geslo": "Sakrij Wi‑Fi lozinku", "Prikaži Wi‑Fi geslo": "Prikaži Wi‑Fi lozinku", "Novi lokalni naslov je kopiran.": "Nova lokalna adresa je kopirana.", "Kopiranje ni uspelo. Naslov označi in kopiraj ročno.": "Kopiranje nije uspjelo. Označite adresu i kopirajte je ručno.", "Ni najdenih Wi‑Fi omrežij.": "Nije pronađena nijedna Wi‑Fi mreža.", " · zaščiteno": " · zaštićeno", " · odprto": " · otvoreno", "Iščem omrežja …": "Tražim mreže …",
+    "Ponovno sinhroniziraj zgodovino": "Ponovno sinkroniziraj povijest", "Začni sinhronizacijo": "Pokreni sinkronizaciju", "Pripravljam primerjavo SD zgodovine in Firebase …": "Pripremam usporedbu SD povijesti i Firebasea …", "Primerjava dnevne zgodovine se je začela.": "Usporedba dnevne povijesti je započela.",
+    "HX711 ni pripravljen; tariranje trenutno ni možno.": "HX711 nije spreman; tariranje trenutačno nije moguće.", "Tariraj": "Tariraj", "Tariranje pošiljam napravi …": "Šaljem tariranje uređaju …", "Ukaz za tariranje pošiljam napravi …": "Šaljem naredbu za tariranje uređaju …",
+    "Prijavljam …": "Prijavljujem …", "Ustvarjam račun …": "Izrađujem račun …", "Odpiram Google prijavo …": "Otvaram Google prijavu …", "Odjava ni uspela": "Odjava nije uspjela",
+    "Preveri obliko ID-ja in osemmestne aktivacijske kode.": "Provjerite oblik ID-a i osmeroznamenkastog aktivacijskog koda.", "Preverjam aktivacijsko kodo …": "Provjeravam aktivacijski kod …", "Panj je uspešno registriran na tvoj račun.": "Košnica je uspješno registrirana na vaš račun.", "Registracija ni uspela. Preveri ID, kodo in ali je naprava že povezana v Firebase.": "Registracija nije uspjela. Provjerite ID, kod i je li uređaj već povezan s Firebaseom.",
+    "Izberi svoj panj, ki ga želiš deliti.": "Odaberite svoju košnicu koju želite podijeliti.", "Povabila ne moreš poslati svojemu računu.": "Poziv ne možete poslati vlastitom računu.", "Vnesi veljaven e-poštni naslov prejemnika.": "Unesite valjanu adresu e-pošte primatelja.", "Ustvarjam varno povabilo …": "Izrađujem siguran poziv …", "Povabilo je pripravljeno. Prejemniku pošlji prikazano kodo.": "Poziv je spreman. Pošaljite primatelju prikazani kod.", "Povabila ni bilo mogoče ustvariti. Preveri povezavo in Firebase pravila.": "Poziv nije bilo moguće izraditi. Provjerite vezu i Firebase pravila.", "Koda povabila je kopirana.": "Kod poziva je kopiran.", "Kopiranje ni uspelo. Kodo označi in kopiraj ročno.": "Kopiranje nije uspjelo. Označite kod i kopirajte ga ručno.", "Preverjam povabilo …": "Provjeravam poziv …", "Povabilo ni veljavno, je poteklo ali je namenjeno drugemu e-poštnemu naslovu.": "Poziv nije valjan, istekao je ili je namijenjen drugoj adresi e-pošte.",
+    "Panj še ni deljen z nobenim uporabnikom.": "Košnica još nije podijeljena ni s jednim korisnikom.", "Uporabnik brez e-poštnega naslova": "Korisnik bez adrese e-pošte", "Samo ogled": "Samo pregled", "Prekliči dostop": "Opozovi pristup", "Preklicujem deljeni dostop …": "Opozivam dijeljeni pristup …", "Dostop uporabnika je preklican.": "Pristup korisnika je opozvan.", "Dostopa ni bilo mogoče preklicati.": "Pristup nije bilo moguće opozvati.",
+    "Skupaj 0 %": "Ukupno 0 %", "Posodobitev poteka": "Ažuriranje je u tijeku", "Zadnja cloud OTA posodobitev ni zabeležena.": "Posljednje cloud OTA ažuriranje nije zabilježeno.", "Posodobitev prezrta": "Ažuriranje je zanemareno", "Na voljo je nova različica": "Dostupna je nova verzija", "Nova različica naprave je pripravljena na GitHub Releases.": "Nova verzija uređaja spremna je na GitHub Releases.", "Prezrto v tem brskalniku.": "Zanemareno u ovom pregledniku.", "OTA izdaja ni javno dosegljiva": "OTA izdanje nije javno dostupno", "Preveri GitHub Release in javni dostop do repozitorija.": "Provjerite GitHub Release i javni pristup repozitoriju.", "Naprava je posodobljena": "Uređaj je ažuriran", "Ni navoljo novejše različice.": "Nema dostupne novije verzije.", "Preverjanje OTA ni uspelo": "Provjera OTA ažuriranja nije uspjela", "GitHub Release trenutno ni dosegljiv.": "GitHub Release trenutačno nije dostupan.", "OTA ukaz pošiljam napravi …": "Šaljem OTA naredbu uređaju …", "Pošiljanje OTA ukaza ni uspelo.": "Slanje OTA naredbe nije uspjelo.",
+    "Ročna posodobitev naprave": "Ručno ažuriranje uređaja", "Brez interneta namesti programsko opremo ali lokalni spletni vmesnik.": "Bez interneta instalirajte programski softver ili lokalno web sučelje.", "Varna namestitev nove različice na izbrano napravo.": "Sigurna instalacija nove verzije na odabrani uređaj.", "Pripravljam lokalno zgodovino s SD kartice …": "Pripremam lokalnu povijest sa SD kartice …", "Priprava lokalne zgodovine je trajala predolgo.": "Priprema lokalne povijesti trajala je predugo.", "Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.": "Lokalnu povijest nije bilo moguće pročitati; veza s uređajem ostaje aktivna.",
+    "Izberi panj za ogled meritev in upravljanje. Prikazani so stanje, zadnji odziv in e-poštni naslov lastnika.": "Odaberite košnicu za pregled mjerenja i upravljanje. Prikazani su stanje, posljednji odgovor i adresa e-pošte vlasnika.",
+    "Povabilo velja 24 ur in samo za navedeni e-poštni naslov. Povabljeni uporabnik lahko vidi meritve in grafe, naprave pa ne more upravljati.": "Poziv vrijedi 24 sata i samo za navedenu adresu e-pošte. Pozvani korisnik može vidjeti mjerenja i grafove, ali ne može upravljati uređajem.",
+    "Vnesi kodo, ki ti jo je poslal lastnik panja. Povabilo mora biti namenjeno e-poštnemu naslovu tega računa.": "Unesite kod koji vam je poslao vlasnik košnice. Poziv mora biti namijenjen adresi e-pošte ovog računa.",
+    "Vremenski podatki se pridobivajo iz storitve Open-Meteo glede na shranjeno lokacijo in se osvežujejo vsakih 15 minut.": "Vremenski podaci dohvaćaju se iz usluge Open-Meteo prema spremljenoj lokaciji i osvježavaju svakih 15 minuta.", "Na svojem pregledu prikaži trenutno vreme in napoved.": "U svom pregledu prikaži trenutačno vrijeme i prognozu.", "To nastavitev vidiš samo ti. Ne spreminja kraja ali nastavitev lastnika.": "Ovu postavku vidite samo vi. Ne mijenja mjesto ni postavke vlasnika.",
+    "Nastavitve veljajo samo za izbrani panj. Naprava jih shrani tudi lokalno, zato ostanejo aktivne ob začasnem izpadu interneta.": "Postavke vrijede samo za odabranu košnicu. Uređaj ih sprema i lokalno pa ostaju aktivne tijekom privremenog prekida interneta.", "Podatki se vedno shranjujejo na dve decimalki.": "Podaci se uvijek spremaju na dvije decimale.", "Od 5 do 120 sekund. Trenutna meritev se posodobi po vsakem ciklu.": "Od 5 do 120 sekundi. Trenutačno mjerenje ažurira se nakon svakog ciklusa.", "Od 1 do 30 minut. Ti zapisi se prenesejo tudi v Firebase zgodovino.": "Od 1 do 30 minuta. Ti se zapisi prenose i u Firebase povijest.",
+    "Wi‑Fi geslo": "Wi‑Fi lozinka", "Telefon ali računalnik poveži z novim Wi‑Fi omrežjem.": "Povežite telefon ili računalo s novom Wi‑Fi mrežom.", "Priporočeno za pregled meritev in upravljanje panja.": "Preporučeno za pregled mjerenja i upravljanje košnicom.", "Stalni naslov:": "Stalna adresa:", "Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.": "Upotrijebite ga zajedno s ID-om uređaja pri registraciji u cloud.",
+    "S ploščadi odstrani vse. Trenutno prazno stanje bo nastavljeno na 0,00 kg.": "Uklonite sve s platforme. Trenutačno prazno stanje postavit će se na 0,00 kg.", "Odstrani panj in vse uteži s ploščadi. Naprava bo prazno stanje shranila kot 0,00 kg.": "Uklonite košnicu i sve utege s platforme. Uređaj će prazno stanje spremiti kao 0,00 kg.", "Vpiši razliko med referenčnim merilnikom in BME680. Odmika se uporabita pri vseh novih meritvah.": "Unesite razliku između referentnog mjerača i BME680. Pomaci se primjenjuju na sva nova mjerenja.",
+    "Dnevnik lahko odpreš v brskalniku, preneseš kot CSV ali trajno izbrišeš samo s SD kartice. Brisanje ne vpliva na zgodovino v Firebase.": "Dnevnik možete otvoriti u pregledniku, preuzeti kao CSV ili trajno izbrisati samo sa SD kartice. Brisanje ne utječe na povijest u Firebaseu.", "Ukaz trajno izbriše dnevnik meritev s SD kartice in celotno zgodovino v Firebase. Dejanja ni mogoče razveljaviti.": "Naredba trajno briše dnevnik mjerenja sa SD kartice i cijelu povijest u Firebaseu. Radnju nije moguće poništiti.", "Ukaz trajno izbriše shranjeno domače Wi-Fi omrežje. Naprava prekine cloud povezavo in odpre lokalni nastavitveni dostop za novo povezavo.": "Naredba trajno briše spremljenu kućnu Wi‑Fi mrežu. Uređaj prekida cloud vezu i otvara lokalni pristup postavkama za novu vezu.",
+    "GitHub Release bo prikazan, ko je na voljo.": "GitHub Release prikazat će se kada bude dostupan.", "Naprave med posodobitvijo ne izklapljaj": "Ne isključujte uređaj tijekom ažuriranja", "Nadaljuj na posodobitev": "Nastavi na ažuriranje", "Pred lokalno posodobitvijo": "Prije lokalnog ažuriranja", "Prijavi se za ogled svojih registriranih panjev.": "Prijavite se za pregled svojih registriranih košnica.",
+    "Čakam na stanje SD kartice …": "Čekam stanje SD kartice …", "Čakam na stanje ure …": "Čekam stanje sata …", "DS3231 še ni preverjen.": "DS3231 još nije provjeren.", "Izberi online panj za ponastavitev omrežja.": "Odaberite online košnicu za ponovno postavljanje mreže.", "Čas od": "Vrijeme od", "Čas do": "Vrijeme do", "Pon": "Pon", "Tor": "Uto", "Sre": "Sri", "Čet": "Čet", "Pet": "Pet", "Sob": "Sub", "Ned": "Ned",
+    "SD kartica ni dosegljiva.": "SD kartica nije dostupna.", "Počakaj, da se sinhronizacija zgodovine zaključi.": "Pričekajte da se sinkronizacija povijesti završi.", "Brisanje dnevnika je uvrščeno v čakalno vrsto …": "Brisanje dnevnika stavljeno je u red čekanja …", "Brišem meritve s SD kartice …": "Brišem mjerenja sa SD kartice …", "Meritve so izbrisane s SD kartice. Zgodovina v Firebase je ostala nespremenjena.": "Mjerenja su izbrisana sa SD kartice. Povijest u Firebaseu ostala je nepromijenjena.", "Brisanje meritev s SD kartice ni uspelo.": "Brisanje mjerenja sa SD kartice nije uspjelo.", "Dnevnik meritev je pripravljen.": "Dnevnik mjerenja je spreman.",
+    "Izberi panj za upravljanje zgodovine.": "Odaberite košnicu za upravljanje poviješću.", "Panj je offline; brisanje merilne zgodovine trenutno ni možno.": "Košnica je izvan mreže; brisanje povijesti mjerenja trenutačno nije moguće.", "SD kartica ni pripravljena; popoln izbris SD in cloud zgodovine ni dovoljen.": "SD kartica nije spremna; potpuno brisanje SD i cloud povijesti nije dopušteno.", "Naprava je online in pripravljena na brisanje merilne zgodovine.": "Uređaj je online i spreman za brisanje povijesti mjerenja.",
+    "Izberi panj za ponastavitev omrežja.": "Odaberite košnicu za ponovno postavljanje mreže.", "Brisanje Wi-Fi poverilnic ni uspelo; naprava ostaja povezana.": "Brisanje Wi‑Fi vjerodajnica nije uspjelo; uređaj ostaje povezan.", "Naprava ponastavlja shranjeno Wi-Fi omrežje …": "Uređaj ponovno postavlja spremljenu Wi‑Fi mrežu …", "Panj je offline; ponastavitev omrežja trenutno ni mogoča.": "Košnica je izvan mreže; ponovno postavljanje mreže trenutačno nije moguće.", "Naprava je online in pripravljena na ponastavitev omrežja.": "Uređaj je online i spreman za ponovno postavljanje mreže.",
+    "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.": "Cloud nije dostupan; mjerenja sigurno čekaju na SD kartici.", "Pripravljam dnevni indeks SD zgodovine …": "Pripremam dnevni indeks SD povijesti …", "Primerjava SD zgodovine s Firebase ni uspela. Preveri SD kartico in povezavo ter poskusi znova.": "Usporedba SD povijesti s Firebaseom nije uspjela. Provjerite SD karticu i vezu pa pokušajte ponovno.", "SD kartica in Firebase sta sinhronizirana.": "SD kartica i Firebase su sinkronizirani.", "Zgodovina čaka na prvi prenos v Firebase.": "Povijest čeka prvi prijenos u Firebase.", "SD kartica ni pripravljena; sinhronizacije ni mogoče začeti.": "SD kartica nije spremna; sinkronizaciju nije moguće pokrenuti.", "SD kartica ni pripravljena; meritev ni mogoče izbrisati.": "SD kartica nije spremna; mjerenja nije moguće izbrisati.", "Zahtevo za brisanje pošiljam napravi …": "Šaljem zahtjev za brisanje uređaju …",
+    "Odregistriram panj …": "Odjavljujem košnicu …", "Panj je odregistriran in vsi deljeni dostopi so preklicani. Merilni podatki ostanejo shranjeni.": "Košnica je odjavljena i svi dijeljeni pristupi su opozvani. Podaci mjerenja ostaju spremljeni.", "Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.": "Odjava nije uspjela. Košnica ostaje povezana s vašim računom.", "Odstranjujem deljeni panj …": "Uklanjam dijeljenu košnicu …", "Deljeni panj je odstranjen iz tvojega računa.": "Dijeljena košnica uklonjena je s vašeg računa.", "Deljenega panja ni bilo mogoče odstraniti. Dostop ostaja aktiven.": "Dijeljenu košnicu nije bilo moguće ukloniti. Pristup ostaje aktivan.",
+    "Panj nima registriranega lastnika.": "Košnica nema registriranog vlasnika.", "Odjavljam lastnika …": "Odjavljujem vlasnika …", "Lastnik in vsi deljeni dostopi so odjavljeni. Merilni podatki ostanejo shranjeni.": "Vlasnik i svi dijeljeni pristupi su odjavljeni. Podaci mjerenja ostaju spremljeni.", "Odjava lastnika ni uspela. Panj ostaja povezan z računom.": "Odjava vlasnika nije uspjela. Košnica ostaje povezana s računom.", "Brišem napravo in njene Firebase zapise …": "Brišem uređaj i njegove Firebase zapise …", "Naprava in vsi njeni Firebase zapisi so izbrisani.": "Uređaj i svi njegovi Firebase zapisi su izbrisani.", "Izbris naprave ni uspel. Firebase zapisi ostanejo nespremenjeni.": "Brisanje uređaja nije uspjelo. Firebase zapisi ostaju nepromijenjeni.",
+    "Napaka pri branju podatkov": "Pogreška pri čitanju podataka", "Izberite končni datum": "Odaberite završni datum", "Končni datum mora biti po začetnem datumu.": "Završni datum mora biti nakon početnog datuma.",
+    "Odpri nastavitve": "Otvori postavke", "Naprava je dosegljiva na novem omrežju. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni dostop ostaja na voljo prek stalnega naslova.": "Uređaj je dostupan na novoj mreži. Za daljnju uporabu preporučujemo web nadzornu ploču; lokalni pristup ostaje dostupan putem stalne adrese.", "Za lokalni dostop poveži telefon ali računalnik z istim Wi‑Fi omrežjem. Če lokalni naslov ni dosegljiv, IP preveri med povezanimi napravami v usmerjevalniku.": "Za lokalni pristup povežite telefon ili računalo s istom Wi‑Fi mrežom. Ako lokalna adresa nije dostupna, provjerite IP među povezanim uređajima u usmjerivaču.",
+    "Povezava z Wi‑Fi je uspela. Čakam na potrditev omrežnega naslova.": "Wi‑Fi povezivanje je uspjelo. Čekam potvrdu mrežne adrese.", "Naprava je povezana v domače Wi‑Fi omrežje.": "Uređaj je povezan s kućnom Wi‑Fi mrežom.", "Povezava z napravo je bila prekinjena. To je po brisanju omrežja pričakovano; nadaljuj prek prikazane dostopne točke.": "Veza s uređajem je prekinuta. To je očekivano nakon brisanja mreže; nastavite putem prikazane pristupne točke.",
+    "Izberi veljaven datum med letoma 2023 in 2099.": "Odaberite valjan datum između 2023. i 2099.", "Zahtevam sinhronizacijo z internetno uro …": "Zahtijevam sinkronizaciju s internetskim satom …", "Skupaj {value} %": "Ukupno {value} %",
+    "DS3231 je pripravljen. Zadnja nastavitev: {time}.": "DS3231 je spreman. Posljednja postavka: {time}.", "Naprava preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki{ap}.": "Uređaj provjerava odabranu Wi‑Fi mrežu. Ostanite povezani s pristupnom točkom{ap}.", "Povezava z Wi‑Fi ni uspela. AP{ap} ostaja na voljo za ponoven poskus.": "Wi‑Fi povezivanje nije uspjelo. AP{ap} ostaje dostupan za novi pokušaj.", "Povezan si neposredno na dostopno točko naprave{ap}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.": "Povezani ste izravno s pristupnom točkom uređaja{ap}. Unesite kućnu Wi‑Fi mrežu za pristup cloudu.",
+    "Primerjam dnevni indeks SD kartice s Firebase{days} …": "Uspoređujem dnevni indeks SD kartice s Firebaseom{days} …", "Pošiljam zgodovino v Firebase …{detail}": "Šaljem povijest u Firebase …{detail}", "SD kartica ni pripravljena; cloud zgodovine brez brisanja SD dnevnika ni dovoljeno izbrisati.": "SD kartica nije spremna; cloud povijest nije dopušteno izbrisati bez brisanja SD dnevnika.", "Izbrano omrežje: {ssid}": "Odabrana mreža: {ssid}", "Najdenih omrežij: {count}": "Pronađenih mreža: {count}",
+    "Zadnja uspešna OTA posodobitev: {time}.": "Posljednje uspješno OTA ažuriranje: {time}.", "Različica v{version} je že nameščena.": "Verzija v{version} već je instalirana.", "Za {email}; velja do {time}.": "Za {email}; vrijedi do {time}.", "Preveri osemmestno kodo povabila in e-poštni naslov računa.": "Provjerite osmeroznamenkasti kod poziva i adresu e-pošte računa.", "Deljeni panj »{name}« je dodan v izbirnik.": "Dijeljena košnica »{name}« dodana je u izbornik.",
+    "S ploščadi odstrani vse in nato tariraj tehtnico.": "Uklonite sve s platforme, a zatim tarirajte vagu.", "Ukaz za tariranje čaka na izvedbo.": "Naredba za tariranje čeka izvršenje.", "Nastavljam prazno ploščad na 0,00 kg …": "Postavljam praznu platformu na 0,00 kg …", "Tariranje je uspešno; nova ničla je shranjena.": "Tariranje je uspjelo; nova nula je spremljena.", "Tariranje ni uspelo. Preveri povezavo HX711.": "Tariranje nije uspjelo. Provjerite vezu HX711.", "Prejšnje tariranje se ni zaključilo. Odstrani uteži in poskusi znova.": "Prethodno tariranje nije završeno. Uklonite utege i pokušajte ponovno.", "Panj je offline; tariranje trenutno ni možno.": "Košnica je izvan mreže; tariranje trenutačno nije moguće.", "Izberi online panj za tariranje.": "Odaberite online košnicu za tariranje.",
+    "Čakam na stanje kalibracije BME680 …": "Čekam stanje kalibracije BME680 …", "Ukaz za kalibracijo čaka na izvedbo.": "Naredba za kalibraciju čeka izvršenje.", "Shranjujem kalibracijo BME680 …": "Spremam kalibraciju BME680 …", "Kalibracija BME680 je shranjena in uporabljena pri novih meritvah.": "Kalibracija BME680 spremljena je i primjenjuje se na nova mjerenja.", "Kalibracije BME680 ni bilo mogoče shraniti.": "Kalibraciju BME680 nije bilo moguće spremiti.", "Panj je offline; kalibracije trenutno ni mogoče nastaviti.": "Košnica je izvan mreže; kalibraciju trenutačno nije moguće postaviti.", "Izberi online panj za kalibracijo.": "Odaberite online košnicu za kalibraciju.", "BME680 ni pripravljen; odmikov trenutno ni mogoče nastaviti.": "BME680 nije spreman; pomake trenutačno nije moguće postaviti.",
+    "E-poštni naslov ali geslo ni pravilno.": "Adresa e-pošte ili lozinka nisu ispravni.", "Za ta e-poštni naslov račun že obstaja.": "Račun za ovu adresu e-pošte već postoji.", "Geslo mora imeti najmanj šest znakov.": "Lozinka mora imati najmanje šest znakova.", "Google prijava je bila zaprta.": "Google prijava je zatvorena.", "Ta način prijave še ni omogočen v Firebase Authentication.": "Ovaj način prijave još nije omogućen u Firebase Authenticationu.", "Postopka ni bilo mogoče dokončati. Poskusi znova.": "Postupak nije bilo moguće dovršiti. Pokušajte ponovno.", "Vnesi e-poštni naslov in geslo.": "Unesite adresu e-pošte i lozinku.", "Google račun": "Google račun",
+    "Lokacija {name} je shranjena za ta panj.": "Lokacija {name} spremljena je za ovu košnicu.", "Dovoljenje za lokacijo je zavrnjeno. Kraj lahko poiščeš ročno.": "Dopuštenje za lokaciju je odbijeno. Mjesto možete potražiti ručno.", "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.": "Lokaciju nije bilo moguće dohvatiti. Pokušajte ponovno ili ručno potražite mjesto.", "Prikaz vremena je vključen.": "Prikaz vremena je uključen.", "Prikaz vremena je izključen.": "Prikaz vremena je isključen.", "Dolžina napovedi je shranjena.": "Duljina prognoze je spremljena.",
+    "Graf temperature in relativne vlage": "Graf temperature i relativne vlažnosti", "Graf teže panja": "Graf težine košnice", "Hitre izbire obdobja": "Brzi odabir razdoblja", "Koledar za izbiro obdobja": "Kalendar za odabir razdoblja", "Napredek OTA posodobitve": "Napredak OTA ažuriranja", "Naslednji mesec": "Sljedeći mjesec", "Prejšnji mesec": "Prethodni mjesec", "Odpri pregled": "Otvori pregled", "Moj panj": "Moja košnica", "npr. Ljubljana": "npr. Zagreb",
+    "{label}: prikaži ali skrij serijo": "{label}: prikaži ili sakrij niz",
+    "Panj": "Košnica", "ID naprave:": "ID uređaja:", "Aktivacijska koda:": "Aktivacijski kod:", "ali": "ili", "Pozor:": "Pažnja:", "Pomembno:": "Važno:", "programsko opremo": "programski softver", "lokalni spletni vmesnik": "lokalno web sučelje", "Na ločeni strani izberi": "Na zasebnoj stranici odaberite", "Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko": "Otvorit će se alat za ažuriranje. Odaberite samo pouzdanu datoteku", "za": "za", "za to napravo.": "za ovaj uređaj.", ". Po uspešni posodobitvi se naprava znova zažene.": ". Nakon uspješnog ažuriranja uređaj će se ponovno pokrenuti.", "med posodobitvijo naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "tijekom ažuriranja ne isključujte uređaj i ne prekidajte Wi‑Fi vezu.", "med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.": "tijekom prijenosa ne isključujte napajanje, ne zatvarajte preglednik i ne prekidajte Wi‑Fi vezu. Nakon uspješnog ažuriranja uređaj će se automatski ponovno pokrenuti.", "Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.": "Upotrijebite samo datoteke iz pouzdanog izdanja za ovaj uređaj. Programski softver i lokalno web sučelje instalirajte zasebno.",
+    "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "Pomak temperature mora biti između -10,0 i +10,0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "Pomak vlažnosti mora biti između -30,0 i +30,0 %.", "Kalibracijo pošiljam napravi …": "Šaljem kalibraciju uređaju …", "Ukaz za kalibracijo pošiljam napravi …": "Šaljem naredbu za kalibraciju uređaju …", "Ročno nastavitev pošiljam napravi …": "Šaljem ručnu postavku uređaju …", "Ročno nastavitev pošiljam izbranemu panju …": "Šaljem ručnu postavku odabranoj košnici …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "Postavka je prihvaćena. Uređaj će ažurirati sistemski sat i DS3231.", "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.": "Naredba je poslana. Uređaj će je preuzeti u roku od 15 sekundi.", "NTP sinhronizacija je uvrščena.": "NTP sinkronizacija je stavljena u red čekanja.",
+    "Naprava bo trajno izbrisala shranjeno domače Wi-Fi omrežje, prekinila cloud povezavo in odprla lokalni nastavitveni dostop. Nato se poveži z njenim provisioning Wi-Fi omrežjem in odpri 192.168.4.1.": "Uređaj će trajno izbrisati spremljenu kućnu Wi‑Fi mrežu, prekinuti cloud vezu i otvoriti lokalni pristup postavkama. Zatim se povežite s njegovom provisioning Wi‑Fi mrežom i otvorite 192.168.4.1.", "Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.": "Trajno izbrisati sva mjerenja sa SD kartice i Firebasea? To nije moguće poništiti.", "Naprava bo nato odprla svojo dostopno točko.": "Uređaj će zatim otvoriti svoju pristupnu točku.", "Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve.": "Usporedit ću dnevne indekse SD kartice i Firebasea te prenijeti samo dane koji nedostaju ili se ne podudaraju.", "Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.": "Trajno izbrisati sva mjerenja samo sa SD kartice? Povijest u Firebaseu ostat će nepromijenjena.",
+    "Namesti posodobitev": "Instaliraj ažuriranje", "Začni posodobitev": "Pokreni ažuriranje", "Napravo posodobim na verzijo {version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "Ažurirati uređaj na verziju {version}? Tijekom prijenosa ne isključujte uređaj i ne prekidajte Wi‑Fi vezu.", "Prekliči deljeni dostop": "Opozovi dijeljeni pristup", "Prekličem dostop samo za ogled uporabniku {user}?": "Opozvati pristup samo za pregled korisniku {user}?", "Odregistriraj panj": "Odjavi košnicu", "Odregistriraj": "Odjavi", "Odstrani": "Ukloni", "Trajno izbriši napravo": "Trajno izbriši uređaj",
+    "Ali želiš panj »{name}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.": "Želite li odjaviti košnicu »{name}«? Mjerenja i povijest ostaju u bazi, a svi dijeljeni pristupi bit će opozvani. Za ponovni pristup košnicu će trebati registrirati aktivacijskim kodom.", "Ali želiš deljeni panj »{name}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.": "Želite li ukloniti dijeljenu košnicu »{name}« sa svojeg računa? Vlasnik, mjerenja i povijest ostaju nepromijenjeni. Za ponovni pristup trebat će vam novi poziv vlasnika.",
+    "Ali želiš panj {deviceId} odjaviti od {owner}? Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.": "Želite li odjaviti košnicu {deviceId} od {owner}? Mjerenja, SD sinkronizacija i aktivacijski kod ostaju spremljeni, a svi dijeljeni pristupi bit će opozvani. Košnicu će zatim biti moguće registrirati na drugi račun.", "Ali želiš napravo {deviceId} trajno izbrisati iz Firebase? Izbrisani bodo lastništvo, meritve, agregati, stanje naprave, ukazi, aktivacijska koda, zahtevki in deljeni dostopi. Tega ni mogoče razveljaviti. Če je naprava še povezana, lahko z istim firmwareom začne znova pošiljati nove podatke.": "Želite li trajno izbrisati uređaj {deviceId} iz Firebasea? Izbrisat će se vlasništvo, mjerenja, agregati, stanje uređaja, naredbe, aktivacijski kod, zahtjevi i dijeljeni pristupi. To nije moguće poništiti. Ako je uređaj još povezan, isti firmware može ponovno početi slati nove podatke.",
+    "uporabnika {email}": "korisnika {email}", "trenutnega uporabnika": "trenutačnog korisnika",
+    "Dostopna točka bo na voljo še približno {seconds} s. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni IP lahko preveriš v usmerjevalniku.": "Pristupna točka bit će dostupna još približno {seconds} s. Za daljnju uporabu preporučujemo web-nadzornu ploču; lokalnu IP adresu možeš provjeriti u usmjerivaču.",
+    "Dostopna točka se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in nadaljuj v spletni nadzorni plošči; lokalni IP lahko preveriš v usmerjevalniku.": "Pristupna točka se zatvorila. Poveži se s kućnom Wi‑Fi mrežom i nastavi na web-nadzornoj ploči; lokalnu IP adresu možeš provjeriti u usmjerivaču.",
+    "Naprava prehaja v omrežje {ssid}. Ko bo povezava vzpostavljena, za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.": "Uređaj prelazi na mrežu {ssid}. Nakon uspostave veze za pregled mjerenja i upravljanje košnicom preporučujemo web-nadzornu ploču.",
+    "Shranjeno omrežje bo izbrisano. Naprava bo odprla dostopno točko {ssid}.": "Spremljena mreža bit će izbrisana. Uređaj će otvoriti pristupnu točku {ssid}.",
+    "V nastavitvah Wi‑Fi telefona ali računalnika izberi {ssid}, nato odpri {url} in ponovno vnesi poverilnice.": "U Wi‑Fi postavkama telefona ili računala odaberi {ssid}, zatim otvori {url} i ponovno unesi pristupne podatke.",
+    "Naprava je povezana z internetom prek omrežja {ssid}. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.": "Uređaj je povezan s internetom putem mreže {ssid}. Za pregled mjerenja i upravljanje košnicom preporučujemo web-nadzornu ploču.",
+    "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo.": "SD kartica trenutačno nije dostupna; lokalno stanje uređaja i dalje je dostupno.", "Lokalna zgodovina trenutno ni dosegljiva.": "Lokalna povijest trenutačno nije dostupna.",
+    "Naprava je povezana v Wi‑Fi omrežje {ssid}. Nastavitve lahko po potrebi spremeniš ali izbrišeš.": "Uređaj je povezan s Wi‑Fi mrežom {ssid}. Postavke možeš po potrebi promijeniti ili izbrisati.",
+    "Pregledujem in obnavljam dneve: {completed}/{total}. Manjkajočih ali neskladnih dni: {missing}.{progress}": "Pregledavam i obnavljam dane: {completed}/{total}. Nedostajućih ili neusklađenih dana: {missing}.{progress}",
+    "Prenesenih meritev: {uploaded}/{total}.": "Prenesenih mjerenja: {uploaded}/{total}.", "Zadnji potrjen zapis: {time}.": "Posljednji potvrđeni zapis: {time}.",
+    "Zadnji ukaz za brisanje je bil uspešno zaključen: {time}.": "Posljednja naredba za brisanje uspješno je završena: {time}.",
+    "Wi-Fi poverilnice so izbrisane ({time}). Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.": "Wi-Fi pristupni podaci izbrisani su ({time}). Poveži se s mrežom za postavljanje uređaja i otvori 192.168.4.1.",
+    "Naprava je povezana z internetom. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.": "Uređaj je povezan s internetom. Za pregled mjerenja i upravljanje košnicom preporučujemo web-nadzornu ploču.",
+    "Dopolnjujem dnevni indeks Firebase brez ponovnega prenosa meritev …": "Dopunjavam dnevni indeks Firebase bez ponovnog prijenosa mjerenja …", "Čakam na potrditev prvega zapisa.": "Čekam potvrdu prvog zapisa.",
+    "Wi-Fi poverilnice so izbrisane. Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.": "Wi-Fi pristupni podaci su izbrisani. Poveži se s mrežom za postavljanje uređaja i otvori 192.168.4.1.",
+    "Skupni napredek OTA: {value} %": "Ukupni OTA napredak: {value} %", "neznanem času": "nepoznato vrijeme",
+    "Prenašanje lokalne strani": "Preuzimanje lokalne stranice", "Nameščanje lokalne strani": "Instaliranje lokalne stranice", "Prenašanje programske opreme": "Preuzimanje firmvera", "Posodobitev je uspešna": "Ažuriranje je uspješno",
+    "E-poštnega naslova lastnika ni bilo mogoče posodobiti.": "Nije bilo moguće ažurirati e-adresu vlasnika.", "Javnega prikaza vremena ni bilo mogoče posodobiti.": "Nije bilo moguće ažurirati javni prikaz vremena.", "Kraja za deljeni prikaz vremena ni bilo mogoče določiti.": "Nije bilo moguće odrediti mjesto za dijeljeni prikaz vremena.", "Vremenskih podatkov ni bilo mogoče pridobiti.": "Nije bilo moguće dohvatiti vremenske podatke.",
+    "Nastavitev vremena ni bilo mogoče shraniti.": "Nije bilo moguće spremiti postavke vremena.", "Nastavitve vremena za deljeni panj ni bilo mogoče shraniti.": "Nije bilo moguće spremiti postavke vremena za dijeljenu košnicu.", "Kraja za shranjeno lokacijo ni bilo mogoče določiti.": "Nije bilo moguće odrediti mjesto spremljene lokacije.", "Kraja za lokacijo brskalnika ni bilo mogoče določiti.": "Nije bilo moguće odrediti mjesto lokacije preglednika.", "Lokacije brskalnika ni bilo mogoče pridobiti.": "Nije bilo moguće dohvatiti lokaciju preglednika.", "Kraja ni bilo mogoče poiskati.": "Nije bilo moguće pronaći mjesto.",
+    "Menjava omrežja": "Promjena mreže", "Naprava se povezuje z novim Wi‑Fi omrežjem": "Uređaj se povezuje s novom Wi‑Fi mrežom", "Tudi telefon ali računalnik poveži z novim omrežjem. Za lokalni dostop počakaj nekaj sekund in odpri stalni naslov; če .local ne deluje, novi IP preveri v usmerjevalniku.": "Poveži i telefon ili računalo s novom mrežom. Za lokalni pristup pričekaj nekoliko sekundi i otvori stalnu adresu; ako .local ne radi, provjeri novu IP adresu u usmjerivaču.", "Tudi telefon ali računalnik poveži z novim omrežjem. Za lokalni dostop novi IP preveri med povezanimi napravami v usmerjevalniku.": "Poveži i telefon ili računalo s novom mrežom. Za lokalni pristup provjeri novu IP adresu među povezanim uređajima u usmjerivaču.",
+    "dostopna točka naprave": "pristupna točka uređaja", "Ponovno poveži napravo": "Ponovno poveži uređaj", "Naslov nastavitev na dostopni točki": "Adresa postavki na pristupnoj točki", "SD kartica javlja napako; sinhronizacija s Firebase trenutno ni mogoča.": "SD kartica javlja pogrešku; sinkronizacija s Firebaseom trenutačno nije moguća.", "SD kartica ni dosegljiva; sinhronizacija s Firebase trenutno ni mogoča.": "SD kartica nije dostupna; sinkronizacija s Firebaseom trenutačno nije moguća.",
+    "Ukaz za brisanje čaka, da ga naprava prevzame.": "Naredba za brisanje čeka da je uređaj preuzme.", "Naprava briše SD dnevnik in cloud zgodovino …": "Uređaj briše SD dnevnik i cloud-povijest …", "Zadnji ukaz za brisanje je bil uspešno zaključen.": "Posljednja naredba za brisanje uspješno je završena.", "IZBRIŠI": "IZBRIŠI", "Izbriši Wi-Fi": "Izbriši Wi-Fi", "Naslova ni bilo mogoče kopirati": "Nije bilo moguće kopirati adresu", "Skeniranje Wi‑Fi omrežij ni uspelo": "Skeniranje Wi‑Fi mreža nije uspjelo", "Skeniranje Wi‑Fi omrežij je poteklo": "Skeniranje Wi‑Fi mreža isteklo je",
+    "Odstrani panj in vse uteži s ploščadi. Trenutno stanje bo nastavljeno na 0,00 kg.": "Ukloni košnicu i sve utege s platforme. Trenutačno stanje bit će postavljeno na 0,00 kg.", "Tariranja ni bilo mogoče začeti": "Tariranje nije bilo moguće pokrenuti", "Kalibracije BME680 ni bilo mogoče začeti": "Kalibraciju BME680 nije bilo moguće pokrenuti", "Nastavitev časa ni uspela": "Postavljanje vremena nije uspjelo", "Za nastavitev časa mora biti izbrana naprava online": "Za postavljanje vremena odabrani uređaj mora biti online", "Zahtevana različica ni novejša.": "Zatražena verzija nije novija.", "uPlot se ni pravilno naložil.": "uPlot se nije pravilno učitao.", "Google prijava ni vrnila veljavnega identifikacijskega žetona.": "Google prijava nije vratila valjani identifikacijski token.", "Nativne Google seje ni bilo mogoče počistiti.": "Nije bilo moguće očistiti izvornu Google sesiju.",
+    "Lokacija panja ({latitude}, {longitude})": "Lokacija košnice ({latitude}, {longitude})",
+    "Lokacija brskalnika ({latitude}, {longitude})": "Lokacija preglednika ({latitude}, {longitude})",
+    "Firmware je že nameščen.": "Firmware je već instaliran.",
+    "Zadnji preneseni zapis: {time}.": "Posljednji preneseni zapis: {time}.",
+    "Trenutna odmika: temperatura {temperature}, vlaga {humidity}.": "Trenutačni pomaci: temperatura {temperature}, vlažnost {humidity}.",
+    "{days} dni {hours} h {minutes} min": "{days} dana {hours} h {minutes} min",
+  },
+  en: {
+    "SD kartica": "SD card",
+    "Pametni čebelnjak": "Smart Beehive", "Nadzorna plošča": "Dashboard", "Pregled": "Overview",
+    "Grafi": "Charts", "Naprava": "Device", "Posodobitve": "Updates", "Svetla tema": "Light theme",
+    "Temna tema": "Dark theme", "Odjava": "Sign out", "Prijava": "Sign in", "Panj · živ pogled": "Hive · live view",
+    "Dobrodošel v pametnem panju": "Welcome to the smart hive", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Current measurements and a quick overview of the latest hive state.",
+    "Odpri grafe": "Open charts", "Opozorila naprave": "Device alerts", "Potrebno je preveriti komponento": "A component needs attention",
+    "Zadnja meritev": "Latest measurement", "Meritve": "Measurements", "Čakam na podatke …": "Waiting for data …",
+    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity", "Teža panja": "Hive weight",
+    "Podrobnosti naprave": "Device details", "Različica": "Version", "Preveri posodobitve": "Check for updates",
+    "Meritve in shranjevanje": "Measurements and storage", "Nastavitve vremena": "Weather settings", "Stanje sistema": "System status",
+    "Začetek – konec": "Start – end", "Izberi časovno obdobje grafov.": "Choose the chart time period.",
+    "Klima v panju": "Hive climate", "Temperatura in vlaga": "Temperature and humidity", "Masa panja": "Hive mass",
+    "Danes": "Today", "Včeraj": "Yesterday", "Ta teden": "This week", "Ta mesec": "This month", "To leto": "This year",
+    "Zadnja ura": "Last hour", "Zadnjih 12 ur": "Last 12 hours", "Zadnjih 24 ur": "Last 24 hours",
+    "Zadnjih 7 dni": "Last 7 days", "Zadnjih 30 dni": "Last 30 days", "Uporabi": "Apply", "Prekliči": "Cancel",
+    "Nalagam grafe in zgodovino meritev …": "Loading charts and measurement history …", "Ni na voljo": "Not available",
+    "Za izbrano obdobje še ni meritev.": "There are no measurements for the selected period yet.",
+    "Prikazanih je {count} povprečnih točk. Za približanje povlecite po izbranem grafu.": "{count} averaged points are displayed. Drag on the selected chart to zoom in.",
+    "Temperatura (°C)": "Temperature (°C)", "Vlaga (%)": "Humidity (%)", "Teža (kg)": "Weight (kg)",
+    "Lokacija še ni nastavljena.": "Location has not been set yet.", "izbrani lokaciji": "the selected location", "Vreme v kraju {place}": "Weather in {place}",
+    "Jasno": "Clear", "Delno oblačno": "Partly cloudy", "Oblačno": "Cloudy", "Megla": "Fog", "Pršenje": "Drizzle", "Dež": "Rain", "Sneg": "Snow", "Nevihta": "Thunderstorm", "Spremenljivo": "Variable",
+    "Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.": "To display weather, first use your current location or search for a place.",
+    "Nastavitev velja samo za tvoj pregled deljenega panja.": "This setting applies only to your view of the shared hive.", "Lastnik za ta panj še ni nastavil kraja za vreme.": "The owner has not set a weather location for this hive yet.",
+    "Vremenskih podatkov za ta kraj ni mogoče pridobiti.": "Weather data for this location cannot be retrieved.", "Čakam na podatke …": "Waiting for data …",
+    "Vsi panji": "All hives", "Moji panji": "My hives", "Skrbniški pregled": "Administrator overview",
+    "Skrbniški račun ima ogled vseh registriranih panjev.": "The administrator account can view all registered hives.",
+    "Izberi panj, katerega podatke želiš pregledovati.": "Select the hive whose data you want to view.",
+    "Registriraj svoj panj ali sprejmi povabilo za dostop do deljenega panja.": "Register your hive or accept an invitation to access a shared hive.",
+    "Deljeni panj imaš na voljo samo za ogled meritev in grafov.": "The shared hive is available for viewing measurements and charts only.",
+    "Omrežje, identiteta, delovanje in stanje SD kartice.": "Network, identity, operation, and SD card status.",
+    "Odstrani deljeni panj": "Remove shared hive", "Odjavi izbrani panj": "Unclaim selected hive",
+    "Deljeni panj · samo ogled. Dostop lahko kadarkoli odstraniš iz svojega računa.": "Shared hive · view only. You can remove access from your account at any time.",
+    "Naprava še ni prejela OTA ukaza.": "The device has not received an OTA command yet.", "Noben panj ni registriran": "No hive is registered",
+    "Deljeni z mano": "Shared with me", " · samo ogled": " · view only", "V Firebase še ni zaznan noben panj.": "No hive has been detected in Firebase yet.",
+    "Izberi panj {deviceId}": "Select hive {deviceId}", "Lastnik še ni zabeležen.": "The owner has not been recorded yet.",
+    "Online": "Online", "Offline": "Offline", "Zadnji odziv: {time}": "Last response: {time}",
+    "Naprava še ni poslala stanja.": "The device has not reported its status yet.", "Odjavi lastnika": "Unclaim owner", "Izbriši napravo": "Delete device",
+    "Posodobljeno: {time}": "Updated: {time}", "Posodobljeno": "Updated", "{value} % padavin": "{value}% precipitation", "Padavine —": "Precipitation —",
+    "Pridobivam vreme …": "Fetching weather …", "Vremenski podatki trenutno niso dosegljivi.": "Weather data is currently unavailable.",
+    "Preveri dovoljene meje nastavitev.": "Check the allowed setting limits.", "Zapis zgodovine na SD ne more biti pogostejši od meritev.": "SD history cannot be recorded more frequently than measurements.",
+    "Shranjujem nastavitve …": "Saving settings …", "Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.": "Settings saved. The device will apply them within 30 seconds.",
+    "Nastavitev meritev ni bilo mogoče shraniti.": "Measurement settings could not be saved.", "Nastavitve vremena ni bilo mogoče shraniti.": "Weather settings could not be saved.",
+    "Shranjujem nastavitev …": "Saving setting …", "Vreme je prikazano na tvojem pregledu.": "Weather is shown on your overview.", "Vreme je skrito na tvojem pregledu.": "Weather is hidden from your overview.",
+    "Brskalnik ne podpira določanja lokacije.": "The browser does not support location detection.", "Brskalnik čaka na dovoljenje za lokacijo …": "The browser is waiting for location permission …",
+    "Vnesi kraj, ki ga želiš poiskati.": "Enter the place you want to find.", "Iščem kraj …": "Searching for a place …", "Izberi kraj za lokacijo panja.": "Select a place for the hive location.",
+    "Za vneseni kraj ni rezultatov.": "No results were found for the entered place.", "Iskanje kraja trenutno ni dosegljivo.": "Place search is currently unavailable.",
+    "Lokalna povezava": "Local connection", "Prijava je potrebna": "Sign-in required", "Izberi panj": "Select a hive", "Naprava online": "Device online", "Naprava offline": "Device offline", "Čakam na odziv naprave …": "Waiting for device response …",
+    "Čakam na preverjanje": "Waiting for check", "Deluje normalno": "Operating normally", "Potrebno preverjanje": "Check required", "Napaka komponente": "Component error",
+    "Komponenta trenutno ni dosegljiva; preverjanje se ponavlja.": "The component is currently unavailable; the check is being repeated.", "Komponenta še ni preverjena.": "The component has not been checked yet.", "Deluje normalno.": "Operating normally.",
+    "Preveri povezavo ali napajanje.": "Check the connection or power supply.", "RTC ura nima veljavnega časa.": "The RTC clock does not have a valid time.", "Dosegljiv prek lokalnega IP-ja.": "Reachable via the local IP address.", "Čakam na prvi odziv naprave.": "Waiting for the first device response.",
+    "Vir časa: DS3231 RTC": "Time source: DS3231 RTC", "Vir časa: internetna NTP ura": "Time source: internet NTP clock", "Vir časa: ročna lokalna nastavitev": "Time source: manual local setting", "Vir časa: ročna cloud nastavitev": "Time source: manual cloud setting", "Veljaven čas še ni na voljo": "Valid time is not available yet",
+    "DS3231 ni zaznan. Ročna ali NTP ura se ob izpadu napajanja ne bo ohranila.": "DS3231 was not detected. Manual or NTP time will not be retained after a power loss.",
+    "DS3231 je zaznan, vendar nima veljavnega časa. Preveri baterijo in nastavi uro.": "DS3231 was detected but does not have a valid time. Check the battery and set the clock.",
+    "DS3231 je zaznan in vsebuje veljaven čas.": "DS3231 was detected and contains a valid time.", "Čakam na internetno časovno sinhronizacijo …": "Waiting for internet time synchronization …",
+    "DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.": "DS3231 is not ready; setting and synchronizing time are currently unavailable.",
+    "Panj je offline; nastavljanje datuma in ure trenutno ni možno.": "The hive is offline; setting the date and time is currently unavailable.", "Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.": "The device is online; you can set the date and time or synchronize it with the internet.",
+    "Zaznana": "Detected", "Ni zaznana": "Not detected", "Po petih poskusih ni bila zaznana.": "It was not detected after five attempts.",
+    "Odpri meni": "Open menu", "Glavna navigacija": "Main navigation", "Opozorilo komponent": "Component warning", "Vzpostavljam povezavo …": "Establishing connection …", "Preklopi barvno temo": "Switch color theme", "Izberi jezik": "Select language",
+    "Vreme": "Weather", "Vreme v kraju": "Weather in", "Vlaga": "Humidity", "Tlak": "Pressure", "Veter": "Wind", "Nastavljam obdobje …": "Setting period …", "Čakam na zgodovino meritev …": "Waiting for measurement history …",
+    "Pametni kontroler": "Smart controller", "Moj račun": "My account", "Izbrani panj": "Selected hive", "Vsi registrirani panji": "All registered hives", "Dodaj panj": "Add hive", "Registriraj panj": "Register hive", "Vnesi ID naprave in aktivacijsko kodo.": "Enter the device ID and activation code.",
+    "Ime panja": "Hive name", "ID naprave": "Device ID", "Aktivacijska koda": "Activation code", "Deli panj": "Share hive", "Dostop samo za ogled": "View-only access", "E-poštni naslov prejemnika": "Recipient email address", "Ustvari povabilo": "Create invitation", "Koda povabila": "Invitation code", "Kopiraj kodo": "Copy code", "Uporabniki z ogledom": "View-only users", "Panj še ni deljen.": "The hive has not been shared yet.",
+    "Deljeno z mano": "Shared with me", "Sprejmi povabilo": "Accept invitation", "Dodaj deljeni panj": "Add shared hive", "Vreme na pregledu": "Weather on overview", "Prikaži vreme": "Show weather", "Na pregledu prikaži trenutno vreme in napoved.": "Show current weather and forecast on the overview.", "Dolžina napovedi": "Forecast length", "3 dni": "3 days", "5 dni": "5 days", "Lokacija panja": "Hive location", "Uporabi mojo lokacijo": "Use my location", "Poišči kraj": "Search for a place", "Poišči": "Search", "Vreme deljenega panja": "Shared hive weather",
+    "Nastavitve meritev": "Measurement settings", "Prikaz teže": "Weight display", "1 decimalka": "1 decimal", "2 decimalki": "2 decimals", "Interval meritev": "Measurement interval", "Zapis zgodovine na SD": "SD history recording", "Shrani nastavitve": "Save settings",
+    "Nastavitev omrežja": "Network setup", "Poveži panj z Wi‑Fi": "Connect hive to Wi‑Fi", "Povezan si neposredno na dostopno točko naprave.": "You are connected directly to the device access point.", "Povezano Wi‑Fi omrežje": "Connected Wi‑Fi network", "Ime Wi‑Fi omrežja": "Wi‑Fi network name", "Poišči omrežja": "Find networks", "Shrani in poveži": "Save and connect", "Izbriši shranjeni Wi‑Fi": "Delete saved Wi‑Fi", "Povezava je uspela": "Connection successful", "Naprava je povezana": "Device connected", "Spletna nadzorna plošča": "Web dashboard", "Novi lokalni naslov": "New local address", "Odpri nadzorno ploščo": "Open dashboard", "Odpri lokalno": "Open locally", "Kopiraj lokalni naslov": "Copy local address",
+    "Wi‑Fi omrežje": "Wi‑Fi network", "IP naslov": "IP address", "Wi‑Fi signal": "Wi‑Fi signal", "Uptime": "Uptime", "Stanje naprave": "Device status", "Različica naprave": "Device version", "Čakam na stanje …": "Waiting for status …", "Stanje komponent": "Component status", "Senzorji in shranjevanje": "Sensors and storage", "Merilne celice": "Load cells", "RTC ura": "RTC clock", "Dnevnik meritev": "Measurement log",
+    "Tehtnica": "Scale", "Tariranje tehtnice": "Scale tare", "Tariraj tehtnico": "Tare scale", "Čakam na stanje tehtnice …": "Waiting for scale status …", "Senzor BME680": "BME680 sensor", "Kalibracija temperature in vlage": "Temperature and humidity calibration", "Odmik temperature (°C)": "Temperature offset (°C)", "Odmik vlage (%)": "Humidity offset (%)", "Shrani kalibracijo": "Save calibration", "Čakam na stanje BME680 …": "Waiting for BME680 status …", "Čas sistema": "System time", "Datum in ura": "Date and time", "Ročna nastavitev": "Manual setting", "Nastavi datum in uro": "Set date and time", "Sinhroniziraj z internetom": "Synchronize with internet",
+    "Sinhronizacija": "Synchronization", "Sinhronizacija zgodovine": "History synchronization", "Ponovno sinhroniziraj zgodovino": "Resynchronize history", "Meritve na SD kartici": "Measurements on SD card", "Odpri dnevnik meritev": "Open measurement log", "Prenesi meritve": "Download measurements", "Izbriši meritve s SD kartice": "Delete measurements from SD card", "Brisanje merilne zgodovine": "Measurement history deletion", "Trajno izbriši meritve": "Permanently delete measurements", "Izbriši merilno zgodovino": "Delete measurement history", "Ponastavitev omrežja": "Network reset", "Izbriši Wi-Fi poverilnice": "Delete Wi‑Fi credentials",
+    "Posodobitev naprave": "Device update", "Razpoložljiva OTA posodobitev": "Available OTA update", "Trenutna različica naprave:": "Current device version:", "Preverjam razpoložljive različice …": "Checking available versions …", "Prezri": "Ignore", "Posodobi napravo": "Update device", "Brez interneta": "Offline", "Orodje za posodobitev": "Update tool", "Odpri orodje za posodobitev": "Open update tool",
+    "Izberi": "Select", "Cloud dostop": "Cloud access", "Prijava uporabnika": "User sign-in", "E-poštni naslov": "Email address", "Geslo": "Password", "Prijava z e-pošto": "Sign in with email", "Ustvari nov račun": "Create new account", "Nadaljuj z Googlom": "Continue with Google", "Zapri": "Close", "Nadaljuj": "Continue", "Potrditev dejanja": "Confirm action", "Ali želiš nadaljevati?": "Do you want to continue?",
+    "Nevarno dejanje": "Dangerous action", "Za potrditev vpiši {text}.": "Type {text} to confirm.", "Trajni izbris meritev": "Permanent measurement deletion", "Trajno izbriši": "Permanently delete", "Izbriši Wi‑Fi": "Delete Wi‑Fi",
+    "Za popoln izbris mora biti naprava online.": "The device must be online for a complete deletion.", "Ukaz za popoln izbris pošiljam napravi …": "Sending the complete deletion command to the device …", "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.": "Command sent. The device will check it within 30 seconds.", "Pošiljanje ukaza za brisanje ni uspelo.": "The deletion command could not be sent.",
+    "Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …": "Sending the Wi‑Fi credential deletion command to the device …", "Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.": "The Wi‑Fi credential deletion command could not be sent.",
+    "Vpiši ime Wi‑Fi omrežja.": "Enter the Wi‑Fi network name.", "Preverjam povezavo z Wi‑Fi omrežjem …": "Checking the Wi‑Fi network connection …", "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …": "The device is checking the connection. It will save settings only after success …", "Skrij Wi‑Fi geslo": "Hide Wi‑Fi password", "Prikaži Wi‑Fi geslo": "Show Wi‑Fi password", "Novi lokalni naslov je kopiran.": "The new local address was copied.", "Kopiranje ni uspelo. Naslov označi in kopiraj ročno.": "Copying failed. Select the address and copy it manually.", "Ni najdenih Wi‑Fi omrežij.": "No Wi‑Fi networks were found.", " · zaščiteno": " · secured", " · odprto": " · open", "Iščem omrežja …": "Searching for networks …",
+    "Ponovno sinhroniziraj zgodovino": "Resynchronize history", "Začni sinhronizacijo": "Start synchronization", "Pripravljam primerjavo SD zgodovine in Firebase …": "Preparing a comparison of SD history and Firebase …", "Primerjava dnevne zgodovine se je začela.": "Daily history comparison has started.",
+    "HX711 ni pripravljen; tariranje trenutno ni možno.": "HX711 is not ready; taring is currently unavailable.", "Tariraj": "Tare", "Tariranje pošiljam napravi …": "Sending tare request to the device …", "Ukaz za tariranje pošiljam napravi …": "Sending tare command to the device …",
+    "Prijavljam …": "Signing in …", "Ustvarjam račun …": "Creating account …", "Odpiram Google prijavo …": "Opening Google sign-in …", "Odjava ni uspela": "Sign-out failed",
+    "Preveri obliko ID-ja in osemmestne aktivacijske kode.": "Check the device ID format and eight-character activation code.", "Preverjam aktivacijsko kodo …": "Checking activation code …", "Panj je uspešno registriran na tvoj račun.": "The hive was successfully registered to your account.", "Registracija ni uspela. Preveri ID, kodo in ali je naprava že povezana v Firebase.": "Registration failed. Check the ID, code, and whether the device is already connected to Firebase.",
+    "Izberi svoj panj, ki ga želiš deliti.": "Select the hive you want to share.", "Povabila ne moreš poslati svojemu računu.": "You cannot send an invitation to your own account.", "Vnesi veljaven e-poštni naslov prejemnika.": "Enter a valid recipient email address.", "Ustvarjam varno povabilo …": "Creating a secure invitation …", "Povabilo je pripravljeno. Prejemniku pošlji prikazano kodo.": "The invitation is ready. Send the displayed code to the recipient.", "Povabila ni bilo mogoče ustvariti. Preveri povezavo in Firebase pravila.": "The invitation could not be created. Check the connection and Firebase rules.", "Koda povabila je kopirana.": "The invitation code was copied.", "Kopiranje ni uspelo. Kodo označi in kopiraj ročno.": "Copying failed. Select the code and copy it manually.", "Preverjam povabilo …": "Checking invitation …", "Povabilo ni veljavno, je poteklo ali je namenjeno drugemu e-poštnemu naslovu.": "The invitation is invalid, expired, or intended for another email address.",
+    "Panj še ni deljen z nobenim uporabnikom.": "The hive has not been shared with any user yet.", "Uporabnik brez e-poštnega naslova": "User without an email address", "Samo ogled": "View only", "Prekliči dostop": "Revoke access", "Preklicujem deljeni dostop …": "Revoking shared access …", "Dostop uporabnika je preklican.": "The user's access was revoked.", "Dostopa ni bilo mogoče preklicati.": "Access could not be revoked.",
+    "Skupaj 0 %": "Total 0%", "Posodobitev poteka": "Update in progress", "Zadnja cloud OTA posodobitev ni zabeležena.": "The last cloud OTA update was not recorded.", "Posodobitev prezrta": "Update ignored", "Na voljo je nova različica": "A new version is available", "Nova različica naprave je pripravljena na GitHub Releases.": "A new device version is available on GitHub Releases.", "Prezrto v tem brskalniku.": "Ignored in this browser.", "OTA izdaja ni javno dosegljiva": "The OTA release is not publicly accessible", "Preveri GitHub Release in javni dostop do repozitorija.": "Check the GitHub Release and public repository access.", "Naprava je posodobljena": "Device is up to date", "Ni navoljo novejše različice.": "No newer version is available.", "Preverjanje OTA ni uspelo": "OTA check failed", "GitHub Release trenutno ni dosegljiv.": "GitHub Release is currently unavailable.", "OTA ukaz pošiljam napravi …": "Sending OTA command to the device …", "Pošiljanje OTA ukaza ni uspelo.": "The OTA command could not be sent.",
+    "Ročna posodobitev naprave": "Manual device update", "Brez interneta namesti programsko opremo ali lokalni spletni vmesnik.": "Install firmware or the local web interface without internet access.", "Varna namestitev nove različice na izbrano napravo.": "Safely install a new version on the selected device.", "Pripravljam lokalno zgodovino s SD kartice …": "Preparing local history from the SD card …", "Priprava lokalne zgodovine je trajala predolgo.": "Preparing local history took too long.", "Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.": "Local history could not be read; the device connection remains active.",
+    "Izberi panj za ogled meritev in upravljanje. Prikazani so stanje, zadnji odziv in e-poštni naslov lastnika.": "Select a hive to view measurements and manage it. Its status, last response, and owner email address are shown.",
+    "Povabilo velja 24 ur in samo za navedeni e-poštni naslov. Povabljeni uporabnik lahko vidi meritve in grafe, naprave pa ne more upravljati.": "The invitation is valid for 24 hours and only for the specified email address. The invited user can view measurements and charts but cannot manage the device.",
+    "Vnesi kodo, ki ti jo je poslal lastnik panja. Povabilo mora biti namenjeno e-poštnemu naslovu tega računa.": "Enter the code sent by the hive owner. The invitation must be intended for this account's email address.",
+    "Vremenski podatki se pridobivajo iz storitve Open-Meteo glede na shranjeno lokacijo in se osvežujejo vsakih 15 minut.": "Weather data is retrieved from Open-Meteo for the saved location and refreshed every 15 minutes.", "Na svojem pregledu prikaži trenutno vreme in napoved.": "Show current weather and forecast on your overview.", "To nastavitev vidiš samo ti. Ne spreminja kraja ali nastavitev lastnika.": "Only you can see this setting. It does not change the owner's location or settings.",
+    "Nastavitve veljajo samo za izbrani panj. Naprava jih shrani tudi lokalno, zato ostanejo aktivne ob začasnem izpadu interneta.": "Settings apply only to the selected hive. The device also stores them locally, so they remain active during a temporary internet outage.", "Podatki se vedno shranjujejo na dve decimalki.": "Data is always stored to two decimal places.", "Od 5 do 120 sekund. Trenutna meritev se posodobi po vsakem ciklu.": "From 5 to 120 seconds. The current measurement is updated after every cycle.", "Od 1 do 30 minut. Ti zapisi se prenesejo tudi v Firebase zgodovino.": "From 1 to 30 minutes. These records are also transferred to Firebase history.",
+    "Wi‑Fi geslo": "Wi‑Fi password", "Telefon ali računalnik poveži z novim Wi‑Fi omrežjem.": "Connect your phone or computer to the new Wi‑Fi network.", "Priporočeno za pregled meritev in upravljanje panja.": "Recommended for viewing measurements and managing the hive.", "Stalni naslov:": "Permanent address:", "Uporabi jo skupaj z ID-jem naprave pri registraciji v cloud.": "Use it together with the device ID when registering in the cloud.",
+    "S ploščadi odstrani vse. Trenutno prazno stanje bo nastavljeno na 0,00 kg.": "Remove everything from the platform. The current empty state will be set to 0.00 kg.", "Odstrani panj in vse uteži s ploščadi. Naprava bo prazno stanje shranila kot 0,00 kg.": "Remove the hive and all weights from the platform. The device will save the empty state as 0.00 kg.", "Vpiši razliko med referenčnim merilnikom in BME680. Odmika se uporabita pri vseh novih meritvah.": "Enter the difference between the reference meter and BME680. The offsets are applied to all new measurements.",
+    "Dnevnik lahko odpreš v brskalniku, preneseš kot CSV ali trajno izbrišeš samo s SD kartice. Brisanje ne vpliva na zgodovino v Firebase.": "You can open the log in a browser, download it as CSV, or permanently delete it only from the SD card. Deletion does not affect Firebase history.", "Ukaz trajno izbriše dnevnik meritev s SD kartice in celotno zgodovino v Firebase. Dejanja ni mogoče razveljaviti.": "The command permanently deletes the measurement log from the SD card and all history in Firebase. This action cannot be undone.", "Ukaz trajno izbriše shranjeno domače Wi-Fi omrežje. Naprava prekine cloud povezavo in odpre lokalni nastavitveni dostop za novo povezavo.": "The command permanently deletes the saved home Wi‑Fi network. The device disconnects from the cloud and opens local setup access for a new connection.",
+    "GitHub Release bo prikazan, ko je na voljo.": "The GitHub Release will be displayed when available.", "Naprave med posodobitvijo ne izklapljaj": "Do not turn off the device during the update", "Nadaljuj na posodobitev": "Continue to update", "Pred lokalno posodobitvijo": "Before a local update", "Prijavi se za ogled svojih registriranih panjev.": "Sign in to view your registered hives.",
+    "Čakam na stanje SD kartice …": "Waiting for SD card status …", "Čakam na stanje ure …": "Waiting for clock status …", "DS3231 še ni preverjen.": "DS3231 has not been checked yet.", "Izberi online panj za ponastavitev omrežja.": "Select an online hive to reset its network.", "Čas od": "Time from", "Čas do": "Time to", "Pon": "Mon", "Tor": "Tue", "Sre": "Wed", "Čet": "Thu", "Pet": "Fri", "Sob": "Sat", "Ned": "Sun",
+    "SD kartica ni dosegljiva.": "The SD card is unavailable.", "Počakaj, da se sinhronizacija zgodovine zaključi.": "Wait for history synchronization to finish.", "Brisanje dnevnika je uvrščeno v čakalno vrsto …": "Log deletion has been queued …", "Brišem meritve s SD kartice …": "Deleting measurements from the SD card …", "Meritve so izbrisane s SD kartice. Zgodovina v Firebase je ostala nespremenjena.": "Measurements were deleted from the SD card. Firebase history remains unchanged.", "Brisanje meritev s SD kartice ni uspelo.": "Measurements could not be deleted from the SD card.", "Dnevnik meritev je pripravljen.": "The measurement log is ready.",
+    "Izberi panj za upravljanje zgodovine.": "Select a hive to manage its history.", "Panj je offline; brisanje merilne zgodovine trenutno ni možno.": "The hive is offline; deleting measurement history is currently unavailable.", "SD kartica ni pripravljena; popoln izbris SD in cloud zgodovine ni dovoljen.": "The SD card is not ready; complete deletion of SD and cloud history is not allowed.", "Naprava je online in pripravljena na brisanje merilne zgodovine.": "The device is online and ready to delete measurement history.",
+    "Izberi panj za ponastavitev omrežja.": "Select a hive to reset its network.", "Brisanje Wi-Fi poverilnic ni uspelo; naprava ostaja povezana.": "Wi‑Fi credential deletion failed; the device remains connected.", "Naprava ponastavlja shranjeno Wi-Fi omrežje …": "The device is resetting the saved Wi‑Fi network …", "Panj je offline; ponastavitev omrežja trenutno ni mogoča.": "The hive is offline; network reset is currently unavailable.", "Naprava je online in pripravljena na ponastavitev omrežja.": "The device is online and ready for a network reset.",
+    "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.": "The cloud is unavailable; measurements are safely waiting on the SD card.", "Pripravljam dnevni indeks SD zgodovine …": "Preparing the daily SD history index …", "Primerjava SD zgodovine s Firebase ni uspela. Preveri SD kartico in povezavo ter poskusi znova.": "Comparing SD history with Firebase failed. Check the SD card and connection, then try again.", "SD kartica in Firebase sta sinhronizirana.": "The SD card and Firebase are synchronized.", "Zgodovina čaka na prvi prenos v Firebase.": "History is waiting for its first transfer to Firebase.", "SD kartica ni pripravljena; sinhronizacije ni mogoče začeti.": "The SD card is not ready; synchronization cannot be started.", "SD kartica ni pripravljena; meritev ni mogoče izbrisati.": "The SD card is not ready; measurements cannot be deleted.", "Zahtevo za brisanje pošiljam napravi …": "Sending the deletion request to the device …",
+    "Odregistriram panj …": "Unclaiming hive …", "Panj je odregistriran in vsi deljeni dostopi so preklicani. Merilni podatki ostanejo shranjeni.": "The hive was unclaimed and all shared access was revoked. Measurement data remains stored.", "Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.": "Unclaiming failed. The hive remains linked to your account.", "Odstranjujem deljeni panj …": "Removing shared hive …", "Deljeni panj je odstranjen iz tvojega računa.": "The shared hive was removed from your account.", "Deljenega panja ni bilo mogoče odstraniti. Dostop ostaja aktiven.": "The shared hive could not be removed. Access remains active.",
+    "Panj nima registriranega lastnika.": "The hive has no registered owner.", "Odjavljam lastnika …": "Unclaiming owner …", "Lastnik in vsi deljeni dostopi so odjavljeni. Merilni podatki ostanejo shranjeni.": "The owner and all shared access were removed. Measurement data remains stored.", "Odjava lastnika ni uspela. Panj ostaja povezan z računom.": "Unclaiming the owner failed. The hive remains linked to the account.", "Brišem napravo in njene Firebase zapise …": "Deleting the device and its Firebase records …", "Naprava in vsi njeni Firebase zapisi so izbrisani.": "The device and all its Firebase records were deleted.", "Izbris naprave ni uspel. Firebase zapisi ostanejo nespremenjeni.": "Device deletion failed. Firebase records remain unchanged.",
+    "Napaka pri branju podatkov": "Data read error", "Izberite končni datum": "Select an end date", "Končni datum mora biti po začetnem datumu.": "The end date must be after the start date.",
+    "Odpri nastavitve": "Open settings", "Naprava je dosegljiva na novem omrežju. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni dostop ostaja na voljo prek stalnega naslova.": "The device is reachable on the new network. We recommend the web dashboard for continued use; local access remains available through the permanent address.", "Za lokalni dostop poveži telefon ali računalnik z istim Wi‑Fi omrežjem. Če lokalni naslov ni dosegljiv, IP preveri med povezanimi napravami v usmerjevalniku.": "For local access, connect your phone or computer to the same Wi‑Fi network. If the local address is unavailable, check the router's connected devices for the IP address.",
+    "Povezava z Wi‑Fi je uspela. Čakam na potrditev omrežnega naslova.": "The Wi‑Fi connection succeeded. Waiting for network address confirmation.", "Naprava je povezana v domače Wi‑Fi omrežje.": "The device is connected to the home Wi‑Fi network.", "Povezava z napravo je bila prekinjena. To je po brisanju omrežja pričakovano; nadaljuj prek prikazane dostopne točke.": "The device connection was interrupted. This is expected after deleting the network; continue through the displayed access point.",
+    "Izberi veljaven datum med letoma 2023 in 2099.": "Select a valid date between 2023 and 2099.", "Zahtevam sinhronizacijo z internetno uro …": "Requesting synchronization with internet time …", "Skupaj {value} %": "Total {value}%",
+    "DS3231 je pripravljen. Zadnja nastavitev: {time}.": "DS3231 is ready. Last setting: {time}.", "Naprava preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki{ap}.": "The device is checking the selected Wi‑Fi network. Stay connected to the access point{ap}.", "Povezava z Wi‑Fi ni uspela. AP{ap} ostaja na voljo za ponoven poskus.": "The Wi‑Fi connection failed. AP{ap} remains available for another attempt.", "Povezan si neposredno na dostopno točko naprave{ap}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.": "You are connected directly to the device access point{ap}. Enter the home Wi‑Fi network for cloud access.",
+    "Primerjam dnevni indeks SD kartice s Firebase{days} …": "Comparing the SD card's daily index with Firebase{days} …", "Pošiljam zgodovino v Firebase …{detail}": "Sending history to Firebase …{detail}", "SD kartica ni pripravljena; cloud zgodovine brez brisanja SD dnevnika ni dovoljeno izbrisati.": "The SD card is not ready; cloud history cannot be deleted without deleting the SD log.", "Izbrano omrežje: {ssid}": "Selected network: {ssid}", "Najdenih omrežij: {count}": "Networks found: {count}",
+    "Zadnja uspešna OTA posodobitev: {time}.": "Last successful OTA update: {time}.", "Različica v{version} je že nameščena.": "Version v{version} is already installed.", "Za {email}; velja do {time}.": "For {email}; valid until {time}.", "Preveri osemmestno kodo povabila in e-poštni naslov računa.": "Check the eight-character invitation code and the account email address.", "Deljeni panj »{name}« je dodan v izbirnik.": "Shared hive “{name}” was added to the selector.",
+    "S ploščadi odstrani vse in nato tariraj tehtnico.": "Remove everything from the platform, then tare the scale.", "Ukaz za tariranje čaka na izvedbo.": "The tare command is waiting to run.", "Nastavljam prazno ploščad na 0,00 kg …": "Setting the empty platform to 0.00 kg …", "Tariranje je uspešno; nova ničla je shranjena.": "Taring succeeded; the new zero point was saved.", "Tariranje ni uspelo. Preveri povezavo HX711.": "Taring failed. Check the HX711 connection.", "Prejšnje tariranje se ni zaključilo. Odstrani uteži in poskusi znova.": "The previous tare did not finish. Remove the weights and try again.", "Panj je offline; tariranje trenutno ni možno.": "The hive is offline; taring is currently unavailable.", "Izberi online panj za tariranje.": "Select an online hive to tare.",
+    "Čakam na stanje kalibracije BME680 …": "Waiting for BME680 calibration status …", "Ukaz za kalibracijo čaka na izvedbo.": "The calibration command is waiting to run.", "Shranjujem kalibracijo BME680 …": "Saving BME680 calibration …", "Kalibracija BME680 je shranjena in uporabljena pri novih meritvah.": "BME680 calibration was saved and is applied to new measurements.", "Kalibracije BME680 ni bilo mogoče shraniti.": "BME680 calibration could not be saved.", "Panj je offline; kalibracije trenutno ni mogoče nastaviti.": "The hive is offline; calibration cannot currently be set.", "Izberi online panj za kalibracijo.": "Select an online hive to calibrate.", "BME680 ni pripravljen; odmikov trenutno ni mogoče nastaviti.": "BME680 is not ready; offsets cannot currently be set.",
+    "E-poštni naslov ali geslo ni pravilno.": "The email address or password is incorrect.", "Za ta e-poštni naslov račun že obstaja.": "An account already exists for this email address.", "Geslo mora imeti najmanj šest znakov.": "The password must contain at least six characters.", "Google prijava je bila zaprta.": "Google sign-in was closed.", "Ta način prijave še ni omogočen v Firebase Authentication.": "This sign-in method is not enabled in Firebase Authentication yet.", "Postopka ni bilo mogoče dokončati. Poskusi znova.": "The operation could not be completed. Try again.", "Vnesi e-poštni naslov in geslo.": "Enter your email address and password.", "Google račun": "Google account",
+    "Lokacija {name} je shranjena za ta panj.": "Location {name} was saved for this hive.", "Dovoljenje za lokacijo je zavrnjeno. Kraj lahko poiščeš ročno.": "Location permission was denied. You can search for a place manually.", "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.": "The location could not be retrieved. Try again or search for a place manually.", "Prikaz vremena je vključen.": "Weather display is enabled.", "Prikaz vremena je izključen.": "Weather display is disabled.", "Dolžina napovedi je shranjena.": "Forecast length was saved.",
+    "Graf temperature in relativne vlage": "Temperature and relative humidity chart", "Graf teže panja": "Hive weight chart", "Hitre izbire obdobja": "Quick period selections", "Koledar za izbiro obdobja": "Period selection calendar", "Napredek OTA posodobitve": "OTA update progress", "Naslednji mesec": "Next month", "Prejšnji mesec": "Previous month", "Odpri pregled": "Open overview", "Moj panj": "My hive", "npr. Ljubljana": "e.g. London",
+    "{label}: prikaži ali skrij serijo": "{label}: show or hide series",
+    "Panj": "Hive", "ID naprave:": "Device ID:", "Aktivacijska koda:": "Activation code:", "ali": "or", "Pozor:": "Warning:", "Pomembno:": "Important:", "programsko opremo": "firmware", "lokalni spletni vmesnik": "local web interface", "Na ločeni strani izberi": "On the separate page, select", "Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko": "The update tool will open. Select only a trusted file", "za": "for", "za to napravo.": "for this device.", ". Po uspešni posodobitvi se naprava znova zažene.": ". The device restarts after a successful update.", "med posodobitvijo naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "do not turn off the device or interrupt the Wi‑Fi connection during the update.", "med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.": "do not disconnect power, close the browser, or interrupt the Wi‑Fi connection during transfer. The device restarts automatically after a successful update.", "Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.": "Use only files from a trusted release for this device. Install the firmware and local web interface separately.",
+    "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "The temperature offset must be between -10.0 and +10.0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "The humidity offset must be between -30.0 and +30.0%.", "Kalibracijo pošiljam napravi …": "Sending calibration to the device …", "Ukaz za kalibracijo pošiljam napravi …": "Sending the calibration command to the device …", "Ročno nastavitev pošiljam napravi …": "Sending the manual setting to the device …", "Ročno nastavitev pošiljam izbranemu panju …": "Sending the manual setting to the selected hive …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "The setting was accepted. The device will update the system clock and DS3231.", "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.": "Command sent. The device will retrieve it within 15 seconds.", "NTP sinhronizacija je uvrščena.": "NTP synchronization has been queued.",
+    "Naprava bo trajno izbrisala shranjeno domače Wi-Fi omrežje, prekinila cloud povezavo in odprla lokalni nastavitveni dostop. Nato se poveži z njenim provisioning Wi-Fi omrežjem in odpri 192.168.4.1.": "The device will permanently delete the saved home Wi‑Fi network, disconnect from the cloud, and open local setup access. Then connect to its provisioning Wi‑Fi network and open 192.168.4.1.", "Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.": "Permanently delete all measurements from the SD card and Firebase? This cannot be undone.", "Naprava bo nato odprla svojo dostopno točko.": "The device will then open its access point.", "Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve.": "Compare the daily SD card and Firebase indexes and transfer only missing or mismatched days.", "Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.": "Permanently delete all measurements only from the SD card? Firebase history will remain unchanged.",
+    "Namesti posodobitev": "Install update", "Začni posodobitev": "Start update", "Napravo posodobim na verzijo {version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "Update the device to version {version}? Do not turn off the device or interrupt the Wi‑Fi connection during the transfer.", "Prekliči deljeni dostop": "Revoke shared access", "Prekličem dostop samo za ogled uporabniku {user}?": "Revoke view-only access for user {user}?", "Odregistriraj panj": "Unclaim hive", "Odregistriraj": "Unclaim", "Odstrani": "Remove", "Trajno izbriši napravo": "Permanently delete device",
+    "Ali želiš panj »{name}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.": "Do you want to unclaim hive “{name}”? Measurements and history remain in the database, but all shared access will be revoked. The hive will need to be registered with its activation code to regain access.", "Ali želiš deljeni panj »{name}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.": "Do you want to remove shared hive “{name}” from your account? The hive owner, measurements, and history remain unchanged. You will need a new invitation from the owner to regain access.",
+    "Ali želiš panj {deviceId} odjaviti od {owner}? Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.": "Do you want to unclaim hive {deviceId} from {owner}? Measurements, SD synchronization, and the activation code remain stored, but all shared access will be revoked. The hive can then be registered to another account.", "Ali želiš napravo {deviceId} trajno izbrisati iz Firebase? Izbrisani bodo lastništvo, meritve, agregati, stanje naprave, ukazi, aktivacijska koda, zahtevki in deljeni dostopi. Tega ni mogoče razveljaviti. Če je naprava še povezana, lahko z istim firmwareom začne znova pošiljati nove podatke.": "Do you want to permanently delete device {deviceId} from Firebase? Ownership, measurements, aggregates, device status, commands, activation code, claims, and shared access will be deleted. This cannot be undone. If the device is still connected, it may begin sending new data again with the same firmware.",
+    "uporabnika {email}": "user {email}", "trenutnega uporabnika": "the current user",
+    "Dostopna točka bo na voljo še približno {seconds} s. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni IP lahko preveriš v usmerjevalniku.": "The access point will remain available for approximately {seconds} s. For continued use, we recommend the cloud dashboard; you can find the local IP address in your router.",
+    "Dostopna točka se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in nadaljuj v spletni nadzorni plošči; lokalni IP lahko preveriš v usmerjevalniku.": "The access point has closed. Connect to your home Wi‑Fi network and continue in the cloud dashboard; you can find the local IP address in your router.",
+    "Naprava prehaja v omrežje {ssid}. Ko bo povezava vzpostavljena, za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.": "The device is switching to the {ssid} network. Once connected, we recommend the cloud dashboard for viewing measurements and managing the hive.",
+    "Shranjeno omrežje bo izbrisano. Naprava bo odprla dostopno točko {ssid}.": "The saved network will be deleted. The device will open the {ssid} access point.",
+    "V nastavitvah Wi‑Fi telefona ali računalnika izberi {ssid}, nato odpri {url} in ponovno vnesi poverilnice.": "In your phone or computer Wi‑Fi settings, select {ssid}, then open {url} and enter the credentials again.",
+    "Naprava je povezana z internetom prek omrežja {ssid}. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.": "The device is connected to the internet through {ssid}. We recommend the cloud dashboard for viewing measurements and managing the hive.",
+    "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo.": "The SD card is currently unavailable; the local device status remains available.", "Lokalna zgodovina trenutno ni dosegljiva.": "Local history is currently unavailable.",
+    "Naprava je povezana v Wi‑Fi omrežje {ssid}. Nastavitve lahko po potrebi spremeniš ali izbrišeš.": "The device is connected to the {ssid} Wi‑Fi network. You can change or delete the settings as needed.",
+    "Pregledujem in obnavljam dneve: {completed}/{total}. Manjkajočih ali neskladnih dni: {missing}.{progress}": "Reviewing and restoring days: {completed}/{total}. Missing or inconsistent days: {missing}.{progress}",
+    "Prenesenih meritev: {uploaded}/{total}.": "Measurements transferred: {uploaded}/{total}.", "Zadnji potrjen zapis: {time}.": "Last confirmed record: {time}.",
+    "Zadnji ukaz za brisanje je bil uspešno zaključen: {time}.": "The last delete command completed successfully: {time}.",
+    "Wi-Fi poverilnice so izbrisane ({time}). Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.": "Wi-Fi credentials were deleted ({time}). Connect to the device provisioning Wi-Fi network and open 192.168.4.1.",
+    "Naprava je povezana z internetom. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.": "The device is connected to the internet. We recommend the cloud dashboard for viewing measurements and managing the hive.",
+    "Dopolnjujem dnevni indeks Firebase brez ponovnega prenosa meritev …": "Updating the daily Firebase index without retransmitting measurements …", "Čakam na potrditev prvega zapisa.": "Waiting for confirmation of the first record.",
+    "Wi-Fi poverilnice so izbrisane. Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.": "Wi-Fi credentials were deleted. Connect to the device provisioning Wi-Fi network and open 192.168.4.1.",
+    "Skupni napredek OTA: {value} %": "Overall OTA progress: {value} %", "neznanem času": "an unknown time",
+    "Prenašanje lokalne strani": "Downloading local site", "Nameščanje lokalne strani": "Installing local site", "Prenašanje programske opreme": "Downloading firmware", "Posodobitev je uspešna": "Update successful",
+    "E-poštnega naslova lastnika ni bilo mogoče posodobiti.": "The owner's email address could not be updated.", "Javnega prikaza vremena ni bilo mogoče posodobiti.": "The public weather display could not be updated.", "Kraja za deljeni prikaz vremena ni bilo mogoče določiti.": "The location for the shared weather display could not be determined.", "Vremenskih podatkov ni bilo mogoče pridobiti.": "Weather data could not be retrieved.",
+    "Nastavitev vremena ni bilo mogoče shraniti.": "Weather settings could not be saved.", "Nastavitve vremena za deljeni panj ni bilo mogoče shraniti.": "Weather settings for the shared hive could not be saved.", "Kraja za shranjeno lokacijo ni bilo mogoče določiti.": "The place for the saved location could not be determined.", "Kraja za lokacijo brskalnika ni bilo mogoče določiti.": "The place for the browser location could not be determined.", "Lokacije brskalnika ni bilo mogoče pridobiti.": "The browser location could not be retrieved.", "Kraja ni bilo mogoče poiskati.": "The place could not be found.",
+    "Menjava omrežja": "Changing network", "Naprava se povezuje z novim Wi‑Fi omrežjem": "The device is connecting to a new Wi‑Fi network", "Tudi telefon ali računalnik poveži z novim omrežjem. Za lokalni dostop počakaj nekaj sekund in odpri stalni naslov; če .local ne deluje, novi IP preveri v usmerjevalniku.": "Connect your phone or computer to the new network as well. For local access, wait a few seconds and open the permanent address; if .local does not work, check the new IP address in your router.", "Tudi telefon ali računalnik poveži z novim omrežjem. Za lokalni dostop novi IP preveri med povezanimi napravami v usmerjevalniku.": "Connect your phone or computer to the new network as well. For local access, find the new IP address among connected devices in your router.",
+    "dostopna točka naprave": "device access point", "Ponovno poveži napravo": "Reconnect the device", "Naslov nastavitev na dostopni točki": "Setup address on the access point", "SD kartica javlja napako; sinhronizacija s Firebase trenutno ni mogoča.": "The SD card reports an error; synchronization with Firebase is currently unavailable.", "SD kartica ni dosegljiva; sinhronizacija s Firebase trenutno ni mogoča.": "The SD card is unavailable; synchronization with Firebase is currently unavailable.",
+    "Ukaz za brisanje čaka, da ga naprava prevzame.": "The delete command is waiting for the device.", "Naprava briše SD dnevnik in cloud zgodovino …": "The device is deleting the SD log and cloud history …", "Zadnji ukaz za brisanje je bil uspešno zaključen.": "The last delete command completed successfully.", "IZBRIŠI": "DELETE", "Izbriši Wi-Fi": "Delete Wi-Fi", "Naslova ni bilo mogoče kopirati": "The address could not be copied", "Skeniranje Wi‑Fi omrežij ni uspelo": "Wi‑Fi network scan failed", "Skeniranje Wi‑Fi omrežij je poteklo": "Wi‑Fi network scan timed out",
+    "Odstrani panj in vse uteži s ploščadi. Trenutno stanje bo nastavljeno na 0,00 kg.": "Remove the hive and all weights from the platform. The current state will be set to 0.00 kg.", "Tariranja ni bilo mogoče začeti": "Taring could not be started", "Kalibracije BME680 ni bilo mogoče začeti": "BME680 calibration could not be started", "Nastavitev časa ni uspela": "Time setting failed", "Za nastavitev časa mora biti izbrana naprava online": "The selected device must be online to set the time", "Zahtevana različica ni novejša.": "The requested version is not newer.", "uPlot se ni pravilno naložil.": "uPlot did not load correctly.", "Google prijava ni vrnila veljavnega identifikacijskega žetona.": "Google sign-in did not return a valid ID token.", "Nativne Google seje ni bilo mogoče počistiti.": "The native Google session could not be cleared.",
+    "Lokacija panja ({latitude}, {longitude})": "Hive location ({latitude}, {longitude})",
+    "Lokacija brskalnika ({latitude}, {longitude})": "Browser location ({latitude}, {longitude})",
+    "Firmware je že nameščen.": "Firmware is already installed.",
+    "Zadnji preneseni zapis: {time}.": "Last transferred record: {time}.",
+    "Trenutna odmika: temperatura {temperature}, vlaga {humidity}.": "Current offsets: temperature {temperature}, humidity {humidity}.",
+    "{days} dni {hours} h {minutes} min": "{days} days {hours} h {minutes} min",
+  },
+};
+const staticTextSources = new Map();
+const staticAttributeSources = new WeakMap();
 const chartSeriesVisibility = {
   climate: { 1: true, 2: true },
   weight: { 1: true },
@@ -49,8 +356,12 @@ const elements = {
   brandIcon: document.querySelector("#brand-icon"),
   menuToggle: document.querySelector("#menu-toggle"),
   topNavigation: document.querySelector("#top-navigation"),
-  themeToggle: document.querySelector("#theme-toggle"),
-  themeLabel: document.querySelector("#theme-label"),
+  themeToggles: [...document.querySelectorAll("#theme-toggle, [data-theme-toggle]")],
+  themeLabels: [...document.querySelectorAll("#theme-label, [data-theme-label]")],
+  languageFlags: [...document.querySelectorAll("[data-language-flag]")],
+  languageLabels: [...document.querySelectorAll("[data-language-label]")],
+  languageSwitchers: [...document.querySelectorAll(".language-switcher")],
+  languageButtons: [...document.querySelectorAll("[data-language]")],
   overviewNavigationItem: document.querySelector("#overview-nav-item"),
   historyNavigationItem: document.querySelector("#history-nav-item"),
   updatesNavigationItem: document.querySelector("#updates-nav-item"),
@@ -399,8 +710,9 @@ function updateChartTheme() {
 function applyTheme(theme, persist = true) {
   const selectedTheme = theme === "dark" ? "dark" : "light";
   document.documentElement.dataset.theme = selectedTheme;
-  elements.themeLabel.textContent = selectedTheme === "dark" ? "Svetla tema" : "Temna tema";
-  elements.themeToggle.setAttribute("aria-pressed", String(selectedTheme === "dark"));
+  const themeLabel = translateText(selectedTheme === "dark" ? "Svetla tema" : "Temna tema");
+  elements.themeLabels.forEach((element) => { element.textContent = themeLabel; });
+  elements.themeToggles.forEach((element) => element.setAttribute("aria-pressed", String(selectedTheme === "dark")));
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", selectedTheme === "dark" ? "#0e1713" : "#f4f1e8");
   if (persist) localStorage.setItem(THEME_STORAGE_KEY, selectedTheme);
   updateChartTheme();
@@ -408,9 +720,9 @@ function applyTheme(theme, persist = true) {
 
 function initializeTheme() {
   applyTheme(document.documentElement.dataset.theme, false);
-  elements.themeToggle.addEventListener("click", () => {
+  elements.themeToggles.forEach((toggle) => toggle.addEventListener("click", () => {
     applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-  });
+  }));
 
   const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const handleColorSchemeChange = (event) => {
@@ -418,6 +730,102 @@ function initializeTheme() {
   };
   if (colorSchemeQuery.addEventListener) colorSchemeQuery.addEventListener("change", handleColorSchemeChange);
   else colorSchemeQuery.addListener(handleColorSchemeChange);
+}
+
+function applyLanguage(language, persist = true) {
+  const selectedLanguage = LANGUAGE_OPTIONS[language] ? language : "sl";
+  const option = LANGUAGE_OPTIONS[selectedLanguage];
+  document.documentElement.lang = selectedLanguage;
+  translateStaticContent(selectedLanguage);
+  elements.languageFlags.forEach((element) => { element.textContent = option.flag; });
+  elements.languageLabels.forEach((element) => { element.textContent = option.label; });
+  elements.languageButtons.forEach((button) => {
+    button.setAttribute("aria-current", String(button.dataset.language === selectedLanguage));
+  });
+  elements.languageSwitchers.forEach((switcher) => { switcher.open = false; });
+  if (persist) localStorage.setItem(LANGUAGE_STORAGE_KEY, selectedLanguage);
+  applyTheme(document.documentElement.dataset.theme, false);
+  if (dashboardDataSourceReady) refreshTranslatedDashboard();
+}
+
+function refreshTranslatedDashboard() {
+  document.querySelectorAll("[data-i18n-source]").forEach((element) => {
+    let values = {};
+    try {
+      values = JSON.parse(element.dataset.i18nValues || "{}");
+    } catch {
+      values = {};
+    }
+    element.textContent = formatTranslatedText(element.dataset.i18nSource, values);
+  });
+  renderHeaderDeviceState();
+  if (!isLocalDashboard) {
+    configureCloudAccountView();
+    configureSelectedCloudDeviceAccess(cloudDevicePath.replace("devices/", ""));
+    renderCloudDeviceSelector();
+  }
+  if (latestMeasurement) renderLatestMeasurement(latestMeasurement);
+  if (latestDeviceStatus) renderDeviceStatus(latestDeviceStatus);
+  if (latestSDCardStatus) renderSDStatus(latestSDCardStatus);
+  if (latestTimeStatus) renderTimeStatus(latestTimeStatus);
+  renderWeatherSettings(latestWeatherSettings);
+  updateWeatherOverviewTitle();
+  if (latestHistoryReadings.length) renderHistory(latestHistoryReadings, latestHistoryAlreadyAggregated);
+  else if (appliedRange) renderHistory([], latestHistoryAlreadyAggregated);
+}
+
+function translateText(text, language = getDashboardLanguage()) {
+  return TRANSLATIONS[language]?.[text] ?? text;
+}
+
+function formatTranslatedText(text, values = {}) {
+  return Object.entries(values).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, String(value)), translateText(text));
+}
+
+function setTranslatedElementText(element, text, values = {}) {
+  element.dataset.i18nSource = text;
+  element.dataset.i18nValues = JSON.stringify(values);
+  element.textContent = formatTranslatedText(text, values);
+}
+
+function translateStaticContent(language) {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ["SCRIPT", "STYLE"].includes(parent.tagName) || !node.nodeValue.trim()) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const source = staticTextSources.get(node) ?? node.nodeValue;
+    staticTextSources.set(node, source);
+    const leading = source.match(/^\s*/)?.[0] ?? "";
+    const trailing = source.match(/\s*$/)?.[0] ?? "";
+    node.nodeValue = `${leading}${translateText(source.trim(), language)}${trailing}`;
+  });
+  document.querySelectorAll("[aria-label], [title], [placeholder]").forEach((element) => {
+    const sources = staticAttributeSources.get(element) ?? {};
+    ["aria-label", "title", "placeholder"].forEach((attribute) => {
+      if (!element.hasAttribute(attribute)) return;
+      const source = sources[attribute] ?? element.getAttribute(attribute);
+      sources[attribute] = source;
+      element.setAttribute(attribute, translateText(source, language));
+    });
+    staticAttributeSources.set(element, sources);
+  });
+  document.title = translateText("Pametni čebelnjak", language);
+}
+
+function initializeLanguage() {
+  const requestedLanguage = new URLSearchParams(window.location.search).get("language");
+  applyLanguage(LANGUAGE_OPTIONS[requestedLanguage] ? requestedLanguage : document.documentElement.lang, Boolean(LANGUAGE_OPTIONS[requestedLanguage]));
+  elements.languageButtons.forEach((button) => button.addEventListener("click", () => {
+    applyLanguage(button.dataset.language);
+  }));
 }
 
 function applyBrandAssets(useLocalAssets) {
@@ -468,7 +876,7 @@ async function ensureHistoryViewReady() {
   updateLiveHistoryRange();
 
   if (!historyViewLoading) {
-    elements.historySummary.textContent = "Nalagam grafe in zgodovino meritev …";
+    elements.historySummary.textContent = translateText("Nalagam grafe in zgodovino meritev …");
     historyViewLoading = loadUPlot()
       .then(async () => {
         createCharts();
@@ -563,11 +971,11 @@ function canManageCloudDevice(deviceId = cloudDevicePath.replace("devices/", "")
 function configureCloudAccountView() {
   const isAdministrator = isCloudAdministrator();
   const isEmptyAccount = isCloudAccountWithoutDevices();
-  elements.accountHeading.textContent = isAdministrator ? "Vsi panji" : "Moji panji";
-  elements.deviceListEyebrow.textContent = isAdministrator ? "Skrbniški pregled" : "Moji panji";
+  elements.accountHeading.textContent = translateText(isAdministrator ? "Vsi panji" : "Moji panji");
+  elements.deviceListEyebrow.textContent = translateText(isAdministrator ? "Skrbniški pregled" : "Moji panji");
   elements.selectedDeviceDescription.textContent = isAdministrator
-    ? "Skrbniški račun ima ogled vseh registriranih panjev."
-    : "Izberi panj, katerega podatke želiš pregledovati.";
+    ? translateText("Skrbniški račun ima ogled vseh registriranih panjev.")
+    : translateText("Izberi panj, katerega podatke želiš pregledovati.");
   elements.claimDeviceForm.hidden = isAdministrator;
   elements.accountFormStack.hidden = isAdministrator;
   elements.adminDeviceOverview.hidden = !isAdministrator;
@@ -581,7 +989,7 @@ function configureSelectedCloudDeviceAccess(deviceId) {
   if (isLocalDashboard) return;
 
   if (isCloudAccountWithoutDevices()) {
-    elements.devicePageSubtitle.textContent = "Registriraj svoj panj ali sprejmi povabilo za dostop do deljenega panja.";
+    elements.devicePageSubtitle.textContent = translateText("Registriraj svoj panj ali sprejmi povabilo za dostop do deljenega panja.");
     elements.deviceDetailsPanel.hidden = true;
     elements.overviewNavigationItem.hidden = true;
     elements.historyNavigationItem.hidden = true;
@@ -603,8 +1011,8 @@ function configureSelectedCloudDeviceAccess(deviceId) {
   const isOwner = role === "owner";
   const canManage = role === "owner" || role === "administrator";
   elements.devicePageSubtitle.textContent = isSharedViewer
-    ? "Deljeni panj imaš na voljo samo za ogled meritev in grafov."
-    : "Omrežje, identiteta, delovanje in stanje SD kartice.";
+    ? translateText("Deljeni panj imaš na voljo samo za ogled meritev in grafov.")
+    : translateText("Omrežje, identiteta, delovanje in stanje SD kartice.");
   elements.deviceDetailsPanel.hidden = isSharedViewer;
   elements.overviewNavigationItem.hidden = false;
   elements.historyNavigationItem.hidden = false;
@@ -612,11 +1020,11 @@ function configureSelectedCloudDeviceAccess(deviceId) {
   elements.cloudUpdatesQuickLink.hidden = isSharedViewer;
   elements.unclaimDevice.hidden = isCloudAdministrator() || (!isOwner && !isSharedViewer);
   elements.unclaimDevice.disabled = !deviceId || (!isOwner && !isSharedViewer);
-  elements.unclaimDevice.textContent = isSharedViewer ? "Odstrani deljeni panj" : "Odjavi izbrani panj";
+  elements.unclaimDevice.textContent = translateText(isSharedViewer ? "Odstrani deljeni panj" : "Odjavi izbrani panj");
   elements.shareDevicePanel.hidden = !isOwner;
   elements.selectedDeviceDescription.textContent = isSharedViewer
-    ? "Deljeni panj · samo ogled. Dostop lahko kadarkoli odstraniš iz svojega računa."
-    : "Izberi panj, katerega podatke želiš pregledovati.";
+    ? translateText("Deljeni panj · samo ogled. Dostop lahko kadarkoli odstraniš iz svojega računa.")
+    : translateText("Izberi panj, katerega podatke želiš pregledovati.");
   setCloudDeviceManagementVisibility(Boolean(deviceId && currentCloudUser && canManage));
   elements.networkResetControl.hidden = !(deviceId && currentCloudUser && isCloudAdministrator());
   elements.measurementSettingsPanel.hidden = !(deviceId && currentCloudUser && isCloudAdministrator());
@@ -668,7 +1076,7 @@ function resetCloudDashboard() {
   renderMeasurementSettings(null);
   elements.sharedWeatherSettingsPanel.hidden = true;
   resetWeatherOverview();
-  elements.otaDeviceStatus.textContent = "Naprava še ni prejela OTA ukaza.";
+  elements.otaDeviceStatus.textContent = translateText("Naprava še ni prejela OTA ukaza.");
   resetOtaProgress();
   elements.otaActions.hidden = true;
   renderHistory([]);
@@ -702,7 +1110,7 @@ function renderCloudDeviceSelector() {
 
   elements.cloudDeviceSelect.replaceChildren();
   if (!deviceIds.length) {
-    elements.cloudDeviceSelect.append(new Option("Noben panj ni registriran", ""));
+    elements.cloudDeviceSelect.append(new Option(translateText("Noben panj ni registriran"), ""));
     elements.cloudDeviceSelect.disabled = true;
     selectCloudDevice("");
     renderAdminDeviceOverview([]);
@@ -719,13 +1127,13 @@ function renderCloudDeviceSelector() {
       group.label = label;
       matchingDeviceIds.forEach((deviceId) => {
         const device = cloudDevices[deviceId] ?? {};
-        const suffix = role === "viewer" ? " · samo ogled" : "";
+        const suffix = role === "viewer" ? translateText(" · samo ogled") : "";
         group.append(new Option(`${device.display_name || deviceId}${suffix}`, deviceId));
       });
       elements.cloudDeviceSelect.append(group);
     };
-    appendDeviceGroup("Moji panji", "owner");
-    appendDeviceGroup("Deljeni z mano", "viewer");
+    appendDeviceGroup(translateText("Moji panji"), "owner");
+    appendDeviceGroup(translateText("Deljeni z mano"), "viewer");
   }
   elements.cloudDeviceSelect.disabled = false;
   const nextDeviceId = preferredDeviceId || deviceIds[0];
@@ -742,7 +1150,7 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
   if (!deviceIds.length) {
     const emptyState = document.createElement("p");
     emptyState.className = "muted";
-    emptyState.textContent = "V Firebase še ni zaznan noben panj.";
+    emptyState.textContent = translateText("V Firebase še ni zaznan noben panj.");
     elements.adminDeviceList.append(emptyState);
     return;
   }
@@ -757,7 +1165,7 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     selectButton.type = "button";
     selectButton.className = "admin-device-select";
     selectButton.setAttribute("aria-pressed", String(cloudDevicePath === `devices/${deviceId}`));
-    selectButton.setAttribute("aria-label", `Izberi panj ${deviceId}`);
+    selectButton.setAttribute("aria-label", formatTranslatedText("Izberi panj {deviceId}", { deviceId }));
     selectButton.addEventListener("click", () => selectCloudDevice(deviceId));
 
     const identity = document.createElement("span");
@@ -766,7 +1174,7 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     name.textContent = deviceId;
     const owner = document.createElement("small");
     owner.className = "admin-device-owner";
-    owner.textContent = device.owner_email || "Lastnik še ni zabeležen.";
+    owner.textContent = device.owner_email || translateText("Lastnik še ni zabeležen.");
     identity.append(name, owner);
     const state = document.createElement("span");
     state.className = `admin-device-option-state ${isOnline ? "online" : "offline"}`;
@@ -774,14 +1182,14 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     dot.className = "device-status-dot";
     dot.setAttribute("aria-hidden", "true");
     const stateText = document.createElement("span");
-    stateText.textContent = isOnline ? "Online" : "Offline";
+    stateText.textContent = translateText(isOnline ? "Online" : "Offline");
     state.append(dot, stateText);
 
     const detail = document.createElement("small");
     const lastSeenTimestamp = Number(status?.last_seen_timestamp);
     detail.textContent = Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
-      ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
-      : "Naprava še ni poslala stanja.";
+      ? formatTranslatedText("Zadnji odziv: {time}", { time: formatDashboardDateTime(new Date(lastSeenTimestamp * 1000)) })
+      : translateText("Naprava še ni poslala stanja.");
     selectButton.append(identity, state, detail);
     card.append(selectButton);
 
@@ -797,7 +1205,7 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
       const unclaimButton = document.createElement("button");
       unclaimButton.type = "button";
       unclaimButton.className = "secondary-button danger-button admin-unclaim-button";
-      unclaimButton.textContent = "Odjavi lastnika";
+      unclaimButton.textContent = translateText("Odjavi lastnika");
       unclaimButton.addEventListener("click", () => unclaimDeviceAsAdministrator(deviceId, unclaimButton, actionStatus));
       actionButtons.append(unclaimButton);
     }
@@ -805,7 +1213,7 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "secondary-button danger-button admin-delete-button";
-    deleteButton.textContent = "Izbriši napravo";
+    deleteButton.textContent = translateText("Izbriši napravo");
     deleteButton.addEventListener("click", () =>
       deleteDeviceAsAdministrator(deviceId, actionButtons, actionStatus),
     );
@@ -903,8 +1311,8 @@ function selectCloudDevice(deviceId) {
 
 function setConnectionState(text, state = "connected") {
   elements.connectionStatus.className = `connection-status ${state}`;
-  elements.connectionStatus.setAttribute("aria-label", text);
-  elements.connectionText.textContent = text;
+  elements.connectionStatus.setAttribute("aria-label", translateText(text));
+  elements.connectionText.textContent = translateText(text);
 }
 
 function isDeviceOnline(status) {
@@ -988,7 +1396,8 @@ function formatDashboardTime(date, includeSeconds = false) {
 }
 
 function formatDashboardDateTime(date, includeSeconds = false) {
-  return `${formatDashboardDate(date)} ob ${formatDashboardTime(date, includeSeconds)}`;
+  const connector = getDashboardLanguage() === "en" ? "at" : getDashboardLanguage() === "hr" ? "u" : "ob";
+  return `${formatDashboardDate(date)} ${connector} ${formatDashboardTime(date, includeSeconds)}`;
 }
 
 function formatDateTimeInput(date) {
@@ -1007,16 +1416,19 @@ function formatStoredDate(dateValue) {
 }
 
 function formatDateTime(record) {
-  if (record?.date && record?.time) return `${formatStoredDate(record.date)} ob ${record.time}`;
+  if (record?.date && record?.time) {
+    const connector = getDashboardLanguage() === "en" ? "at" : getDashboardLanguage() === "hr" ? "u" : "ob";
+    return `${formatStoredDate(record.date)} ${connector} ${record.time}`;
+  }
 
   const timestamp = Number(record?.timestamp);
   return Number.isFinite(timestamp)
     ? formatDashboardDateTime(new Date(timestamp * 1000), true)
-    : "Čakam na podatke …";
+    : translateText("Čakam na podatke …");
 }
 
 function formatDate(date, options) {
-  return new Intl.DateTimeFormat("sl-SI", options).format(date);
+  return new Intl.DateTimeFormat(getDashboardLocale(), options).format(date);
 }
 
 function compareFirmwareVersions(candidateVersion, currentVersion) {
@@ -1047,7 +1459,7 @@ function renderLatestMetric(element, value, decimals, hasMeasurement) {
   valueContainer?.classList.toggle("measurement-unavailable", unavailable && hasMeasurement);
   const unit = valueContainer?.querySelector("small");
   if (unit) unit.hidden = unavailable && hasMeasurement;
-  element.textContent = unavailable && hasMeasurement ? "Ni na voljo" : formatValue(value, decimals);
+  element.textContent = unavailable && hasMeasurement ? translateText("Ni na voljo") : formatValue(value, decimals);
 }
 
 function renderLatestMeasurement(measurement) {
@@ -1083,18 +1495,21 @@ function weatherHasLocation(settings = latestWeatherSettings) {
 }
 
 function weatherLocationLabel(settings = latestWeatherSettings) {
-  if (!weatherHasLocation(settings)) return "Lokacija še ni nastavljena.";
-  return settings.locationName || `Lokacija panja (${settings.latitude.toFixed(4)}, ${settings.longitude.toFixed(4)})`;
+  if (!weatherHasLocation(settings)) return translateText("Lokacija še ni nastavljena.");
+  return settings.locationName || formatTranslatedText("Lokacija panja ({latitude}, {longitude})", {
+    latitude: settings.latitude.toFixed(4),
+    longitude: settings.longitude.toFixed(4),
+  });
 }
 
 function weatherPlaceName(settings = latestWeatherSettings) {
-  if (!weatherHasLocation(settings)) return "izbrani lokaciji";
+  if (!weatherHasLocation(settings)) return translateText("izbrani lokaciji");
   const name = String(settings.locationName || "").split(",")[0].trim();
-  return (name || "izbrani lokaciji").replace(/^Občina\s+/iu, "");
+  return (name || translateText("izbrani lokaciji")).replace(/^Občina\s+/iu, "");
 }
 
 function updateWeatherOverviewTitle() {
-  elements.weatherOverviewHeading.textContent = `Vreme v kraju ${weatherPlaceName()}`;
+  elements.weatherOverviewHeading.textContent = formatTranslatedText("Vreme v kraju {place}", { place: weatherPlaceName() });
 }
 
 const WEATHER_ICON_SVG = Object.freeze({
@@ -1113,14 +1528,14 @@ function renderWeatherIcon(element, iconName) {
 
 function weatherCodeInfo(weatherCode) {
   const code = Number(weatherCode);
-  if (code === 0) return { label: "Jasno", icon: "sunny" };
-  if ([1, 2].includes(code)) return { label: "Delno oblačno", icon: "partlyCloudy" };
-  if (code === 3) return { label: "Oblačno", icon: "cloudy" };
-  if ([45, 48].includes(code)) return { label: "Megla", icon: "fog" };
-  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { label: code < 61 ? "Pršenje" : "Dež", icon: "rain" };
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return { label: "Sneg", icon: "snow" };
-  if ([95, 96, 99].includes(code)) return { label: "Nevihta", icon: "thunder" };
-  return { label: "Spremenljivo", icon: "partlyCloudy" };
+  if (code === 0) return { label: translateText("Jasno"), icon: "sunny" };
+  if ([1, 2].includes(code)) return { label: translateText("Delno oblačno"), icon: "partlyCloudy" };
+  if (code === 3) return { label: translateText("Oblačno"), icon: "cloudy" };
+  if ([45, 48].includes(code)) return { label: translateText("Megla"), icon: "fog" };
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { label: translateText(code < 61 ? "Pršenje" : "Dež"), icon: "rain" };
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return { label: translateText("Sneg"), icon: "snow" };
+  if ([95, 96, 99].includes(code)) return { label: translateText("Nevihta"), icon: "thunder" };
+  return { label: translateText("Spremenljivo"), icon: "partlyCloudy" };
 }
 
 function formatWindDirection(direction) {
@@ -1159,7 +1574,7 @@ function renderWeatherSettings(settings) {
   elements.weatherLocationResults.replaceChildren();
   weatherLocationSearchResults = [];
   if (latestWeatherSettings.enabled && !hasLocation) {
-    elements.weatherSettingsStatus.textContent = "Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.";
+    elements.weatherSettingsStatus.textContent = translateText("Za prikaz vremena najprej uporabi trenutno lokacijo ali poišči kraj.");
   } else if (elements.weatherSettingsStatus.textContent.startsWith("Za prikaz vremena")) {
     elements.weatherSettingsStatus.textContent = "";
   }
@@ -1218,8 +1633,8 @@ async function updateSharedWeatherSettings() {
   elements.sharedWeatherEnabled.checked = sharedWeatherEnabled;
   elements.sharedWeatherEnabled.disabled = !hasPublicLocation;
   elements.sharedWeatherSettingsStatus.textContent = hasPublicLocation
-    ? "Nastavitev velja samo za tvoj pregled deljenega panja."
-    : "Lastnik za ta panj še ni nastavil kraja za vreme.";
+    ? translateText("Nastavitev velja samo za tvoj pregled deljenega panja.")
+    : translateText("Lastnik za ta panj še ni nastavil kraja za vreme.");
 
   latestWeatherSettings = {
     ...publicSettings,
@@ -1238,7 +1653,7 @@ async function updateSharedWeatherSettings() {
     const url = new URL(OPEN_METEO_GEOCODING_URL);
     url.searchParams.set("name", publicSettings.locationName);
     url.searchParams.set("count", "1");
-    url.searchParams.set("language", "sl");
+    url.searchParams.set("language", getDashboardLanguage());
     url.searchParams.set("format", "json");
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Iskanje kraja ni uspelo (${response.status}).`);
@@ -1256,12 +1671,12 @@ async function updateSharedWeatherSettings() {
   } catch (error) {
     console.warn("Kraja za deljeni prikaz vremena ni bilo mogoče določiti.", error);
     weatherSharedLocationLookupKey = "";
-    elements.weatherUpdated.textContent = "Vremenskih podatkov za ta kraj ni mogoče pridobiti.";
+    elements.weatherUpdated.textContent = translateText("Vremenskih podatkov za ta kraj ni mogoče pridobiti.");
   }
 }
 
 function resetWeatherOverview() {
-  elements.weatherUpdated.textContent = "Čakam na podatke …";
+  elements.weatherUpdated.textContent = translateText("Čakam na podatke …");
   renderWeatherIcon(elements.weatherCurrentIcon, "cloudy");
   elements.weatherCurrentCondition.textContent = "—";
   elements.weatherCurrentTemperature.textContent = "—";
@@ -1284,7 +1699,7 @@ function renderWeatherForecast(weather) {
   }
   const currentInfo = weatherCodeInfo(current.weather_code);
   renderWeatherIcon(elements.weatherCurrentIcon, currentInfo.icon);
-  elements.weatherCurrentCondition.textContent = currentInfo.label;
+  elements.weatherCurrentCondition.textContent = translateText(currentInfo.label);
   elements.weatherCurrentTemperature.textContent = Number.isFinite(Number(current.temperature_2m))
     ? Number(current.temperature_2m).toFixed(1)
     : "—";
@@ -1299,20 +1714,21 @@ function renderWeatherForecast(weather) {
     ? `${Math.round(windSpeed)} km/h · ${formatWindDirection(current.wind_direction_10m)}`
     : "—";
   elements.weatherUpdated.textContent = current.time
-    ? `Posodobljeno: ${String(current.time).replace("T", " ")}`
-    : "Posodobljeno";
+    ? formatTranslatedText("Posodobljeno: {time}", { time: String(current.time).replace("T", " ") })
+    : translateText("Posodobljeno");
 
   elements.weatherForecast.replaceChildren();
   (daily.time ?? []).forEach((date, index) => {
     const info = weatherCodeInfo(daily.weather_code?.[index]);
     const day = document.createElement("article");
     day.className = "weather-forecast-day";
-    const dateLabel = new Intl.DateTimeFormat("sl-SI", { weekday: "short", day: "numeric", month: "short" })
+    const weatherLocale = getDashboardLanguage() === "en" ? "en-GB" : getDashboardLanguage() === "hr" ? "hr-HR" : "sl-SI";
+    const dateLabel = new Intl.DateTimeFormat(weatherLocale, { weekday: "short", day: "numeric", month: "short" })
       .format(new Date(`${date}T12:00:00`));
     const precipitationProbability = Number(daily.precipitation_probability_max?.[index]);
     const precipitationLabel = Number.isFinite(precipitationProbability)
-      ? `${Math.round(precipitationProbability)} % padavin`
-      : "Padavine —";
+      ? formatTranslatedText("{value} % padavin", { value: Math.round(precipitationProbability) })
+      : translateText("Padavine —");
     const dateElement = document.createElement("p");
     dateElement.textContent = dateLabel;
     const icon = document.createElement("span");
@@ -1342,7 +1758,7 @@ async function refreshWeatherForecast(force = false) {
   const controller = new AbortController();
   weatherFetchController = controller;
   weatherRequestKey = requestKey;
-  elements.weatherUpdated.textContent = "Pridobivam vreme …";
+  elements.weatherUpdated.textContent = translateText("Pridobivam vreme …");
   try {
     const url = new URL(OPEN_METEO_FORECAST_URL);
     url.searchParams.set("latitude", String(settings.latitude));
@@ -1360,7 +1776,7 @@ async function refreshWeatherForecast(force = false) {
   } catch (error) {
     if (error.name === "AbortError") return;
     console.warn("Vremenskih podatkov ni bilo mogoče pridobiti.", error);
-    elements.weatherUpdated.textContent = "Vremenski podatki trenutno niso dosegljivi.";
+    elements.weatherUpdated.textContent = translateText("Vremenski podatki trenutno niso dosegljivi.");
   }
 }
 
@@ -1394,17 +1810,17 @@ async function saveMeasurementSettings(event) {
   if (!Number.isInteger(measurementIntervalSeconds) || measurementIntervalSeconds < 5 || measurementIntervalSeconds > 120 ||
       !Number.isInteger(sdArchiveIntervalMinutes) || sdArchiveIntervalMinutes < 1 || sdArchiveIntervalMinutes > 30 ||
       ![1, 2].includes(weightDisplayDecimals)) {
-    elements.measurementSettingsStatus.textContent = "Preveri dovoljene meje nastavitev.";
+    elements.measurementSettingsStatus.textContent = translateText("Preveri dovoljene meje nastavitev.");
     return;
   }
   if (sdArchiveIntervalMinutes * 60 < measurementIntervalSeconds) {
-    elements.measurementSettingsStatus.textContent = "Zapis zgodovine na SD ne more biti pogostejši od meritev.";
+    elements.measurementSettingsStatus.textContent = translateText("Zapis zgodovine na SD ne more biti pogostejši od meritev.");
     return;
   }
 
   const submitButton = elements.measurementSettingsForm.querySelector("button[type='submit']");
   submitButton.disabled = true;
-  elements.measurementSettingsStatus.textContent = "Shranjujem nastavitve …";
+  elements.measurementSettingsStatus.textContent = translateText("Shranjujem nastavitve …");
   try {
     const { database, ref, set } = firebaseDatabase;
     await set(ref(database, `${cloudDevicePath}/measurement_settings`), {
@@ -1413,16 +1829,16 @@ async function saveMeasurementSettings(event) {
       weight_display_decimals: weightDisplayDecimals,
       updated_at: Math.floor(Date.now() / 1000),
     });
-    elements.measurementSettingsStatus.textContent = "Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.";
+    elements.measurementSettingsStatus.textContent = translateText("Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.");
   } catch (error) {
     console.error("Nastavitev meritev ni bilo mogoče shraniti.", error);
-    elements.measurementSettingsStatus.textContent = "Nastavitev meritev ni bilo mogoče shraniti.";
+    elements.measurementSettingsStatus.textContent = translateText("Nastavitev meritev ni bilo mogoče shraniti.");
   } finally {
     submitButton.disabled = false;
   }
 }
 
-async function saveWeatherSettings(changes, successMessage) {
+async function saveWeatherSettings(changes, successMessage, successValues = {}) {
   if (!weatherSettingsCanBeChanged()) return false;
   const { database, ref, update } = firebaseDatabase;
   const updatedAt = Math.floor(Date.now() / 1000);
@@ -1445,11 +1861,11 @@ async function saveWeatherSettings(changes, successMessage) {
   try {
     await update(ref(database), updates);
     if (publicSettings.location_name) weatherPublicPublishKey = publicWeatherSettingsKey(publicSettings);
-    elements.weatherSettingsStatus.textContent = successMessage;
+    setTranslatedElementText(elements.weatherSettingsStatus, successMessage, successValues);
     return true;
   } catch (error) {
     console.error("Nastavitev vremena ni bilo mogoče shraniti.", error);
-    elements.weatherSettingsStatus.textContent = "Nastavitve vremena ni bilo mogoče shraniti.";
+    elements.weatherSettingsStatus.textContent = translateText("Nastavitve vremena ni bilo mogoče shraniti.");
     return false;
   }
 }
@@ -1461,19 +1877,19 @@ function canChangeSharedWeatherPreference() {
 async function saveSharedWeatherPreference(showWeather) {
   if (!canChangeSharedWeatherPreference()) return;
   elements.sharedWeatherEnabled.disabled = true;
-  elements.sharedWeatherSettingsStatus.textContent = "Shranjujem nastavitev …";
+  elements.sharedWeatherSettingsStatus.textContent = translateText("Shranjujem nastavitev …");
   try {
     const { database, ref, set } = firebaseDatabase;
     await set(ref(database, `users/${currentCloudUser.uid}/weather_preferences/${cloudDevicePath.replace("devices/", "")}`), {
       show_weather: showWeather === true,
     });
     elements.sharedWeatherSettingsStatus.textContent = showWeather
-      ? "Vreme je prikazano na tvojem pregledu."
-      : "Vreme je skrito na tvojem pregledu.";
+      ? translateText("Vreme je prikazano na tvojem pregledu.")
+      : translateText("Vreme je skrito na tvojem pregledu.");
   } catch (error) {
     console.error("Nastavitve vremena za deljeni panj ni bilo mogoče shraniti.", error);
     elements.sharedWeatherEnabled.checked = !showWeather;
-    elements.sharedWeatherSettingsStatus.textContent = "Nastavitve vremena ni bilo mogoče shraniti.";
+    elements.sharedWeatherSettingsStatus.textContent = translateText("Nastavitve vremena ni bilo mogoče shraniti.");
   } finally {
     elements.sharedWeatherEnabled.disabled = !latestSharedWeatherPublicSettings?.locationName;
   }
@@ -1481,7 +1897,7 @@ async function saveSharedWeatherPreference(showWeather) {
 
 function getBrowserLocation() {
   if (!navigator.geolocation) {
-    return Promise.reject(new Error("Brskalnik ne podpira določanja lokacije."));
+    return Promise.reject(new Error(translateText("Brskalnik ne podpira določanja lokacije.")));
   }
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -1498,14 +1914,17 @@ function needsWeatherLocationName(settings = latestWeatherSettings) {
 }
 
 async function reverseGeocodeWeatherLocation(latitude, longitude) {
-  const fallbackName = `Lokacija brskalnika (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
+  const fallbackName = formatTranslatedText("Lokacija brskalnika ({latitude}, {longitude})", {
+    latitude: latitude.toFixed(3),
+    longitude: longitude.toFixed(3),
+  });
   const url = new URL(OPENSTREETMAP_REVERSE_GEOCODING_URL);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("lat", String(latitude));
   url.searchParams.set("lon", String(longitude));
   url.searchParams.set("zoom", "10");
   url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("accept-language", "sl");
+  url.searchParams.set("accept-language", getDashboardLanguage());
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Določanje kraja ni uspelo (${response.status}).`);
   const result = await response.json();
@@ -1523,7 +1942,7 @@ async function updateGenericWeatherLocationName() {
   try {
     const locationName = await reverseGeocodeWeatherLocation(settings.latitude, settings.longitude);
     if (latestWeatherSettings !== settings || !needsWeatherLocationName(settings)) return;
-    await saveWeatherSettings({ location_name: locationName }, `Lokacija ${locationName} je shranjena za ta panj.`);
+    await saveWeatherSettings({ location_name: locationName }, "Lokacija {name} je shranjena za ta panj.", { name: locationName });
   } catch (error) {
     console.warn("Kraja za shranjeno lokacijo ni bilo mogoče določiti.", error);
   }
@@ -1532,7 +1951,7 @@ async function updateGenericWeatherLocationName() {
 async function useBrowserWeatherLocation() {
   if (!weatherSettingsCanBeChanged()) return;
   elements.weatherUseLocation.disabled = true;
-  elements.weatherSettingsStatus.textContent = "Brskalnik čaka na dovoljenje za lokacijo …";
+  elements.weatherSettingsStatus.textContent = translateText("Brskalnik čaka na dovoljenje za lokacijo …");
   try {
     const position = await getBrowserLocation();
     const latitude = Number(position.coords.latitude.toFixed(5));
@@ -1542,18 +1961,21 @@ async function useBrowserWeatherLocation() {
       locationName = await reverseGeocodeWeatherLocation(latitude, longitude);
     } catch (error) {
       console.warn("Kraja za lokacijo brskalnika ni bilo mogoče določiti.", error);
-      locationName = `Lokacija brskalnika (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
+      locationName = formatTranslatedText("Lokacija brskalnika ({latitude}, {longitude})", {
+        latitude: latitude.toFixed(3),
+        longitude: longitude.toFixed(3),
+      });
     }
     await saveWeatherSettings({
       latitude,
       longitude,
       location_name: locationName,
-    }, `Lokacija ${locationName} je shranjena za ta panj.`);
+    }, "Lokacija {name} je shranjena za ta panj.", { name: locationName });
   } catch (error) {
     console.warn("Lokacije brskalnika ni bilo mogoče pridobiti.", error);
-    const message = error?.code === 1
+    const message = translateText(error?.code === 1
       ? "Dovoljenje za lokacijo je zavrnjeno. Kraj lahko poiščeš ročno."
-      : "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.";
+      : "Lokacije ni bilo mogoče pridobiti. Poskusi znova ali poišči kraj ročno.");
     elements.weatherSettingsStatus.textContent = message;
   } finally {
     elements.weatherUseLocation.disabled = false;
@@ -1581,16 +2003,16 @@ function renderWeatherLocationResults(results) {
 async function searchWeatherLocation() {
   const query = elements.weatherLocationQuery.value.trim();
   if (!query) {
-    elements.weatherSettingsStatus.textContent = "Vnesi kraj, ki ga želiš poiskati.";
+    elements.weatherSettingsStatus.textContent = translateText("Vnesi kraj, ki ga želiš poiskati.");
     return;
   }
   elements.weatherSearchLocation.disabled = true;
-  elements.weatherSettingsStatus.textContent = "Iščem kraj …";
+  elements.weatherSettingsStatus.textContent = translateText("Iščem kraj …");
   try {
     const url = new URL(OPEN_METEO_GEOCODING_URL);
     url.searchParams.set("name", query);
     url.searchParams.set("count", "5");
-    url.searchParams.set("language", "sl");
+    url.searchParams.set("language", getDashboardLanguage());
     url.searchParams.set("format", "json");
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Iskanje kraja ni uspelo (${response.status}).`);
@@ -1598,12 +2020,12 @@ async function searchWeatherLocation() {
     const results = (data.results ?? []).filter((result) =>
       Number.isFinite(Number(result.latitude)) && Number.isFinite(Number(result.longitude)));
     renderWeatherLocationResults(results);
-    elements.weatherSettingsStatus.textContent = results.length
+    elements.weatherSettingsStatus.textContent = translateText(results.length
       ? "Izberi kraj za lokacijo panja."
-      : "Za vneseni kraj ni rezultatov.";
+      : "Za vneseni kraj ni rezultatov.");
   } catch (error) {
     console.warn("Kraja ni bilo mogoče poiskati.", error);
-    elements.weatherSettingsStatus.textContent = "Iskanje kraja trenutno ni dosegljivo.";
+    elements.weatherSettingsStatus.textContent = translateText("Iskanje kraja trenutno ni dosegljivo.");
   } finally {
     elements.weatherSearchLocation.disabled = false;
   }
@@ -1616,7 +2038,7 @@ async function saveSearchedWeatherLocation(index) {
     latitude: Number(Number(result.latitude).toFixed(5)),
     longitude: Number(Number(result.longitude).toFixed(5)),
     location_name: weatherSearchResultLabel(result),
-  }, `Lokacija ${weatherSearchResultLabel(result)} je shranjena za ta panj.`);
+  }, "Lokacija {name} je shranjena za ta panj.", { name: weatherSearchResultLabel(result) });
   if (saved) {
     elements.weatherLocationResults.hidden = true;
     elements.weatherLocationResults.replaceChildren();
@@ -1699,8 +2121,8 @@ function renderComponentHealth(components) {
     const presentation = getComponentPresentation(components?.[definition.key], definition.key);
     const card = elements[definition.element];
     card.className = `component-health-card ${presentation.state}`;
-    card.querySelector("strong").textContent = presentation.label;
-    card.querySelector("small").textContent = presentation.detail;
+    card.querySelector("strong").textContent = translateText(presentation.label);
+    card.querySelector("small").textContent = translateText(presentation.detail);
     if (presentation.state === "warning" || presentation.state === "error") {
       alerts.push({ name: definition.name, ...presentation });
     }
@@ -1719,7 +2141,7 @@ function renderComponentHealth(components) {
   alerts.forEach((alert) => {
     const item = document.createElement("p");
     item.className = `component-alert-item ${alert.state}`;
-    item.textContent = `${alert.name}: ${alert.detail}`;
+    item.textContent = `${alert.name}: ${translateText(alert.detail)}`;
     elements.componentAlertList.append(item);
   });
 }
@@ -1733,7 +2155,11 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   elements.wifiSignal.textContent = Number.isFinite(Number(status?.wifi_rssi_dbm)) ? `${status.wifi_rssi_dbm} dBm` : "—";
   const values = [status?.uptime_days, status?.uptime_hours, status?.uptime_minutes];
   elements.uptime.textContent = values.every((value) => value !== undefined)
-    ? `${values[0]} dni ${String(values[1]).padStart(2, "0")} h ${String(values[2]).padStart(2, "0")} min`
+    ? formatTranslatedText("{days} dni {hours} h {minutes} min", {
+      days: values[0],
+      hours: String(values[1]).padStart(2, "0"),
+      minutes: String(values[2]).padStart(2, "0"),
+    })
     : "—";
 
   const lastSeenTimestamp = Number(status?.last_seen_timestamp);
@@ -1742,12 +2168,12 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   elements.deviceStateCard.classList.toggle("offline", !isOnline);
   elements.deviceStatusDot.classList.toggle("online", isOnline);
   elements.deviceStatusDot.classList.toggle("offline", !isOnline);
-  elements.deviceOnlineStatus.textContent = isOnline ? "Online" : "Offline";
+  elements.deviceOnlineStatus.textContent = translateText(isOnline ? "Online" : "Offline");
   elements.deviceLastSeen.textContent = localDashboard
-    ? "Dosegljiv prek lokalnega IP-ja."
+    ? translateText("Dosegljiv prek lokalnega IP-ja.")
     : Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
-      ? `Zadnji odziv: ${formatDashboardDateTime(new Date(lastSeenTimestamp * 1000))}`
-       : "Čakam na prvi odziv naprave.";
+      ? formatTranslatedText("Zadnji odziv: {time}", { time: formatDashboardDateTime(new Date(lastSeenTimestamp * 1000)) })
+       : translateText("Čakam na prvi odziv naprave.");
 
   renderHeaderDeviceState();
   renderComponentHealth(status?.components);
@@ -1780,15 +2206,15 @@ function renderTimeStatus(status, network = latestNetworkStatus) {
   elements.deviceCurrentTime.textContent = Number.isFinite(timestamp) && timestamp > 0
     ? formatDashboardDateTime(new Date(timestamp * 1000), true)
     : "—";
-  elements.deviceTimeSource.textContent = sourceLabels[source] ?? sourceLabels.unavailable;
+  elements.deviceTimeSource.textContent = translateText(sourceLabels[source] ?? sourceLabels.unavailable);
   if (!rtcPresent) {
-    elements.rtcStatus.textContent = "DS3231 ni zaznan. Ročna ali NTP ura se ob izpadu napajanja ne bo ohranila.";
+    elements.rtcStatus.textContent = translateText("DS3231 ni zaznan. Ročna ali NTP ura se ob izpadu napajanja ne bo ohranila.");
   } else if (!rtcValid) {
-    elements.rtcStatus.textContent = "DS3231 je zaznan, vendar nima veljavnega časa. Preveri baterijo in nastavi uro.";
+    elements.rtcStatus.textContent = translateText("DS3231 je zaznan, vendar nima veljavnega časa. Preveri baterijo in nastavi uro.");
   } else if (Number.isFinite(lastSyncTimestamp) && lastSyncTimestamp > 0) {
-    elements.rtcStatus.textContent = `DS3231 je pripravljen. Zadnja nastavitev: ${formatDashboardDateTime(new Date(lastSyncTimestamp * 1000), true)}.`;
+    elements.rtcStatus.textContent = formatTranslatedText("DS3231 je pripravljen. Zadnja nastavitev: {time}.", { time: formatDashboardDateTime(new Date(lastSyncTimestamp * 1000), true) });
   } else {
-    elements.rtcStatus.textContent = "DS3231 je zaznan in vsebuje veljaven čas.";
+    elements.rtcStatus.textContent = translateText("DS3231 je zaznan in vsebuje veljaven čas.");
   }
 
   if (document.activeElement !== elements.deviceDateTime && Number.isFinite(timestamp) && timestamp > 0) {
@@ -1805,13 +2231,13 @@ function renderTimeStatus(status, network = latestNetworkStatus) {
   elements.setDeviceTime.disabled = !canSetTime || ntpPending;
   elements.syncDeviceTime.disabled = !internetAvailable || ntpPending;
   if (ntpPending) {
-    elements.deviceTimeStatus.textContent = "Čakam na internetno časovno sinhronizacijo …";
+    elements.deviceTimeStatus.textContent = translateText("Čakam na internetno časovno sinhronizacijo …");
   } else if (!rtcOperational) {
-    elements.deviceTimeStatus.textContent = "DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.";
+    elements.deviceTimeStatus.textContent = translateText("DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.");
   } else if (!isLocalDashboard && cloudDevicePath && currentCloudUser && !cloudDeviceReady) {
-    elements.deviceTimeStatus.textContent = "Panj je offline; nastavljanje datuma in ure trenutno ni možno.";
+    elements.deviceTimeStatus.textContent = translateText("Panj je offline; nastavljanje datuma in ure trenutno ni možno.");
   } else if (!isLocalDashboard && cloudDeviceReady) {
-    elements.deviceTimeStatus.textContent = "Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.";
+    elements.deviceTimeStatus.textContent = translateText("Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.");
   }
 }
 
@@ -1838,7 +2264,7 @@ function renderLoadCellTareStatus(status) {
   const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
 
   button.disabled = !canTare || isBusy;
-  statusElement.textContent = isStaleCloudTare
+  const tareMessage = isStaleCloudTare
     ? "Prejšnje tariranje se ni zaključilo. Odstrani uteži in poskusi znova."
     : !isLocalDashboard && !cloudDeviceReady
       ? cloudDevicePath
@@ -1847,6 +2273,7 @@ function renderLoadCellTareStatus(status) {
       : !loadCellReady
         ? "HX711 ni pripravljen; tariranje trenutno ni možno."
        : status?.message ?? messages[state] ?? messages.idle;
+  statusElement.textContent = translateText(tareMessage);
 }
 
 function formatCalibrationOffset(value, unit) {
@@ -1896,7 +2323,10 @@ function renderBme680CalibrationStatus(status) {
 
   const messages = {
     idle: offsetsValid
-      ? `Trenutna odmika: temperatura ${formatCalibrationOffset(temperatureOffset, "°C")}, vlaga ${formatCalibrationOffset(humidityOffset, "%")}.`
+      ? formatTranslatedText("Trenutna odmika: temperatura {temperature}, vlaga {humidity}.", {
+        temperature: formatCalibrationOffset(temperatureOffset, "°C"),
+        humidity: formatCalibrationOffset(humidityOffset, "%"),
+      })
       : "Čakam na stanje kalibracije BME680 …",
     queued: "Ukaz za kalibracijo čaka na izvedbo.",
     applying: "Shranjujem kalibracijo BME680 …",
@@ -1914,7 +2344,7 @@ function renderBme680CalibrationStatus(status) {
     control.temperature.disabled = !canChange || isBusy;
     control.humidity.disabled = !canChange || isBusy;
     control.button.disabled = !canChange || isBusy;
-    control.status.textContent = !isLocalDashboard && !cloudDeviceReady
+    const calibrationMessage = !isLocalDashboard && !cloudDeviceReady
       ? cloudDevicePath
         ? "Panj je offline; kalibracije trenutno ni mogoče nastaviti."
         : "Izberi online panj za kalibracijo."
@@ -1923,6 +2353,7 @@ function renderBme680CalibrationStatus(status) {
       : (state === "completed" || state === "error") && status?.message
         ? status.message
         : messages[state] ?? messages.idle;
+    control.status.textContent = translateText(calibrationMessage);
   });
 }
 
@@ -1931,8 +2362,8 @@ function updateWiFiTransitionNotice() {
 
   const remainingSeconds = Math.max(0, Math.ceil((wifiTransitionDeadline - Date.now()) / 1000));
   elements.wifiTransitionNotice.textContent = remainingSeconds > 0
-    ? `Dostopna točka bo na voljo še približno ${remainingSeconds} s. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni IP lahko preveriš v usmerjevalniku.`
-    : "Dostopna točka se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in nadaljuj v spletni nadzorni plošči; lokalni IP lahko preveriš v usmerjevalniku.";
+    ? formatTranslatedText("Dostopna točka bo na voljo še približno {seconds} s. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni IP lahko preveriš v usmerjevalniku.", { seconds: remainingSeconds })
+    : translateText("Dostopna točka se je zaprla. Poveži se z domačim Wi‑Fi omrežjem in nadaljuj v spletni nadzorni plošči; lokalni IP lahko preveriš v usmerjevalniku.");
 }
 
 function dashboardUsesProvisioningAddress() {
@@ -1964,12 +2395,12 @@ function showWiFiTransitionResult({ mode, eyebrow, heading, message, addressLabe
   elements.wifiConnectionResult.hidden = false;
   elements.wifiConnectionResult.dataset.transition = mode;
   elements.wifiForm.hidden = true;
-  elements.wifiConnectionResultEyebrow.textContent = eyebrow;
-  elements.wifiConnectionResultHeading.textContent = heading;
-  elements.wifiConnectionResultMessage.textContent = message;
-  elements.wifiAddressLabel.textContent = addressLabel;
+  elements.wifiConnectionResultEyebrow.textContent = translateText(eyebrow);
+  elements.wifiConnectionResultHeading.textContent = translateText(heading);
+  elements.wifiConnectionResultMessage.textContent = translateText(message);
+  elements.wifiAddressLabel.textContent = translateText(addressLabel);
   elements.wifiLocalHostnameRow.hidden = true;
-  elements.wifiTransitionNotice.textContent = notice;
+  elements.wifiTransitionNotice.textContent = translateText(notice);
   elements.wifiCopyStatus.textContent = "";
   const showCloudAccess = mode !== "forgotten";
   const cloudUrl = cloudDashboardUrl();
@@ -1992,7 +2423,7 @@ async function probeDeviceOnLocalHostname(hostnameUrl, generation) {
     try {
       await fetch(hostnameUrl, { mode: "no-cors", cache: "no-store" });
       if (generation !== wifiTransitionProbeGeneration || wifiTransitionMode !== "home_network") return;
-      elements.wifiTransitionNotice.textContent = "Naprava je dosegljiva na novem omrežju. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni dostop ostaja na voljo prek stalnega naslova.";
+      elements.wifiTransitionNotice.textContent = translateText("Naprava je dosegljiva na novem omrežju. Za nadaljnjo uporabo priporočamo spletno nadzorno ploščo; lokalni dostop ostaja na voljo prek stalnega naslova.");
       return;
     } catch {
       // Telefon ali računalnik morda še ni povezan z novim SSID-jem; poskus tiho ponovimo.
@@ -2006,7 +2437,7 @@ function showHomeNetworkTransition(ssid) {
     mode: "home_network",
     eyebrow: "Menjava omrežja",
     heading: "Naprava se povezuje z novim Wi‑Fi omrežjem",
-    message: `Naprava prehaja v omrežje ${ssid}. Ko bo povezava vzpostavljena, za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.`,
+    message: formatTranslatedText("Naprava prehaja v omrežje {ssid}. Ko bo povezava vzpostavljena, za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.", { ssid }),
     addressLabel: "Stalni lokalni naslov naprave",
     address: hostnameUrl,
     notice: hostnameUrl
@@ -2024,12 +2455,12 @@ function showForgottenWiFiTransition() {
     mode: "forgotten",
     eyebrow: "Wi‑Fi je odstranjen",
     heading: "Ponovno poveži napravo",
-    message: `Shranjeno omrežje bo izbrisano. Naprava bo odprla dostopno točko ${accessPointSsid}.`,
+    message: formatTranslatedText("Shranjeno omrežje bo izbrisano. Naprava bo odprla dostopno točko {ssid}.", { ssid: accessPointSsid }),
     addressLabel: "Naslov nastavitev na dostopni točki",
     address: accessPointUrl,
-    notice: `V nastavitvah Wi‑Fi telefona ali računalnika izberi ${accessPointSsid}, nato odpri ${accessPointUrl} in ponovno vnesi poverilnice.`,
+    notice: formatTranslatedText("V nastavitvah Wi‑Fi telefona ali računalnika izberi {ssid}, nato odpri {url} in ponovno vnesi poverilnice.", { ssid: accessPointSsid, url: accessPointUrl }),
   });
-  elements.wifiOpenAddress.textContent = "Odpri nastavitve";
+  elements.wifiOpenAddress.textContent = translateText("Odpri nastavitve");
 }
 
 function renderWiFiConnectionResult(network, connectionState, isConnected) {
@@ -2052,14 +2483,14 @@ function renderWiFiConnectionResult(network, connectionState, isConnected) {
 
   wifiTransitionMode = "access_point";
   elements.wifiConnectionResult.dataset.transition = "access_point";
-  elements.wifiConnectionResultEyebrow.textContent = "Povezava je uspela";
-  elements.wifiConnectionResultHeading.textContent = "Naprava je povezana";
-  elements.wifiAddressLabel.textContent = "Novi lokalni naslov";
+  elements.wifiConnectionResultEyebrow.textContent = translateText("Povezava je uspela");
+  elements.wifiConnectionResultHeading.textContent = translateText("Naprava je povezana");
+  elements.wifiAddressLabel.textContent = translateText("Novi lokalni naslov");
   const cloudUrl = cloudDashboardUrl();
   elements.wifiCloudCard.hidden = false;
   elements.wifiCloudAddress.href = cloudUrl;
   elements.wifiLocalHostnameRow.hidden = false;
-  elements.wifiOpenAddress.textContent = "Odpri lokalno";
+  elements.wifiOpenAddress.textContent = translateText("Odpri lokalno");
   elements.wifiOpenCloud.hidden = false;
   elements.wifiOpenCloud.href = cloudUrl;
   elements.wifiOpenCloud.classList.add("primary-button");
@@ -2073,14 +2504,14 @@ function renderWiFiConnectionResult(network, connectionState, isConnected) {
   wifiTransitionAddress = stationUrl;
   wifiTransitionDeadline = Date.now() + remainingSeconds * 1000;
   elements.wifiConnectionResultMessage.textContent = network?.station_ssid
-    ? `Naprava je povezana z internetom prek omrežja ${network.station_ssid}. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.`
-    : "Naprava je povezana z internetom. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.";
+    ? formatTranslatedText("Naprava je povezana z internetom prek omrežja {ssid}. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.", { ssid: network.station_ssid })
+    : translateText("Naprava je povezana z internetom. Za pregled meritev in upravljanje panja priporočamo spletno nadzorno ploščo.");
   elements.wifiNewIpAddress.textContent = stationUrl;
   elements.wifiNewIpAddress.href = stationUrl;
   elements.wifiOpenAddress.href = stationUrl;
   elements.wifiNewLocalHostname.textContent = localHostname || "Ni na voljo";
   elements.wifiNewLocalHostname.href = hostnameUrl || stationUrl;
-  elements.wifiTransitionNotice.textContent = "Za lokalni dostop poveži telefon ali računalnik z istim Wi‑Fi omrežjem. Če lokalni naslov ni dosegljiv, IP preveri med povezanimi napravami v usmerjevalniku.";
+  elements.wifiTransitionNotice.textContent = translateText("Za lokalni dostop poveži telefon ali računalnik z istim Wi‑Fi omrežjem. Če lokalni naslov ni dosegljiv, IP preveri med povezanimi napravami v usmerjevalniku.");
   elements.wifiCopyStatus.textContent = "";
   updateWiFiTransitionNotice();
 }
@@ -2102,17 +2533,17 @@ function renderProvisioning(network) {
   renderWiFiConnectionResult(network, connectionState, isConnected);
 
   if (isConnecting) {
-    elements.provisioningDescription.textContent = `Naprava preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki${accessPointName}.`;
+    elements.provisioningDescription.textContent = formatTranslatedText("Naprava preverja izbrano Wi‑Fi omrežje. Ostani povezan na dostopni točki{ap}.", { ap: accessPointName });
   } else if (isConnected) {
     elements.provisioningDescription.textContent = network?.station_ssid
-      ? `Naprava je povezana v Wi‑Fi omrežje ${network.station_ssid}. Nastavitve lahko po potrebi spremeniš ali izbrišeš.`
-      : "Naprava je povezana v domače Wi‑Fi omrežje.";
+      ? formatTranslatedText("Naprava je povezana v Wi‑Fi omrežje {ssid}. Nastavitve lahko po potrebi spremeniš ali izbrišeš.", { ssid: network.station_ssid })
+      : translateText("Naprava je povezana v domače Wi‑Fi omrežje.");
   } else if (connectionState === "connected") {
-    elements.provisioningDescription.textContent = "Povezava z Wi‑Fi je uspela. Čakam na potrditev omrežnega naslova.";
+    elements.provisioningDescription.textContent = translateText("Povezava z Wi‑Fi je uspela. Čakam na potrditev omrežnega naslova.");
   } else if (connectionState === "failed") {
-    elements.provisioningDescription.textContent = `Povezava z Wi‑Fi ni uspela. AP${accessPointName} ostaja na voljo za ponoven poskus.`;
+    elements.provisioningDescription.textContent = formatTranslatedText("Povezava z Wi‑Fi ni uspela. AP{ap} ostaja na voljo za ponoven poskus.", { ap: accessPointName });
   } else if (isUsingAccessPoint) {
-    elements.provisioningDescription.textContent = `Povezan si neposredno na dostopno točko naprave${accessPointName}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.`;
+    elements.provisioningDescription.textContent = formatTranslatedText("Povezan si neposredno na dostopno točko naprave{ap}. Vpiši domače Wi‑Fi omrežje za dostop do clouda.", { ap: accessPointName });
   }
 
   elements.wifiScan.disabled = isConnecting;
@@ -2128,7 +2559,6 @@ function renderCloudSynchronization(sync, network, sdCard) {
   const isCaughtUp = sync?.caught_up === true;
   const hasCloudConnection = network?.station_connected === true;
   const hasSDCard = isSDCardOperational(sdCard);
-  const retrySeconds = Number(sync?.retry_seconds);
   const lastSyncedTimestamp = Number(sync?.last_synced_timestamp);
   const reconciliation = sync?.reconciliation ?? {};
   const reconciliationState = reconciliation.state;
@@ -2139,40 +2569,41 @@ function renderCloudSynchronization(sync, network, sdCard) {
   const measurementsUploaded = Number(reconciliation.measurements_uploaded);
 
   if (!hasSDCard) {
-    elements.cloudSyncStatus.textContent = sdCard?.error === true
+    elements.cloudSyncStatus.textContent = translateText(sdCard?.error === true
       ? "SD kartica javlja napako; sinhronizacija s Firebase trenutno ni mogoča."
-      : "SD kartica ni dosegljiva; sinhronizacija s Firebase trenutno ni mogoča.";
+      : "SD kartica ni dosegljiva; sinhronizacija s Firebase trenutno ni mogoča.");
   } else if (!hasCloudConnection) {
-    elements.cloudSyncStatus.textContent = "Cloud ni dosegljiv; meritve varno čakajo na SD kartici.";
+    elements.cloudSyncStatus.textContent = translateText("Cloud ni dosegljiv; meritve varno čakajo na SD kartici.");
   } else if (reconciliationState === "preparing") {
-    elements.cloudSyncStatus.textContent = "Pripravljam dnevni indeks SD zgodovine …";
+    elements.cloudSyncStatus.textContent = translateText("Pripravljam dnevni indeks SD zgodovine …");
   } else if (reconciliationState === "checking") {
     const daysText = Number.isFinite(localDays) && localDays > 0 ? ` (${localDays} dni)` : "";
-    elements.cloudSyncStatus.textContent = `Primerjam dnevni indeks SD kartice s Firebase${daysText} …`;
+    elements.cloudSyncStatus.textContent = formatTranslatedText("Primerjam dnevni indeks SD kartice s Firebase{days} …", { days: daysText });
   } else if (reconciliationState === "syncing") {
     const completedText = Number.isFinite(daysCompleted) ? daysCompleted : 0;
     const localDaysText = Number.isFinite(localDays) && localDays > 0 ? localDays : "?";
     const transferText = Number.isFinite(daysToTransfer) ? daysToTransfer : 0;
     const measurementProgress = Number.isFinite(measurementsToTransfer) && measurementsToTransfer > 0
-      ? ` Prenesenih meritev: ${Number.isFinite(measurementsUploaded) ? measurementsUploaded : 0}/${measurementsToTransfer}.`
+      ? ` ${formatTranslatedText("Prenesenih meritev: {uploaded}/{total}.", { uploaded: Number.isFinite(measurementsUploaded) ? measurementsUploaded : 0, total: measurementsToTransfer })}`
       : "";
     elements.cloudSyncStatus.textContent = transferText > 0
-      ? `Pregledujem in obnavljam dneve: ${completedText}/${localDaysText}. Manjkajočih ali neskladnih dni: ${transferText}.${measurementProgress}`
-      : "Dopolnjujem dnevni indeks Firebase brez ponovnega prenosa meritev …";
+      ? formatTranslatedText("Pregledujem in obnavljam dneve: {completed}/{total}. Manjkajočih ali neskladnih dni: {missing}.{progress}", { completed: completedText, total: localDaysText, missing: transferText, progress: measurementProgress })
+      : translateText("Dopolnjujem dnevni indeks Firebase brez ponovnega prenosa meritev …");
   } else if (reconciliationState === "error") {
-    elements.cloudSyncStatus.textContent = "Primerjava SD zgodovine s Firebase ni uspela. Preveri SD kartico in povezavo ter poskusi znova.";
+    elements.cloudSyncStatus.textContent = translateText("Primerjava SD zgodovine s Firebase ni uspela. Preveri SD kartico in povezavo ter poskusi znova.");
   } else if (isPending) {
     const lastRecordText = Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0
-      ? ` Zadnji potrjen zapis: ${formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000))}.`
-      : " Čakam na potrditev prvega zapisa.";
-    elements.cloudSyncStatus.textContent = `Pošiljam zgodovino v Firebase …${lastRecordText}`;
+      ? ` ${formatTranslatedText("Zadnji potrjen zapis: {time}.", { time: formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000)) })}`
+      : ` ${translateText("Čakam na potrditev prvega zapisa.")}`;
+    elements.cloudSyncStatus.textContent = formatTranslatedText("Pošiljam zgodovino v Firebase …{detail}", { detail: lastRecordText });
   } else if (isCaughtUp) {
-    elements.cloudSyncStatus.textContent = "SD kartica in Firebase sta sinhronizirana.";
+    elements.cloudSyncStatus.textContent = translateText("SD kartica in Firebase sta sinhronizirana.");
   } else if (Number.isFinite(lastSyncedTimestamp) && lastSyncedTimestamp > 0) {
-    const retryText = Number.isFinite(retrySeconds) && retrySeconds > 2 ? ` Razmik ponovnih poskusov: ${retrySeconds} s.` : "";
-    elements.cloudSyncStatus.textContent = `Zadnji preneseni zapis: ${formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000))}.${retryText}`;
+    elements.cloudSyncStatus.textContent = formatTranslatedText("Zadnji preneseni zapis: {time}.", {
+      time: formatDashboardDateTime(new Date(lastSyncedTimestamp * 1000)),
+    });
   } else {
-    elements.cloudSyncStatus.textContent = "Zgodovina čaka na prvi prenos v Firebase.";
+    elements.cloudSyncStatus.textContent = translateText("Zgodovina čaka na prvi prenos v Firebase.");
   }
 
   elements.cloudResync.disabled = isPending || !hasSDCard || !hasCloudConnection;
@@ -2193,19 +2624,19 @@ function renderLocalMeasurementLogStatus(status, sdCard, sync) {
   elements.deleteLocalMeasurementLog.disabled = !controlsAvailable;
 
   if (!hasSDCard) {
-    elements.localMeasurementLogStatus.textContent = "SD kartica ni dosegljiva.";
+    elements.localMeasurementLogStatus.textContent = translateText("SD kartica ni dosegljiva.");
   } else if (synchronizationActive) {
-    elements.localMeasurementLogStatus.textContent = "Počakaj, da se sinhronizacija zgodovine zaključi.";
+    elements.localMeasurementLogStatus.textContent = translateText("Počakaj, da se sinhronizacija zgodovine zaključi.");
   } else if (state === "queued") {
-    elements.localMeasurementLogStatus.textContent = "Brisanje dnevnika je uvrščeno v čakalno vrsto …";
+    elements.localMeasurementLogStatus.textContent = translateText("Brisanje dnevnika je uvrščeno v čakalno vrsto …");
   } else if (state === "deleting") {
-    elements.localMeasurementLogStatus.textContent = "Brišem meritve s SD kartice …";
+    elements.localMeasurementLogStatus.textContent = translateText("Brišem meritve s SD kartice …");
   } else if (state === "completed") {
-    elements.localMeasurementLogStatus.textContent = "Meritve so izbrisane s SD kartice. Zgodovina v Firebase je ostala nespremenjena.";
+    elements.localMeasurementLogStatus.textContent = translateText("Meritve so izbrisane s SD kartice. Zgodovina v Firebase je ostala nespremenjena.");
   } else if (state === "error") {
-    elements.localMeasurementLogStatus.textContent = "Brisanje meritev s SD kartice ni uspelo.";
+    elements.localMeasurementLogStatus.textContent = translateText("Brisanje meritev s SD kartice ni uspelo.");
   } else {
-    elements.localMeasurementLogStatus.textContent = "Dnevnik meritev je pripravljen.";
+    elements.localMeasurementLogStatus.textContent = translateText("Dnevnik meritev je pripravljen.");
   }
 }
 
@@ -2220,19 +2651,19 @@ function renderHistoryManagementStatus(status) {
   elements.deleteDeviceHistory.disabled = !isSelectedDeviceOnline || !hasOperationalSDCard || isDeleting;
 
   if (!hasSelectedDevice) {
-    elements.historyManagementStatus.textContent = "Izberi panj za upravljanje zgodovine.";
+    elements.historyManagementStatus.textContent = translateText("Izberi panj za upravljanje zgodovine.");
     return;
   }
   if (!isSelectedDeviceOnline) {
-    elements.historyManagementStatus.textContent = "Panj je offline; brisanje merilne zgodovine trenutno ni možno.";
+    elements.historyManagementStatus.textContent = translateText("Panj je offline; brisanje merilne zgodovine trenutno ni možno.");
     return;
   }
   if (!hasOperationalSDCard) {
-    elements.historyManagementStatus.textContent = "SD kartica ni pripravljena; popoln izbris SD in cloud zgodovine ni dovoljen.";
+    elements.historyManagementStatus.textContent = translateText("SD kartica ni pripravljena; popoln izbris SD in cloud zgodovine ni dovoljen.");
     return;
   }
   if (!state) {
-    elements.historyManagementStatus.textContent = "Naprava je online in pripravljena na brisanje merilne zgodovine.";
+    elements.historyManagementStatus.textContent = translateText("Naprava je online in pripravljena na brisanje merilne zgodovine.");
     return;
   }
 
@@ -2240,13 +2671,13 @@ function renderHistoryManagementStatus(status) {
     queued: "Ukaz za brisanje čaka, da ga naprava prevzame.",
     deleting: "Naprava briše SD dnevnik in cloud zgodovino …",
     completed: Number.isFinite(updatedAt) && updatedAt > 0
-      ? `Zadnji ukaz za brisanje je bil uspešno zaključen: ${formatDashboardDateTime(new Date(updatedAt * 1000))}.`
+      ? formatTranslatedText("Zadnji ukaz za brisanje je bil uspešno zaključen: {time}.", { time: formatDashboardDateTime(new Date(updatedAt * 1000)) })
       : "Zadnji ukaz za brisanje je bil uspešno zaključen.",
     error: "Brisanje ni uspelo. Preveri stanje naprave in SD kartice.",
   };
   elements.historyManagementStatus.textContent = state === "completed"
-    ? messages.completed
-    : status?.message || messages[state] || "Stanje brisanja ni znano.";
+    ? translateText(messages.completed)
+    : status?.message || translateText(messages[state] || "Stanje brisanja ni znano.");
 }
 
 function renderCloudWifiResetStatus(status) {
@@ -2267,19 +2698,19 @@ function renderCloudWifiResetStatus(status) {
   elements.clearCloudWifiCredentials.disabled = !isSelectedDeviceOnline || isProcessing;
 
   if (!hasSelectedDevice) {
-    elements.cloudWifiResetStatus.textContent = "Izberi panj za ponastavitev omrežja.";
+    elements.cloudWifiResetStatus.textContent = translateText("Izberi panj za ponastavitev omrežja.");
   } else if (state === "completed") {
     elements.cloudWifiResetStatus.textContent = Number.isFinite(updatedAt) && updatedAt > 0
-      ? `Wi-Fi poverilnice so izbrisane (${formatDashboardDateTime(new Date(updatedAt * 1000))}). Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.`
-      : "Wi-Fi poverilnice so izbrisane. Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.";
+      ? formatTranslatedText("Wi-Fi poverilnice so izbrisane ({time}). Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.", { time: formatDashboardDateTime(new Date(updatedAt * 1000)) })
+      : translateText("Wi-Fi poverilnice so izbrisane. Poveži se s provisioning Wi-Fi omrežjem naprave in odpri 192.168.4.1.");
   } else if (state === "error") {
-    elements.cloudWifiResetStatus.textContent = status?.message || "Brisanje Wi-Fi poverilnic ni uspelo; naprava ostaja povezana.";
+    elements.cloudWifiResetStatus.textContent = status?.message || translateText("Brisanje Wi-Fi poverilnic ni uspelo; naprava ostaja povezana.");
   } else if (isProcessing) {
-    elements.cloudWifiResetStatus.textContent = status?.message || "Naprava ponastavlja shranjeno Wi-Fi omrežje …";
+    elements.cloudWifiResetStatus.textContent = status?.message || translateText("Naprava ponastavlja shranjeno Wi-Fi omrežje …");
   } else if (!isSelectedDeviceOnline) {
-    elements.cloudWifiResetStatus.textContent = "Panj je offline; ponastavitev omrežja trenutno ni mogoča.";
+    elements.cloudWifiResetStatus.textContent = translateText("Panj je offline; ponastavitev omrežja trenutno ni mogoča.");
   } else {
-    elements.cloudWifiResetStatus.textContent = "Naprava je online in pripravljena na ponastavitev omrežja.";
+    elements.cloudWifiResetStatus.textContent = translateText("Naprava je online in pripravljena na ponastavitev omrežja.");
   }
 }
 
@@ -2332,17 +2763,17 @@ function confirmDashboardAction({
     return Promise.resolve(false);
   }
 
-  elements.confirmationDialogEyebrow.textContent = danger ? "Nevarno dejanje" : "Potrditev dejanja";
-  elements.confirmationDialogTitle.textContent = title;
-  elements.confirmationDialogMessage.textContent = message;
-  elements.confirmationDialogConfirm.textContent = confirmLabel;
+  elements.confirmationDialogEyebrow.textContent = translateText(danger ? "Nevarno dejanje" : "Potrditev dejanja");
+  elements.confirmationDialogTitle.textContent = translateText(title);
+  elements.confirmationDialogMessage.textContent = translateText(message);
+  elements.confirmationDialogConfirm.textContent = translateText(confirmLabel);
   elements.confirmationDialog.classList.toggle("confirmation-dialog-danger", danger);
   confirmationDialogRequiredText = requiredText;
   elements.confirmationDialogInput.value = "";
   elements.confirmationDialogInputLabel.hidden = !requiredText;
   elements.confirmationDialogInput.required = Boolean(requiredText);
   elements.confirmationDialogInputHint.textContent = requiredText
-    ? `Za potrditev vpiši ${requiredText}.`
+    ? formatTranslatedText("Za potrditev vpiši {text}.", { text: requiredText })
     : "";
   updateConfirmationDialogState();
 
@@ -2383,28 +2814,28 @@ function confirmCloudWifiCredentialReset() {
 async function deleteDeviceHistory() {
   if (!cloudDevicePath || !firebaseDatabase) return;
   if (!isDeviceOnline(latestDeviceStatus)) {
-    elements.historyManagementStatus.textContent = "Za popoln izbris mora biti naprava online.";
+    elements.historyManagementStatus.textContent = translateText("Za popoln izbris mora biti naprava online.");
     return;
   }
   if (!isSDCardOperational()) {
-    elements.historyManagementStatus.textContent = "SD kartica ni pripravljena; cloud zgodovine brez brisanja SD dnevnika ni dovoljeno izbrisati.";
+    elements.historyManagementStatus.textContent = translateText("SD kartica ni pripravljena; cloud zgodovine brez brisanja SD dnevnika ni dovoljeno izbrisati.");
     elements.deleteDeviceHistory.disabled = true;
     return;
   }
   if (!await confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.")) return;
 
   elements.deleteDeviceHistory.disabled = true;
-  elements.historyManagementStatus.textContent = "Ukaz za popoln izbris pošiljam napravi …";
+  elements.historyManagementStatus.textContent = translateText("Ukaz za popoln izbris pošiljam napravi …");
   try {
     const { database, ref, set } = firebaseDatabase;
     await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
       action: "delete_history",
       requested_at: Math.floor(Date.now() / 1000),
     });
-    elements.historyManagementStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
+    elements.historyManagementStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
   } catch (error) {
     console.error(error);
-    elements.historyManagementStatus.textContent = "Pošiljanje ukaza za brisanje ni uspelo.";
+    elements.historyManagementStatus.textContent = translateText("Pošiljanje ukaza za brisanje ni uspelo.");
     renderHistoryManagementStatus(latestHistoryManagementStatus);
   }
 }
@@ -2418,17 +2849,17 @@ async function clearCloudWifiCredentials() {
   if (!await confirmCloudWifiCredentialReset()) return;
 
   elements.clearCloudWifiCredentials.disabled = true;
-  elements.cloudWifiResetStatus.textContent = "Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …";
+  elements.cloudWifiResetStatus.textContent = translateText("Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …");
   try {
     const { database, ref, set } = firebaseDatabase;
     await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
       action: "clear_wifi_credentials",
       requested_at: Math.floor(Date.now() / 1000),
     });
-    elements.cloudWifiResetStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
+    elements.cloudWifiResetStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
   } catch (error) {
     console.error(error);
-    elements.cloudWifiResetStatus.textContent = "Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.";
+    elements.cloudWifiResetStatus.textContent = translateText("Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.");
     renderCloudWifiResetStatus(latestNetworkResetStatus);
   }
 }
@@ -2438,7 +2869,7 @@ async function saveWiFiConfiguration(event) {
   const ssid = elements.wifiSsid.value.trim();
   const password = elements.wifiPassword.value;
   if (!ssid) {
-    elements.wifiFormStatus.textContent = "Vpiši ime Wi‑Fi omrežja.";
+    elements.wifiFormStatus.textContent = translateText("Vpiši ime Wi‑Fi omrežja.");
     return;
   }
 
@@ -2448,7 +2879,7 @@ async function saveWiFiConfiguration(event) {
   elements.wifiConnectionResult.hidden = true;
   wifiTransitionDeadline = 0;
   wifiTransitionAddress = "";
-  elements.wifiFormStatus.textContent = "Preverjam povezavo z Wi‑Fi omrežjem …";
+  elements.wifiFormStatus.textContent = translateText("Preverjam povezavo z Wi‑Fi omrežjem …");
   try {
     const response = await fetch("/api/wifi", {
       method: "POST",
@@ -2459,7 +2890,7 @@ async function saveWiFiConfiguration(event) {
     if (!response.ok) throw new Error(result.error ?? "Nastavitev Wi‑Fi ni uspela");
 
     if (requestFromAccessPoint) {
-      elements.wifiFormStatus.textContent = "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …";
+      elements.wifiFormStatus.textContent = translateText("Naprava preverja povezavo. Nastavitve shrani šele po uspehu …");
     } else {
       showHomeNetworkTransition(ssid);
     }
@@ -2474,8 +2905,8 @@ function toggleWiFiPasswordVisibility() {
   elements.wifiPassword.type = revealPassword ? "text" : "password";
   elements.wifiPasswordToggle.setAttribute("aria-pressed", String(revealPassword));
   const actionLabel = revealPassword ? "Skrij Wi‑Fi geslo" : "Prikaži Wi‑Fi geslo";
-  elements.wifiPasswordToggle.setAttribute("aria-label", actionLabel);
-  elements.wifiPasswordToggle.title = actionLabel;
+  elements.wifiPasswordToggle.setAttribute("aria-label", translateText(actionLabel));
+  elements.wifiPasswordToggle.title = translateText(actionLabel);
   elements.wifiPassword.focus();
 }
 
@@ -2501,9 +2932,9 @@ async function copyWiFiTransitionAddress() {
       temporaryInput.remove();
       if (!copied) throw new Error("Naslova ni bilo mogoče kopirati");
     }
-    elements.wifiCopyStatus.textContent = "Novi lokalni naslov je kopiran.";
+    elements.wifiCopyStatus.textContent = translateText("Novi lokalni naslov je kopiran.");
   } catch (error) {
-    elements.wifiCopyStatus.textContent = "Kopiranje ni uspelo. Naslov označi in kopiraj ročno.";
+    elements.wifiCopyStatus.textContent = translateText("Kopiranje ni uspelo. Naslov označi in kopiraj ročno.");
   }
 }
 
@@ -2511,7 +2942,7 @@ function renderWiFiNetworks(networks) {
   elements.wifiNetworks.replaceChildren();
   elements.wifiNetworks.hidden = false;
   if (networks.length === 0) {
-    elements.wifiNetworks.textContent = "Ni najdenih Wi‑Fi omrežij.";
+    elements.wifiNetworks.textContent = translateText("Ni najdenih Wi‑Fi omrežij.");
     return;
   }
 
@@ -2524,12 +2955,12 @@ function renderWiFiNetworks(networks) {
       option.type = "button";
       option.className = "wifi-network-option";
       name.textContent = network.ssid;
-      detail.textContent = `${network.rssi} dBm${network.secured ? " · zaščiteno" : " · odprto"}`;
+      detail.textContent = `${network.rssi} dBm${translateText(network.secured ? " · zaščiteno" : " · odprto")}`;
       option.append(name, detail);
       option.addEventListener("click", () => {
         elements.wifiSsid.value = network.ssid;
         elements.wifiPassword.focus();
-        elements.wifiFormStatus.textContent = `Izbrano omrežje: ${network.ssid}`;
+        elements.wifiFormStatus.textContent = formatTranslatedText("Izbrano omrežje: {ssid}", { ssid: network.ssid });
       });
       elements.wifiNetworks.append(option);
     });
@@ -2537,7 +2968,7 @@ function renderWiFiNetworks(networks) {
 
 async function scanWiFiNetworks() {
   elements.wifiScan.disabled = true;
-  elements.wifiScanStatus.textContent = "Iščem omrežja …";
+  elements.wifiScanStatus.textContent = translateText("Iščem omrežja …");
   try {
     for (let attempt = 0; attempt < 24; attempt += 1) {
       const response = await fetch("/api/wifi/networks", { cache: "no-store" });
@@ -2549,7 +2980,7 @@ async function scanWiFiNetworks() {
       if (!response.ok) throw new Error(result.error ?? "Skeniranje Wi‑Fi omrežij ni uspelo");
 
       renderWiFiNetworks(result.networks ?? []);
-      elements.wifiScanStatus.textContent = `Najdenih omrežij: ${(result.networks ?? []).length}`;
+      elements.wifiScanStatus.textContent = formatTranslatedText("Najdenih omrežij: {count}", { count: (result.networks ?? []).length });
       return;
     }
     throw new Error("Skeniranje Wi‑Fi omrežij je poteklo");
@@ -2578,7 +3009,7 @@ async function forgetWiFiConfiguration() {
     if (!response.ok) throw new Error(result.error ?? "Brisanje Wi‑Fi nastavitev ni uspelo");
   } catch (error) {
     if (error instanceof TypeError) {
-      elements.wifiTransitionNotice.textContent = "Povezava z napravo je bila prekinjena. To je po brisanju omrežja pričakovano; nadaljuj prek prikazane dostopne točke.";
+      elements.wifiTransitionNotice.textContent = translateText("Povezava z napravo je bila prekinjena. To je po brisanju omrežja pričakovano; nadaljuj prek prikazane dostopne točke.");
       return;
     }
     wifiTransitionMode = "idle";
@@ -2591,7 +3022,7 @@ async function forgetWiFiConfiguration() {
 
 async function resetCloudHistorySynchronization() {
   if (!isSDCardOperational()) {
-    elements.cloudSyncStatus.textContent = "SD kartica ni pripravljena; sinhronizacije ni mogoče začeti.";
+    elements.cloudSyncStatus.textContent = translateText("SD kartica ni pripravljena; sinhronizacije ni mogoče začeti.");
     elements.cloudResync.disabled = true;
     return;
   }
@@ -2602,13 +3033,13 @@ async function resetCloudHistorySynchronization() {
   })) return;
 
   elements.cloudResync.disabled = true;
-  elements.cloudSyncStatus.textContent = "Pripravljam primerjavo SD zgodovine in Firebase …";
+  elements.cloudSyncStatus.textContent = translateText("Pripravljam primerjavo SD zgodovine in Firebase …");
   try {
     if (isLocalDashboard) {
       const response = await fetch("/api/sync/reset", { method: "POST" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Ponastavitev sinhronizacije ni uspela");
-      elements.cloudSyncStatus.textContent = "Primerjava dnevne zgodovine se je začela.";
+      elements.cloudSyncStatus.textContent = translateText("Primerjava dnevne zgodovine se je začela.");
     } else {
       if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
         throw new Error("Za ponovno sinhronizacijo mora biti izbrani panj online.");
@@ -2618,7 +3049,7 @@ async function resetCloudHistorySynchronization() {
         action: "sync_history",
         requested_at: Math.floor(Date.now() / 1000),
       });
-      elements.cloudSyncStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
+      elements.cloudSyncStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
     }
   } catch (error) {
     elements.cloudSyncStatus.textContent = error.message;
@@ -2631,19 +3062,19 @@ async function resetCloudHistorySynchronization() {
 
 async function deleteLocalMeasurementHistory() {
   if (!isSDCardOperational()) {
-    elements.localMeasurementLogStatus.textContent = "SD kartica ni pripravljena; meritev ni mogoče izbrisati.";
+    elements.localMeasurementLogStatus.textContent = translateText("SD kartica ni pripravljena; meritev ni mogoče izbrisati.");
     elements.deleteLocalMeasurementLog.disabled = true;
     return;
   }
   if (!await confirmPermanentHistoryDeletion("Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.")) return;
 
   elements.deleteLocalMeasurementLog.disabled = true;
-  elements.localMeasurementLogStatus.textContent = "Zahtevo za brisanje pošiljam napravi …";
+  elements.localMeasurementLogStatus.textContent = translateText("Zahtevo za brisanje pošiljam napravi …");
   try {
     const response = await fetch("/api/history", { method: "DELETE" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Brisanje meritev s SD kartice ni uspelo");
-    elements.localMeasurementLogStatus.textContent = "Brisanje dnevnika je uvrščeno v čakalno vrsto …";
+    elements.localMeasurementLogStatus.textContent = translateText("Brisanje dnevnika je uvrščeno v čakalno vrsto …");
   } catch (error) {
     elements.localMeasurementLogStatus.textContent = error.message;
     elements.deleteLocalMeasurementLog.disabled = !isSDCardOperational();
@@ -2653,7 +3084,7 @@ async function deleteLocalMeasurementHistory() {
 async function requestLoadCellTare() {
   const statusElement = isLocalDashboard ? elements.localLoadCellTareStatus : elements.cloudLoadCellTareStatus;
   if (!isComponentOperational("hx711", latestLoadCellTareStatus)) {
-    statusElement.textContent = "HX711 ni pripravljen; tariranje trenutno ni možno.";
+    statusElement.textContent = translateText("HX711 ni pripravljen; tariranje trenutno ni možno.");
     return;
   }
   if (!await confirmDashboardAction({
@@ -2665,9 +3096,9 @@ async function requestLoadCellTare() {
   const previousStatus = latestLoadCellTareStatus;
   const button = isLocalDashboard ? elements.localLoadCellTare : elements.cloudLoadCellTare;
   button.disabled = true;
-  statusElement.textContent = isLocalDashboard
+  statusElement.textContent = translateText(isLocalDashboard
     ? "Tariranje pošiljam napravi …"
-    : "Ukaz za tariranje pošiljam napravi …";
+    : "Ukaz za tariranje pošiljam napravi …");
   try {
     if (isLocalDashboard) {
       const response = await fetch("/api/sensors/load-cell/tare", { method: "POST" });
@@ -2687,7 +3118,7 @@ async function requestLoadCellTare() {
   } catch (error) {
     latestLoadCellTareStatus = previousStatus;
     renderLoadCellTareStatus(previousStatus);
-    statusElement.textContent = error.message;
+    statusElement.textContent = translateText(error.message);
   }
 }
 
@@ -2717,9 +3148,9 @@ async function saveBme680Calibration(event) {
     const { temperatureOffset, humidityOffset } = readBme680CalibrationInputs();
     bme680CalibrationRequestedAt = Math.floor(Date.now() / 1000);
     bme680CalibrationPendingUntil = bme680CalibrationRequestedAt + BME680_CALIBRATION_TIMEOUT_SECONDS;
-    statusElement.textContent = isLocalDashboard
+    statusElement.textContent = translateText(isLocalDashboard
       ? "Kalibracijo pošiljam napravi …"
-      : "Ukaz za kalibracijo pošiljam napravi …";
+      : "Ukaz za kalibracijo pošiljam napravi …");
     if (isLocalDashboard) {
       const body = new URLSearchParams({
         temperature_offset_c: temperatureOffset.toFixed(1),
@@ -2753,7 +3184,7 @@ async function saveBme680Calibration(event) {
   } catch (error) {
     bme680CalibrationPendingUntil = 0;
     renderBme680CalibrationStatus(latestBme680CalibrationStatus);
-    statusElement.textContent = error.message;
+    statusElement.textContent = translateText(error.message);
   }
 }
 
@@ -2791,22 +3222,22 @@ async function setDeviceTime(event) {
   const selectedDate = new Date(elements.deviceDateTime.value);
   const timestamp = Math.floor(selectedDate.getTime() / 1000);
   if (!Number.isFinite(timestamp) || selectedDate.getFullYear() < 2023 || selectedDate.getFullYear() > 2099) {
-    elements.deviceTimeStatus.textContent = "Izberi veljaven datum med letoma 2023 in 2099.";
+    elements.deviceTimeStatus.textContent = translateText("Izberi veljaven datum med letoma 2023 in 2099.");
     return;
   }
 
   elements.setDeviceTime.disabled = true;
   elements.syncDeviceTime.disabled = true;
-  elements.deviceTimeStatus.textContent = isLocalDashboard
+  elements.deviceTimeStatus.textContent = translateText(isLocalDashboard
     ? "Ročno nastavitev pošiljam napravi …"
-    : "Ročno nastavitev pošiljam izbranemu panju …";
+    : "Ročno nastavitev pošiljam izbranemu panju …");
   try {
     await sendDeviceTimeCommand("set", timestamp);
-    elements.deviceTimeStatus.textContent = isLocalDashboard
+    elements.deviceTimeStatus.textContent = translateText(isLocalDashboard
       ? "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231."
-      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.";
+      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.");
   } catch (error) {
-    elements.deviceTimeStatus.textContent = error.message;
+    elements.deviceTimeStatus.textContent = translateText(error.message);
     renderTimeStatus(latestTimeStatus);
   }
 }
@@ -2814,14 +3245,14 @@ async function setDeviceTime(event) {
 async function synchronizeDeviceTime() {
   elements.setDeviceTime.disabled = true;
   elements.syncDeviceTime.disabled = true;
-  elements.deviceTimeStatus.textContent = "Zahtevam sinhronizacijo z internetno uro …";
+  elements.deviceTimeStatus.textContent = translateText("Zahtevam sinhronizacijo z internetno uro …");
   try {
     await sendDeviceTimeCommand("sync_ntp");
-    elements.deviceTimeStatus.textContent = isLocalDashboard
+    elements.deviceTimeStatus.textContent = translateText(isLocalDashboard
       ? "NTP sinhronizacija je uvrščena."
-      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.";
+      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.");
   } catch (error) {
-    elements.deviceTimeStatus.textContent = error.message;
+    elements.deviceTimeStatus.textContent = translateText(error.message);
     renderTimeStatus(latestTimeStatus);
   }
 }
@@ -2854,8 +3285,8 @@ function renderSDStatus(status) {
   const hasError = status?.error === true;
   elements.sdCard.classList.toggle("ok", isPresent && !hasError);
   elements.sdCard.classList.toggle("error", hasError);
-  elements.sdStatus.textContent = isPresent ? "Zaznana" : "Ni zaznana";
-  elements.sdStatusDetail.textContent = hasError ? "Po petih poskusih ni bila zaznana." : `${status?.initialization_failures ?? 0} neuspelih inicializacij`;
+  elements.sdStatus.textContent = translateText(isPresent ? "Zaznana" : "Ni zaznana");
+  elements.sdStatusDetail.textContent = hasError ? translateText("Po petih poskusih ni bila zaznana.") : `${status?.initialization_failures ?? 0} neuspelih inicializacij`;
   if (!isLocalDashboard) {
     renderCloudSynchronization(latestDeviceStatus?.history_sync,
       { station_connected: isDeviceOnline(latestDeviceStatus) }, status);
@@ -2878,7 +3309,7 @@ function resetOtaProgress() {
   elements.otaProgressBar.style.width = "0%";
   elements.otaProgressTrack.setAttribute("aria-valuenow", "0");
   elements.otaProgressTrack.removeAttribute("aria-valuetext");
-  elements.otaProgressText.textContent = "Skupaj 0 %";
+  elements.otaProgressText.textContent = translateText("Skupaj 0 %");
   elements.otaCard.classList.remove("ota-error");
   elements.otaSafetyNotice.hidden = true;
 }
@@ -2888,7 +3319,7 @@ function updateOtaActionState() {
   const hasAvailableRelease = Boolean(availableOtaRelease);
   elements.otaInstall.disabled = !hasAvailableRelease || isOtaActive;
   elements.otaIgnore.disabled = !hasAvailableRelease || isOtaActive;
-  elements.otaInstall.textContent = isOtaActive ? "Posodobitev poteka" : "Posodobi napravo";
+  elements.otaInstall.textContent = translateText(isOtaActive ? "Posodobitev poteka" : "Posodobi napravo");
   elements.otaCard.setAttribute("aria-busy", String(isOtaActive));
   elements.otaSafetyNotice.hidden = !isOtaActive;
 }
@@ -2903,8 +3334,8 @@ function renderOtaProgress(progressPercent, hasError = false) {
   const clampedProgress = Math.max(0, Math.min(100, Math.round(numericProgress)));
   elements.otaProgressBar.style.width = `${clampedProgress}%`;
   elements.otaProgressTrack.setAttribute("aria-valuenow", String(clampedProgress));
-  elements.otaProgressTrack.setAttribute("aria-valuetext", `Skupni napredek OTA: ${clampedProgress} %`);
-  elements.otaProgressText.textContent = `Skupaj ${clampedProgress} %`;
+  elements.otaProgressTrack.setAttribute("aria-valuetext", formatTranslatedText("Skupni napredek OTA: {value} %", { value: clampedProgress }));
+  elements.otaProgressText.textContent = formatTranslatedText("Skupaj {value} %", { value: clampedProgress });
 }
 
 function renderOtaDeviceStatus(status) {
@@ -2936,21 +3367,24 @@ function renderOtaDeviceStatus(status) {
     const updatedAt = Number(status.updated_at);
     const installedAt = Number.isFinite(updatedAt) && updatedAt > 0
       ? formatDashboardDateTime(new Date(updatedAt * 1000))
-      : "neznanem času";
-    elements.otaDeviceStatus.textContent = `Zadnja uspešna OTA posodobitev: ${installedAt}.`;
+      : translateText("neznanem času");
+    elements.otaDeviceStatus.textContent = formatTranslatedText("Zadnja uspešna OTA posodobitev: {time}.", { time: installedAt });
     renderOtaProgress(100);
   } else if (requestedVersionAlreadyInstalled) {
-    elements.otaDeviceStatus.textContent = `Različica v${targetVersion} je že nameščena.`;
+    elements.otaDeviceStatus.textContent = formatTranslatedText("Različica v{version} je že nameščena.", { version: targetVersion });
     renderOtaProgress(100);
     availableOtaRelease = undefined;
     elements.otaActions.hidden = true;
   } else if (staleInvalidCommand) {
-    elements.otaDeviceStatus.textContent = "Zadnja cloud OTA posodobitev ni zabeležena.";
+    elements.otaDeviceStatus.textContent = translateText("Zadnja cloud OTA posodobitev ni zabeležena.");
     resetOtaProgress();
   } else {
-    const stateLabel = OTA_STATE_LABELS[state] ?? state;
-    const hasRepeatedPhase = message.toLocaleLowerCase().startsWith(stateLabel.toLocaleLowerCase());
-    elements.otaDeviceStatus.textContent = message && hasRepeatedPhase ? message : `${stateLabel}${message ? `: ${message}` : ""}`;
+    const stateLabel = translateText(OTA_STATE_LABELS[state] ?? state);
+    const translatedMessage = translateText(message);
+    const hasRepeatedPhase = translatedMessage.toLocaleLowerCase().startsWith(stateLabel.toLocaleLowerCase());
+    elements.otaDeviceStatus.textContent = translatedMessage && hasRepeatedPhase
+      ? translatedMessage
+      : `${stateLabel}${translatedMessage ? `: ${translatedMessage}` : ""}`;
     renderOtaProgress(status.progress_percent, state === "error");
   }
 
@@ -2968,11 +3402,11 @@ function showOtaAvailability(release) {
   availableOtaRelease = release;
   const ignoredVersion = localStorage.getItem(OTA_IGNORE_STORAGE_KEY);
   const isIgnored = ignoredVersion === release.version;
-  elements.otaLabel.textContent = isIgnored ? "Posodobitev prezrta" : "Na voljo je nova različica";
+  elements.otaLabel.textContent = translateText(isIgnored ? "Posodobitev prezrta" : "Na voljo je nova različica");
   elements.otaVersion.textContent = `v${release.version}`;
-  elements.otaDetail.textContent = release.name || "Nova različica naprave je pripravljena na GitHub Releases.";
+  elements.otaDetail.textContent = release.name || translateText("Nova različica naprave je pripravljena na GitHub Releases.");
   elements.otaActions.hidden = isIgnored;
-  if (isIgnored) elements.otaDeviceStatus.textContent = "Prezrto v tem brskalniku.";
+  if (isIgnored) elements.otaDeviceStatus.textContent = translateText("Prezrto v tem brskalniku.");
   updateOtaActionState();
 }
 
@@ -2984,9 +3418,9 @@ async function checkForFirmwareRelease() {
       headers: { Accept: "application/vnd.github+json" },
     });
     if (response.status === 404) {
-      elements.otaLabel.textContent = "OTA izdaja ni javno dosegljiva";
+      elements.otaLabel.textContent = translateText("OTA izdaja ni javno dosegljiva");
       elements.otaVersion.textContent = "—";
-      elements.otaDetail.textContent = "Preveri GitHub Release in javni dostop do repozitorija.";
+      elements.otaDetail.textContent = translateText("Preveri GitHub Release in javni dostop do repozitorija.");
       elements.otaActions.hidden = true;
       return;
     }
@@ -2998,16 +3432,16 @@ async function checkForFirmwareRelease() {
       showOtaAvailability({ version: releaseVersion, name: release.name });
     } else {
       availableOtaRelease = undefined;
-      elements.otaLabel.textContent = "Naprava je posodobljena";
+      elements.otaLabel.textContent = translateText("Naprava je posodobljena");
       elements.otaVersion.textContent = `v${latestFirmwareVersion}`;
-      elements.otaDetail.textContent = "Ni navoljo novejše različice.";
+      elements.otaDetail.textContent = translateText("Ni navoljo novejše različice.");
       elements.otaActions.hidden = true;
     }
   } catch (error) {
     console.error(error);
-    elements.otaLabel.textContent = "Preverjanje OTA ni uspelo";
+    elements.otaLabel.textContent = translateText("Preverjanje OTA ni uspelo");
     elements.otaVersion.textContent = "—";
-    elements.otaDetail.textContent = "GitHub Release trenutno ni dosegljiv.";
+    elements.otaDetail.textContent = translateText("GitHub Release trenutno ni dosegljiv.");
     elements.otaActions.hidden = true;
   }
 }
@@ -3016,14 +3450,14 @@ async function requestFirmwareUpdate() {
   if (!firebaseDatabase || !availableOtaRelease || otaCommandPending) return;
   if (!await confirmDashboardAction({
     title: "Namesti posodobitev",
-    message: `Napravo posodobim na verzijo ${availableOtaRelease.version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.`,
+    message: formatTranslatedText("Napravo posodobim na verzijo {version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.", { version: availableOtaRelease.version }),
     confirmLabel: "Začni posodobitev",
   })) return;
 
   otaCommandPending = true;
   updateOtaActionState();
   renderOtaProgress(0);
-  elements.otaDeviceStatus.textContent = "OTA ukaz pošiljam napravi …";
+  elements.otaDeviceStatus.textContent = translateText("OTA ukaz pošiljam napravi …");
   try {
     const { ref, set } = firebaseDatabase;
     await set(ref(firebaseDatabase.database, `${cloudDevicePath}/commands/firmware_update`), {
@@ -3031,10 +3465,10 @@ async function requestFirmwareUpdate() {
       target_version: availableOtaRelease.version,
       requested_at: Math.floor(Date.now() / 1000),
     });
-    elements.otaDeviceStatus.textContent = "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.";
+    elements.otaDeviceStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
   } catch (error) {
     console.error(error);
-    elements.otaDeviceStatus.textContent = "Pošiljanje OTA ukaza ni uspelo.";
+    elements.otaDeviceStatus.textContent = translateText("Pošiljanje OTA ukaza ni uspelo.");
     otaCommandPending = false;
     updateOtaActionState();
   }
@@ -3213,7 +3647,7 @@ function scheduleCloudZoomAggregation() {
 function formatChartAxisNumber(value, decimals = 1, fixedDecimals = false) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue)
-    ? numericValue.toLocaleString("sl-SI", {
+    ? numericValue.toLocaleString(getDashboardLocale(), {
       minimumFractionDigits: fixedDecimals ? decimals : 0,
       maximumFractionDigits: decimals,
     })
@@ -3221,7 +3655,13 @@ function formatChartAxisNumber(value, decimals = 1, fixedDecimals = false) {
 }
 
 function getDashboardLanguage() {
-  return document.documentElement.lang?.toLowerCase().startsWith("en") ? "en" : "sl";
+  const language = document.documentElement.lang?.toLowerCase();
+  return LANGUAGE_OPTIONS[language] ? language : "sl";
+}
+
+function getDashboardLocale() {
+  const language = getDashboardLanguage();
+  return language === "en" ? "en-GB" : language === "hr" ? "hr-HR" : "sl-SI";
 }
 
 function getChartAxisFormatters() {
@@ -3229,7 +3669,7 @@ function getChartAxisFormatters() {
   const cached = CHART_AXIS_FORMATTERS.get(language);
   if (cached) return cached;
 
-  const locale = language === "en" ? "en-GB" : "sl-SI";
+  const locale = getDashboardLocale();
   const formatters = {
     time: new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
     shortDateTime: new Intl.DateTimeFormat(locale, {
@@ -3342,7 +3782,7 @@ function createChartLegend(container, entries) {
     item.type = "button";
     item.className = "chart-legend-item";
     item.dataset.seriesIndex = String(entry.seriesIndex);
-    item.setAttribute("aria-label", `${entry.label}: prikaži ali skrij serijo`);
+    item.setAttribute("aria-label", formatTranslatedText("{label}: prikaži ali skrij serijo", { label: entry.label }));
     setChartLegendItemState(item, isChartSeriesVisible(entry.chartType, entry.seriesIndex));
     const marker = document.createElement("span");
     marker.className = "chart-legend-marker";
@@ -3893,7 +4333,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
       series: [
         {},
         {
-          label: "Temperatura (°C)",
+        label: translateText("Temperatura (°C)"),
           scale: "temperature",
           show: isChartSeriesVisible("climate", 1),
           stroke: colors.temperature,
@@ -3901,7 +4341,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
           points: { show: (chart) => countValidChartValues(chart.data[1]) === 1, size: 10, fill: colors.temperature, stroke: colors.temperature },
         },
         {
-          label: "Vlaga (%)",
+        label: translateText("Vlaga (%)"),
           scale: "humidity",
           show: isChartSeriesVisible("climate", 2),
           stroke: colors.humidity,
@@ -3949,7 +4389,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
     series: [
       {},
       {
-        label: "Teža (kg)",
+        label: translateText("Teža (kg)"),
         scale: "weight",
         show: isChartSeriesVisible("weight", 1),
         stroke: colors.weight,
@@ -4027,8 +4467,8 @@ function renderHistory(readings, alreadyAggregated = false, zoomRanges = {}, agg
   latestHistoryReadings = sourceReadings;
   latestHistoryAlreadyAggregated = alreadyAggregated;
   elements.historySummary.textContent = chartReadings.length
-    ? `Prikazanih je ${chartReadings.length} povprečnih točk. Za približanje povlecite po izbranem grafu.`
-    : "Za izbrano obdobje še ni meritev.";
+    ? formatTranslatedText("Prikazanih je {count} povprečnih točk. Za približanje povlecite po izbranem grafu.", { count: chartReadings.length })
+    : translateText("Za izbrano obdobje še ni meritev.");
   if (!climateChart || !weightChart) return;
 
   const chartData = buildUPlotData(chartReadings);
@@ -4057,19 +4497,19 @@ function createCharts(zoomRanges = {}) {
     "climate-chart",
     "climate",
     [
-      { label: "Temperatura (°C)", color: colors.temperature, seriesIndex: 1 },
-      { label: "Vlaga (%)", color: colors.humidity, seriesIndex: 2 },
+      { label: translateText("Temperatura (°C)"), color: colors.temperature, seriesIndex: 1 },
+      { label: translateText("Vlaga (%)"), color: colors.humidity, seriesIndex: 2 },
     ],
     [
-      { label: "Temperatura (°C)", color: colors.temperature, seriesIndex: 1 },
-      { label: "Vlaga (%)", color: colors.humidity, seriesIndex: 2 },
+      { label: translateText("Temperatura (°C)"), color: colors.temperature, seriesIndex: 1 },
+      { label: translateText("Vlaga (%)"), color: colors.humidity, seriesIndex: 2 },
     ],
   );
   const weightPresentation = createChartPresentation(
     "weight-chart",
     "weight",
-    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1 }],
-    [{ label: "Teža (kg)", color: colors.weight, seriesIndex: 1, decimals: currentWeightDisplayDecimals() }],
+    [{ label: translateText("Teža (kg)"), color: colors.weight, seriesIndex: 1 }],
+    [{ label: translateText("Teža (kg)"), color: colors.weight, seriesIndex: 1, decimals: currentWeightDisplayDecimals() }],
   );
   climateChart = new window.uPlot(
     createUPlotOptions("climate", climatePresentation.chartHost, climatePresentation.tooltip, climatePresentation.resetZoomButton),
@@ -4203,7 +4643,7 @@ function setDateTime(date, timeValue) {
 }
 
 function syncRangeControls() {
-  elements.rangeDialogValue.textContent = draftRange.to ? formatRange(draftRange) : "Izberite končni datum";
+  elements.rangeDialogValue.textContent = draftRange.to ? formatRange(draftRange) : translateText("Izberite končni datum");
   elements.startTime.value = toTimeInputValue(draftRange.from);
   elements.endTime.value = toTimeInputValue(draftRange.to ?? draftRange.from);
 }
@@ -4277,7 +4717,7 @@ function openRangeDialog() {
 
 function applyRange() {
   if (!draftRange.to || draftRange.to <= draftRange.from) {
-    elements.rangeDialogValue.textContent = "Končni datum mora biti po začetnem datumu.";
+    elements.rangeDialogValue.textContent = translateText("Končni datum mora biti po začetnem datumu.");
     return;
   }
 
@@ -4341,11 +4781,11 @@ function describeAuthError(error) {
     "auth/popup-closed-by-user": "Google prijava je bila zaprta.",
     "auth/operation-not-allowed": "Ta način prijave še ni omogočen v Firebase Authentication.",
   };
-  return messages[error?.code] ?? "Postopka ni bilo mogoče dokončati. Poskusi znova.";
+  return translateText(messages[error?.code] ?? "Postopka ni bilo mogoče dokončati. Poskusi znova.");
 }
 
 function setAuthStatus(message) {
-  elements.authStatus.textContent = message;
+  elements.authStatus.textContent = translateText(message);
 }
 
 function getAccountInitials(user) {
@@ -4380,7 +4820,7 @@ function renderAccountIdentity(user) {
 }
 
 async function renderHeaderAuthIdentity(user) {
-  elements.authTriggerLabel.textContent = user ? "Odjava" : "Prijava";
+  elements.authTriggerLabel.textContent = translateText(user ? "Odjava" : "Prijava");
   elements.authTriggerAvatar.hidden = true;
 
   if (!user) {
@@ -4426,7 +4866,7 @@ async function signInWithEmail(event) {
   const password = elements.authPassword.value;
   if (!email || !password) return;
 
-  elements.authStatus.textContent = "Prijavljam …";
+  elements.authStatus.textContent = translateText("Prijavljam …");
   try {
     await firebaseAuthModule.signInWithEmailAndPassword(firebaseAuth, email, password);
     elements.authDialog.close();
@@ -4444,7 +4884,7 @@ async function registerEmailAccount() {
     return;
   }
 
-  elements.authStatus.textContent = "Ustvarjam račun …";
+  elements.authStatus.textContent = translateText("Ustvarjam račun …");
   try {
     await firebaseAuthModule.createUserWithEmailAndPassword(firebaseAuth, email, password);
     elements.authDialog.close();
@@ -4455,7 +4895,7 @@ async function registerEmailAccount() {
 }
 
 async function signInWithGoogle() {
-  elements.authStatus.textContent = "Odpiram Google prijavo …";
+  elements.authStatus.textContent = translateText("Odpiram Google prijavo …");
   try {
     if (isAndroidAppDashboard) {
       const result = await requestNativeAuthentication("google-sign-in");
@@ -4565,13 +5005,13 @@ async function claimDevice(event) {
   const activationCode = elements.claimActivationCode.value.trim().toUpperCase();
   const displayName = elements.claimDeviceName.value.trim();
   if (!isValidDeviceId(deviceId) || !isValidActivationCode(activationCode)) {
-    elements.claimDeviceStatus.textContent = "Preveri obliko ID-ja in osemmestne aktivacijske kode.";
+    elements.claimDeviceStatus.textContent = translateText("Preveri obliko ID-ja in osemmestne aktivacijske kode.");
     return;
   }
 
   const { database, ref, remove, set } = firebaseDatabase;
   const claimPath = `device_claims/${deviceId}/${currentCloudUser.uid}`;
-  elements.claimDeviceStatus.textContent = "Preverjam aktivacijsko kodo …";
+  elements.claimDeviceStatus.textContent = translateText("Preverjam aktivacijsko kodo …");
   try {
     await set(ref(database, claimPath), {
       activation_code: activationCode,
@@ -4587,13 +5027,13 @@ async function claimDevice(event) {
     });
     await remove(ref(database, claimPath));
     elements.claimDeviceForm.reset();
-    elements.claimDeviceStatus.textContent = "Panj je uspešno registriran na tvoj račun.";
+    elements.claimDeviceStatus.textContent = translateText("Panj je uspešno registriran na tvoj račun.");
   } catch (error) {
     console.error(error);
     try {
       await remove(ref(database, claimPath));
     } catch {}
-    elements.claimDeviceStatus.textContent = "Registracija ni uspela. Preveri ID, kodo in ali je naprava že povezana v Firebase.";
+    elements.claimDeviceStatus.textContent = translateText("Registracija ni uspela. Preveri ID, kodo in ali je naprava že povezana v Firebase.");
   }
 }
 
@@ -4634,18 +5074,18 @@ async function createShareInvitation(event) {
   const recipientEmail = normalizeEmail(elements.shareRecipientEmail.value);
   const ownerEmail = normalizeEmail(currentCloudUser.email);
   if (!deviceId || device?.access_role !== "owner") {
-    elements.shareDeviceStatus.textContent = "Izberi svoj panj, ki ga želiš deliti.";
+    elements.shareDeviceStatus.textContent = translateText("Izberi svoj panj, ki ga želiš deliti.");
     return;
   }
   if (!recipientEmail || recipientEmail === ownerEmail) {
     elements.shareDeviceStatus.textContent = recipientEmail
-      ? "Povabila ne moreš poslati svojemu računu."
-      : "Vnesi veljaven e-poštni naslov prejemnika.";
+      ? translateText("Povabila ne moreš poslati svojemu računu.")
+      : translateText("Vnesi veljaven e-poštni naslov prejemnika.");
     return;
   }
 
   elements.createShareInvitation.disabled = true;
-  elements.shareDeviceStatus.textContent = "Ustvarjam varno povabilo …";
+  elements.shareDeviceStatus.textContent = translateText("Ustvarjam varno povabilo …");
   elements.shareInvitationResult.hidden = true;
   const { database, ref, set } = firebaseDatabase;
   const createdAt = Date.now();
@@ -4672,12 +5112,12 @@ async function createShareInvitation(event) {
     }
     activeShareInvitationCode = invitationCode;
     elements.shareInvitationCode.textContent = invitationCode;
-    elements.shareInvitationDetail.textContent = `Za ${recipientEmail}; velja do ${formatDashboardDateTime(new Date(invitation.expires_at))}.`;
+    elements.shareInvitationDetail.textContent = formatTranslatedText("Za {email}; velja do {time}.", { email: recipientEmail, time: formatDashboardDateTime(new Date(invitation.expires_at)) });
     elements.shareInvitationResult.hidden = false;
-    elements.shareDeviceStatus.textContent = "Povabilo je pripravljeno. Prejemniku pošlji prikazano kodo.";
+    elements.shareDeviceStatus.textContent = translateText("Povabilo je pripravljeno. Prejemniku pošlji prikazano kodo.");
   } catch (error) {
     console.error(error);
-    elements.shareDeviceStatus.textContent = "Povabila ni bilo mogoče ustvariti. Preveri povezavo in Firebase pravila.";
+    elements.shareDeviceStatus.textContent = translateText("Povabila ni bilo mogoče ustvariti. Preveri povezavo in Firebase pravila.");
   } finally {
     elements.createShareInvitation.disabled = false;
   }
@@ -4687,10 +5127,10 @@ async function copyShareInvitationCode() {
   if (!activeShareInvitationCode) return;
   try {
     await copyText(activeShareInvitationCode);
-    elements.shareDeviceStatus.textContent = "Koda povabila je kopirana.";
+    elements.shareDeviceStatus.textContent = translateText("Koda povabila je kopirana.");
   } catch (error) {
     console.error(error);
-    elements.shareDeviceStatus.textContent = "Kopiranje ni uspelo. Kodo označi in kopiraj ročno.";
+    elements.shareDeviceStatus.textContent = translateText("Kopiranje ni uspelo. Kodo označi in kopiraj ročno.");
   }
 }
 
@@ -4701,13 +5141,13 @@ async function acceptShareInvitation(event) {
   const invitationCode = elements.acceptShareCode.value.trim().toUpperCase();
   const recipientEmail = normalizeEmail(currentCloudUser.email);
   if (!isValidShareInvitationCode(invitationCode) || !recipientEmail) {
-    elements.acceptShareStatus.textContent = "Preveri osemmestno kodo povabila in e-poštni naslov računa.";
+    elements.acceptShareStatus.textContent = translateText("Preveri osemmestno kodo povabila in e-poštni naslov računa.");
     return;
   }
 
   const submitButton = elements.acceptShareForm.querySelector("button[type='submit']");
   submitButton.disabled = true;
-  elements.acceptShareStatus.textContent = "Preverjam povabilo …";
+  elements.acceptShareStatus.textContent = translateText("Preverjam povabilo …");
   const { database, get, ref, update } = firebaseDatabase;
   try {
     const invitationSnapshot = await get(ref(database, `share_invites/${invitationCode}`));
@@ -4744,10 +5184,10 @@ async function acceptShareInvitation(event) {
       [`share_invites/${invitationCode}`]: null,
     });
     elements.acceptShareForm.reset();
-    elements.acceptShareStatus.textContent = `Deljeni panj »${invitation.display_name || deviceId}« je dodan v izbirnik.`;
+    elements.acceptShareStatus.textContent = formatTranslatedText("Deljeni panj »{name}« je dodan v izbirnik.", { name: invitation.display_name || deviceId });
   } catch (error) {
     console.error(error);
-    elements.acceptShareStatus.textContent = "Povabilo ni veljavno, je poteklo ali je namenjeno drugemu e-poštnemu naslovu.";
+    elements.acceptShareStatus.textContent = translateText("Povabilo ni veljavno, je poteklo ali je namenjeno drugemu e-poštnemu naslovu.");
   } finally {
     submitButton.disabled = false;
   }
@@ -4759,7 +5199,7 @@ function renderSharedViewerList(deviceId, accessRecords) {
   if (!viewers.length) {
     const emptyState = document.createElement("p");
     emptyState.className = "muted";
-    emptyState.textContent = "Panj še ni deljen z nobenim uporabnikom.";
+    emptyState.textContent = translateText("Panj še ni deljen z nobenim uporabnikom.");
     elements.sharedViewerList.append(emptyState);
     return;
   }
@@ -4769,14 +5209,14 @@ function renderSharedViewerList(deviceId, accessRecords) {
     row.className = "shared-viewer-row";
     const identity = document.createElement("div");
     const email = document.createElement("strong");
-    email.textContent = access.email || "Uporabnik brez e-poštnega naslova";
+    email.textContent = access.email || translateText("Uporabnik brez e-poštnega naslova");
     const role = document.createElement("small");
-    role.textContent = "Samo ogled";
+    role.textContent = translateText("Samo ogled");
     identity.append(email, role);
     const revokeButton = document.createElement("button");
     revokeButton.type = "button";
     revokeButton.className = "secondary-button danger-button";
-    revokeButton.textContent = "Prekliči dostop";
+    revokeButton.textContent = translateText("Prekliči dostop");
     revokeButton.addEventListener("click", () => revokeSharedViewer(deviceId, viewerUid, access.email, revokeButton));
     row.append(identity, revokeButton);
     elements.sharedViewerList.append(row);
@@ -4787,13 +5227,13 @@ async function revokeSharedViewer(deviceId, viewerUid, viewerEmail, button) {
   if (!currentCloudUser || !firebaseDatabase || getCloudDeviceAccessRole(deviceId) !== "owner") return;
   if (!await confirmDashboardAction({
     title: "Prekliči deljeni dostop",
-    message: `Prekličem dostop samo za ogled uporabniku ${viewerEmail || viewerUid}?`,
+    message: formatTranslatedText("Prekličem dostop samo za ogled uporabniku {user}?", { user: viewerEmail || viewerUid }),
     confirmLabel: "Prekliči dostop",
     danger: true,
   })) return;
 
   button.disabled = true;
-  elements.shareDeviceStatus.textContent = "Preklicujem deljeni dostop …";
+  elements.shareDeviceStatus.textContent = translateText("Preklicujem deljeni dostop …");
   try {
     const { database, ref, update } = firebaseDatabase;
     await update(ref(database), {
@@ -4801,11 +5241,11 @@ async function revokeSharedViewer(deviceId, viewerUid, viewerEmail, button) {
       [`users/${viewerUid}/shared_devices/${deviceId}`]: null,
       [`users/${viewerUid}/weather_preferences/${deviceId}`]: null,
     });
-    elements.shareDeviceStatus.textContent = "Dostop uporabnika je preklican.";
+    elements.shareDeviceStatus.textContent = translateText("Dostop uporabnika je preklican.");
   } catch (error) {
     console.error(error);
     button.disabled = false;
-    elements.shareDeviceStatus.textContent = "Dostopa ni bilo mogoče preklicati.";
+    elements.shareDeviceStatus.textContent = translateText("Dostopa ni bilo mogoče preklicati.");
   }
 }
 
@@ -4843,7 +5283,7 @@ async function unclaimDevice() {
   const displayName = cloudDevices[deviceId].display_name || deviceId;
   const isConfirmed = await confirmDashboardAction({
     title: "Odregistriraj panj",
-    message: `Ali želiš panj »${displayName}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.`,
+    message: formatTranslatedText("Ali želiš panj »{name}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.", { name: displayName }),
     confirmLabel: "Odregistriraj",
     danger: true,
   });
@@ -4851,7 +5291,7 @@ async function unclaimDevice() {
 
   const { database, ref, update } = firebaseDatabase;
   elements.unclaimDevice.disabled = true;
-  elements.unclaimDeviceStatus.textContent = "Odregistriram panj …";
+  elements.unclaimDeviceStatus.textContent = translateText("Odregistriram panj …");
 
   try {
     const updates = {
@@ -4863,10 +5303,10 @@ async function unclaimDevice() {
     await update(ref(database), updates);
 
     localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
-    elements.unclaimDeviceStatus.textContent = "Panj je odregistriran in vsi deljeni dostopi so preklicani. Merilni podatki ostanejo shranjeni.";
+    elements.unclaimDeviceStatus.textContent = translateText("Panj je odregistriran in vsi deljeni dostopi so preklicani. Merilni podatki ostanejo shranjeni.");
   } catch (error) {
     console.error(error);
-    elements.unclaimDeviceStatus.textContent = "Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.";
+    elements.unclaimDeviceStatus.textContent = translateText("Odregistracija ni uspela. Panj ostaja povezan s tvojim računom.");
     elements.unclaimDevice.disabled = false;
   }
 }
@@ -4877,7 +5317,7 @@ async function removeSharedDeviceAccess(deviceId) {
   const displayName = cloudDevices[deviceId]?.display_name || deviceId;
   const isConfirmed = await confirmDashboardAction({
     title: "Odstrani deljeni panj",
-    message: `Ali želiš deljeni panj »${displayName}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.`,
+    message: formatTranslatedText("Ali želiš deljeni panj »{name}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.", { name: displayName }),
     confirmLabel: "Odstrani",
     danger: true,
   });
@@ -4885,7 +5325,7 @@ async function removeSharedDeviceAccess(deviceId) {
 
   const { database, ref, update } = firebaseDatabase;
   elements.unclaimDevice.disabled = true;
-  elements.unclaimDeviceStatus.textContent = "Odstranjujem deljeni panj …";
+  elements.unclaimDeviceStatus.textContent = translateText("Odstranjujem deljeni panj …");
 
   try {
     await update(ref(database), {
@@ -4897,19 +5337,21 @@ async function removeSharedDeviceAccess(deviceId) {
     if (localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY) === deviceId) {
       localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
     }
-    elements.unclaimDeviceStatus.textContent = "Deljeni panj je odstranjen iz tvojega računa.";
+    elements.unclaimDeviceStatus.textContent = translateText("Deljeni panj je odstranjen iz tvojega računa.");
   } catch (error) {
     console.error(error);
-    elements.unclaimDeviceStatus.textContent = "Deljenega panja ni bilo mogoče odstraniti. Dostop ostaja aktiven.";
+    elements.unclaimDeviceStatus.textContent = translateText("Deljenega panja ni bilo mogoče odstraniti. Dostop ostaja aktiven.");
     elements.unclaimDevice.disabled = false;
   }
 }
 
 function confirmAdministratorUnclaim(deviceId, ownerEmail) {
-  const ownerDescription = ownerEmail ? `uporabnika ${ownerEmail}` : "trenutnega uporabnika";
+  const ownerDescription = ownerEmail
+    ? formatTranslatedText("uporabnika {email}", { email: ownerEmail })
+    : translateText("trenutnega uporabnika");
   return confirmDashboardAction({
     title: "Odjavi lastnika",
-    message: `Ali želiš panj ${deviceId} odjaviti od ${ownerDescription}? Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.`,
+    message: formatTranslatedText("Ali želiš panj {deviceId} odjaviti od {owner}? Meritve, SD sinhronizacija in aktivacijska koda ostanejo shranjeni, vsi deljeni dostopi pa bodo preklicani. Panj bo nato mogoče registrirati na drug račun.", { deviceId, owner: ownerDescription }),
     confirmLabel: "Odjavi lastnika",
     requiredText: "ODJAVI",
     danger: true,
@@ -4919,7 +5361,7 @@ function confirmAdministratorUnclaim(deviceId, ownerEmail) {
 function confirmAdministratorDeviceDeletion(deviceId) {
   return confirmDashboardAction({
     title: "Trajno izbriši napravo",
-    message: `Ali želiš napravo ${deviceId} trajno izbrisati iz Firebase? Izbrisani bodo lastništvo, meritve, agregati, stanje naprave, ukazi, aktivacijska koda, zahtevki in deljeni dostopi. Tega ni mogoče razveljaviti. Če je naprava še povezana, lahko z istim firmwareom začne znova pošiljati nove podatke.`,
+    message: formatTranslatedText("Ali želiš napravo {deviceId} trajno izbrisati iz Firebase? Izbrisani bodo lastništvo, meritve, agregati, stanje naprave, ukazi, aktivacijska koda, zahtevki in deljeni dostopi. Tega ni mogoče razveljaviti. Če je naprava še povezana, lahko z istim firmwareom začne znova pošiljati nove podatke.", { deviceId }),
     confirmLabel: "Trajno izbriši",
     requiredText: "IZBRIŠI",
     danger: true,
@@ -4932,13 +5374,13 @@ async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
   const device = cloudDevices[deviceId];
   const ownerUid = String(device?.owner_uid || "");
   if (!ownerUid) {
-    statusElement.textContent = "Panj nima registriranega lastnika.";
+    statusElement.textContent = translateText("Panj nima registriranega lastnika.");
     return;
   }
   if (!await confirmAdministratorUnclaim(deviceId, device.owner_email)) return;
 
   button.disabled = true;
-  statusElement.textContent = "Odjavljam lastnika …";
+  statusElement.textContent = translateText("Odjavljam lastnika …");
   try {
     const { database, ref, update } = firebaseDatabase;
     // Več lokacij posodobimo z enim atomarnim zapisom, da panj ne ostane delno odjavljen.
@@ -4949,10 +5391,10 @@ async function unclaimDeviceAsAdministrator(deviceId, button, statusElement) {
     };
     await appendSharedViewerRemovalUpdates(deviceId, updates);
     await update(ref(database), updates);
-    statusElement.textContent = "Lastnik in vsi deljeni dostopi so odjavljeni. Merilni podatki ostanejo shranjeni.";
+    statusElement.textContent = translateText("Lastnik in vsi deljeni dostopi so odjavljeni. Merilni podatki ostanejo shranjeni.");
   } catch (error) {
     console.error(error);
-    statusElement.textContent = "Odjava lastnika ni uspela. Panj ostaja povezan z računom.";
+    statusElement.textContent = translateText("Odjava lastnika ni uspela. Panj ostaja povezan z računom.");
     button.disabled = false;
   }
 }
@@ -4965,7 +5407,7 @@ async function deleteDeviceAsAdministrator(deviceId, actionButtons, statusElemen
   actionButtons.querySelectorAll("button").forEach((button) => {
     button.disabled = true;
   });
-  statusElement.textContent = "Brišem napravo in njene Firebase zapise …";
+  statusElement.textContent = translateText("Brišem napravo in njene Firebase zapise …");
 
   try {
     const { database, ref, update } = firebaseDatabase;
@@ -4986,10 +5428,10 @@ async function deleteDeviceAsAdministrator(deviceId, actionButtons, statusElemen
     if (localStorage.getItem(CLOUD_DEVICE_STORAGE_KEY) === deviceId) {
       localStorage.removeItem(CLOUD_DEVICE_STORAGE_KEY);
     }
-    statusElement.textContent = "Naprava in vsi njeni Firebase zapisi so izbrisani.";
+    statusElement.textContent = translateText("Naprava in vsi njeni Firebase zapisi so izbrisani.");
   } catch (error) {
     console.error(error);
-    statusElement.textContent = "Izbris naprave ni uspel. Firebase zapisi ostanejo nespremenjeni.";
+    statusElement.textContent = translateText("Izbris naprave ni uspel. Firebase zapisi ostanejo nespremenjeni.");
     actionButtons.querySelectorAll("button").forEach((button) => {
       button.disabled = false;
     });
@@ -5082,8 +5524,8 @@ async function useLocalDataSource() {
   applyBrandAssets(true);
   document.body.dataset.dashboardMode = "local";
   delete document.body.dataset.authState;
-  elements.updatesHeading.textContent = "Ročna posodobitev naprave";
-  elements.updatesSubtitle.textContent = "Brez interneta namesti programsko opremo ali lokalni spletni vmesnik.";
+  elements.updatesHeading.textContent = translateText("Ročna posodobitev naprave");
+  elements.updatesSubtitle.textContent = translateText("Brez interneta namesti programsko opremo ali lokalni spletni vmesnik.");
   elements.otaSection.hidden = true;
   elements.localManualUpdateSection.hidden = false;
   elements.localElegantOtaLink.href = "/update";
@@ -5126,15 +5568,15 @@ async function useLocalDataSource() {
         const historyResponse = await fetch(`/api/history?from=${from}&to=${to}`, { cache: "no-store" });
         if (requestGeneration !== localHistoryRequestGeneration) return;
         if (historyResponse.status === 202) {
-          elements.historySummary.textContent = "Pripravljam lokalno zgodovino s SD kartice …";
+          elements.historySummary.textContent = translateText("Pripravljam lokalno zgodovino s SD kartice …");
           await delay(250);
           continue;
         }
         if (!historyResponse.ok) {
           renderHistory([], true);
-          elements.historySummary.textContent = historyResponse.status === 503
+          elements.historySummary.textContent = translateText(historyResponse.status === 503
             ? "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo."
-            : "Lokalna zgodovina trenutno ni dosegljiva.";
+            : "Lokalna zgodovina trenutno ni dosegljiva.");
           return;
         }
         const history = await historyResponse.json();
@@ -5142,11 +5584,11 @@ async function useLocalDataSource() {
         return;
       }
       renderHistory([], true);
-      elements.historySummary.textContent = "Priprava lokalne zgodovine je trajala predolgo.";
+      elements.historySummary.textContent = translateText("Priprava lokalne zgodovine je trajala predolgo.");
     } catch (error) {
       console.error(error);
       renderHistory([], true);
-      elements.historySummary.textContent = "Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.";
+      elements.historySummary.textContent = translateText("Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.");
     }
   };
 
@@ -5159,8 +5601,8 @@ async function useFirebaseDataSource() {
   applyBrandAssets(false);
   document.body.dataset.dashboardMode = "cloud";
   document.body.dataset.authState = "loading";
-  elements.updatesHeading.textContent = "Posodobitev naprave";
-  elements.updatesSubtitle.textContent = "Varna namestitev nove različice na izbrano napravo.";
+  elements.updatesHeading.textContent = translateText("Posodobitev naprave");
+  elements.updatesSubtitle.textContent = translateText("Varna namestitev nove različice na izbrano napravo.");
   elements.updatesNavigationItem.hidden = false;
   elements.localManualUpdateSection.hidden = true;
   document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = false; });
@@ -5205,6 +5647,7 @@ async function useFirebaseDataSource() {
 
 async function startDashboard() {
   initializeTheme();
+  initializeLanguage();
   initializeNavigation();
   initializeDateRangePicker();
   initializeConfirmationDialog();

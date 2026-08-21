@@ -10,8 +10,10 @@
     <script>
       (() => {
         const savedTheme = localStorage.getItem("pametni-cebelnjak-theme");
+        const savedLanguage = localStorage.getItem("pametni-cebelnjak-language");
         const preferredTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         document.documentElement.dataset.theme = savedTheme || preferredTheme;
+        document.documentElement.lang = ["sl", "hr", "en"].includes(savedLanguage) ? savedLanguage : "sl";
       })();
     </script>
     <link rel="stylesheet" href="styles.css" />
@@ -34,6 +36,19 @@
           <button class="nav-link" id="history-nav-item" type="button" data-view-target="history">Grafi</button>
           <button class="nav-link" type="button" data-view-target="device">Naprava</button>
           <button class="nav-link" id="updates-nav-item" type="button" data-view-target="updates">Posodobitve</button>
+          <div class="mobile-navigation-preferences">
+            <button class="mobile-preference" type="button" data-theme-toggle>
+              <span class="theme-indicator" aria-hidden="true"></span><span data-theme-label>Temna tema</span>
+            </button>
+            <details class="language-switcher mobile-language-switcher">
+              <summary><span data-language-flag>🇸🇮</span><span data-language-label>Slovenščina</span></summary>
+              <div class="language-menu">
+                <button type="button" data-language="sl">🇸🇮 <span>Slovenščina</span></button>
+                <button type="button" data-language="hr">🇭🇷 <span>Hrvatski</span></button>
+                <button type="button" data-language="en">🇬🇧 <span>English</span></button>
+              </div>
+            </details>
+          </div>
         </nav>
 
         <div class="header-actions">
@@ -49,6 +64,14 @@
             <span class="theme-indicator" aria-hidden="true"></span>
             <span id="theme-label">Temna tema</span>
           </button>
+          <details class="language-switcher desktop-language-switcher">
+            <summary aria-label="Izberi jezik"><span class="language-flag" data-language-flag>🇸🇮</span><span class="sr-only" data-language-label>Slovenščina</span></summary>
+            <div class="language-menu">
+              <button type="button" data-language="sl">🇸🇮 <span>Slovenščina</span></button>
+              <button type="button" data-language="hr">🇭🇷 <span>Hrvatski</span></button>
+              <button type="button" data-language="en">🇬🇧 <span>English</span></button>
+            </div>
+          </details>
           <button class="secondary-button compact-button auth-trigger" id="auth-trigger" type="button" hidden>
             <img class="auth-trigger-avatar" id="auth-trigger-avatar" alt="" hidden />
             <span id="auth-trigger-label">Prijava</span>

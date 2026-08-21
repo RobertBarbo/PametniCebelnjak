@@ -60,6 +60,65 @@ button {
   padding: 6px 0 34px;
 }
 
+.brand-copy {
+  min-width: 0;
+}
+
+.language-switcher {
+  position: relative;
+  margin-left: auto;
+}
+
+.language-switcher summary {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  cursor: pointer;
+  list-style: none;
+  background: var(--surface);
+  font-size: 1.35rem;
+}
+
+.language-switcher summary::-webkit-details-marker {
+  display: none;
+}
+
+.language-options {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: max-content;
+  min-width: 156px;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #10241a;
+  box-shadow: var(--shadow);
+}
+
+.language-options button {
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  font-weight: 750;
+  text-align: left;
+}
+
+.language-options button[aria-current="true"],
+.language-options button:hover {
+  background: var(--surface-strong);
+}
+
 .brand-icon {
   width: 56px;
   height: 56px;

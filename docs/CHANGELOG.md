@@ -6,6 +6,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Začetni Android provisioning zaslon je lokaliziran v slovenščino, hrvaščino in angleščino. Izbirnik z zastavami shrani izbiro, jo pošlje v vgrajeno cloud nadzorno ploščo in prevaja vse korake nastavitve Wi-Fi-ja, obrazce, statuse, napake in dostopnostne oznake.
+- Cloud in lokalna nadzorna plošča sta lokalizirani v slovenščino, hrvaščino in angleščino. Izbirnik z zastavami je na namizju v glavi, na telefonu pa v meniju; izbira se shrani v brskalnik. Prevedeni so statični napisi, obrazci, modali, statusi, napake, grafi, vreme, OTA in skrbniški pogled SD kartice.
 - Glavni skrbnik ima v zavihku **Naprava** med vremenskimi nastavitvami in stanjem sistema nov odsek **Meritve in shranjevanje** za izbrani panj. Nastavi lahko prikaz teže na eno ali dve decimalki, interval meritev od 5 do 120 sekund ter interval zapisa SD zgodovine od 1 do 30 minut.
 - Skrita lokalna pot **`/sd_card`** ponuja zaščiten raziskovalec SD kartice za pregled map, prenos, nalaganje in trajno brisanje datotek. Dostop uporablja Basic Auth z uporabniškim imenom `admin`; začetno geslo je lokalna aktivacijska koda, nato pa ga je mogoče na isti strani zamenjati in se ločeno shrani v NVS naprave.
 - Pri nalaganju datoteke z obstoječim imenom raziskovalec prikaže prilagojen modal za potrditev prepisa. Potrjena zamenjava po končanem nalaganju uporabi začasno datoteko, nato pa zamenja staro datoteko; posebej za `measurements.csv` vmesnik zahteva predhodno varnostno kopijo.
@@ -28,6 +30,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Ob menjavi jezika se zdaj pravilno osvežijo tudi že prikazana dinamična statusna sporočila vremena. Prevedeni so še OTA odgovori firmware-a, čas delovanja naprave, stanje kalibracijskih odmikov, oznake serij grafov in rezervna oznaka lokacije s koordinatami. V sinhronizaciji zgodovine se ne prikazuje več tehnični razmik ponovnih poskusov.
 - Y-os grafa teže uporablja korake 0,01 / 0,02 / 0,05 kg in večje natančne večkratnike. Dve različni vmesni vrednosti se zato po prikazu na dve decimalki ne moreta več izpisati z isto oznako.
 - Lokalni raziskovalec SD kartice za izpis map uporabi neposredno FAT/POSIX iteracijo, zato zanesljivo prikaže datoteke in mape na FAT SD kartici.
 - Poti raziskovalca so dodane pred začetno potjo `/sd_card`, saj je ta prej prestregla tudi zahtevek `/sd_card/api/list` in namesto JSON-a vrnila HTML stran. Vmesnik zato ni dobil poti, zasedenosti ali seznama datotek.

@@ -285,6 +285,73 @@ select {
   font-weight: 750;
 }
 
+.language-switcher {
+  position: relative;
+  z-index: 2;
+}
+
+.language-switcher summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 1.15rem;
+  line-height: 1;
+  list-style: none;
+}
+
+.language-switcher summary::-webkit-details-marker {
+  display: none;
+}
+
+.language-switcher summary:hover,
+.language-switcher summary:focus-visible,
+.language-switcher[open] summary {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+  background: var(--surface-soft);
+}
+
+.language-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  min-width: 162px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-small);
+}
+
+.language-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 750;
+  text-align: left;
+}
+
+.language-menu button:hover,
+.language-menu button:focus-visible,
+.language-menu button[aria-current="true"] {
+  background: var(--surface-soft);
+}
+
+.mobile-navigation-preferences {
+  display: none;
+}
+
 .theme-indicator {
   position: relative;
   width: 16px;
@@ -2809,6 +2876,42 @@ body[data-dashboard-mode="cloud"][data-auth-state="signed-out"] .menu-toggle {
 
   .top-navigation.open {
     display: grid;
+  }
+
+  .header-actions > .theme-toggle,
+  .header-actions > .desktop-language-switcher {
+    display: none;
+  }
+
+  .mobile-navigation-preferences {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border);
+  }
+
+  .mobile-preference,
+  .mobile-language-switcher summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 9px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 13px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+    font-size: 0.82rem;
+    font-weight: 750;
+  }
+
+  .mobile-language-switcher .language-menu {
+    right: 0;
+    left: 0;
+    min-width: 0;
   }
 
   .nav-link {

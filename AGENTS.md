@@ -43,6 +43,7 @@
 ## Spletna nadzorna plošča
 
 - Statična lokalna nadzorna plošča je v mapi `web/` in mora ostati odzivna za telefon, tablico in namizni računalnik.
+- Vsaka sprememba lokalnega ali cloud spletnega vmesnika mora biti hkrati izvedena večjezično v slovenščini (`sl`), hrvaščini (`hr`) in angleščini (`en`). To velja za statična besedila, dinamična sporočila, statuse, napake, modale, obrazce, gumbe, tooltipe, dostopnostne oznake in besedila grafov; novi uporabniku vidni teksti ne smejo ostati zapisani neposredno mimo skupnega prevodnega mehanizma.
 - ESP32 isti uporabniški vmesnik streže iz LittleFS prek lokalnega IP-ja z `ESPAsyncWebServer` na portu `80`; lokalni API poti so `/api/status`, `/api/history`, `/api/wifi`, `/api/sync/reset`, `/api/sensors/load-cell/tare` in `/api/time`.
 - Lokalni pogled mora delovati brez interneta, vključno z grafi iz SD CSV dnevnika.
 - uPlot mora biti lokalno priložen v `web/vendor/`, saj lokalni pogled ne sme uporabljati CDN povezave.

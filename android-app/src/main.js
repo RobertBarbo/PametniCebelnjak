@@ -1,7 +1,51 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 
-const CLOUD_URL = new URL('./dashboard/index.html?app=android', window.location.href).href;
+const LANGUAGE_STORAGE_KEY = 'pametni-cebelnjak-language';
+const LANGUAGE_OPTIONS = {
+  sl: { flag: '🇸🇮', label: 'Slovenščina' },
+  hr: { flag: '🇭🇷', label: 'Hrvatski' },
+  en: { flag: '🇬🇧', label: 'English' },
+};
+const TRANSLATIONS = {
+  hr: {
+    'Pametni čebelnjak': 'Pametna košnica', 'Mobilna aplikacija': 'Mobilna aplikacija', 'Izberi jezik': 'Odaberi jezik',
+    'DOBRODOŠLI': 'DOBRO DOŠLI', 'Tvoj panj.<br />Vedno blizu.': 'Tvoja košnica.<br />Uvijek blizu.', 'Spremljaj meritve v cloudu ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.': 'Prati mjerenja u oblaku ili u nekoliko koraka poveži novi uređaj s kućnom Wi‑Fi mrežom.',
+    'NADZOR': 'NADZOR', 'Odpri nadzorno ploščo': 'Otvori nadzornu ploču', 'Prijava, meritve, grafi, opozorila in oddaljene posodobitve.': 'Prijava, mjerenja, grafovi, upozorenja i udaljena ažuriranja.',
+    'PRVA NASTAVITEV': 'PRVO POSTAVLJANJE', 'Poveži novo napravo': 'Poveži novi uređaj', 'Aplikacija poišče dostopno točko <strong>Cebelnjak-…</strong> in te vodi do povezave z domačim omrežjem.': 'Aplikacija pronalazi pristupnu točku <strong>Cebelnjak-…</strong> i vodi te do povezivanja s kućnom mrežom.', 'Začni nastavitev': 'Započni postavljanje',
+    'Nazaj': 'Natrag', 'NASTAVITEV NAPRAVE': 'POSTAVLJANJE UREĐAJA', 'Povezava z Wi‑Fi': 'Povezivanje s Wi‑Fi mrežom', 'Vklopi napravo in počakaj, da se prikaže omrežje z imenom <strong>Cebelnjak-…</strong>.': 'Uključi uređaj i pričekaj da se pojavi mreža naziva <strong>Cebelnjak-…</strong>.',
+    '1. KORAK': '1. KORAK', 'Poveži se z napravo': 'Poveži se s uređajem', 'Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.': 'Android će prikazati sistemski prozor. Odaberi mrežu koja počinje s <strong>Cebelnjak-</strong> i potvrdi povezivanje.', '<strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova.': '<strong>Savjet:</strong> ako mreže nema na popisu, ponovno pokreni uređaj i pokušaj ponovno.', 'Poišči napravo': 'Pronađi uređaj',
+    '2. KORAK': '2. KORAK', 'Izberi domače omrežje': 'Odaberi kućnu mrežu', 'Naprava povezana': 'Uređaj povezan', 'Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.': 'Uređaj sam pronalazi mreže. Wi‑Fi lozinka šalje se izravno uređaju i ne sprema se u aplikaciji.', 'Wi‑Fi omrežje': 'Wi‑Fi mreža', 'Najprej poišči omrežja': 'Najprije potraži mreže', 'Ponovno poišči omrežja': 'Ponovno potraži mreže', 'Wi‑Fi geslo': 'Wi‑Fi lozinka', 'Vnesi geslo omrežja': 'Unesi lozinku mreže', 'Prikaži geslo': 'Prikaži lozinku', 'Skrij geslo': 'Sakrij lozinku', 'Shrani in poveži': 'Spremi i poveži',
+    'POVEZAVA JE USPELA': 'POVEZIVANJE JE USPJELO', 'Naprava je pripravljena': 'Uređaj je spreman', 'Naprava je povezana z domačim omrežjem.': 'Uređaj je povezan s kućnom mrežom.', 'Omrežje': 'Mreža', 'Lokalni IP': 'Lokalni IP', 'ID naprave': 'ID uređaja', 'Nadaljuj v nadzorno ploščo': 'Nastavi na nadzornu ploču', 'Nazaj na začetek': 'Natrag na početak', 'Nadzorna plošča': 'Nadzorna ploča', 'Odpiram nadzorno ploščo …': 'Otvaram nadzornu ploču …', 'Pametni čebelnjak – nadzorna plošča': 'Pametna košnica – nadzorna ploča', 'Različica aplikacije 0.1.0': 'Verzija aplikacije 0.1.0',
+    'Google prijava ni vrnila veljavnega identifikacijskega žetona.': 'Google prijava nije vratila valjani identifikacijski token.', 'Nepodprta nativna prijavna operacija.': 'Nepodržana nativna operacija prijave.', 'Nativna prijava ni uspela.': 'Nativna prijava nije uspjela.', 'Iščem Wi-Fi omrežja': 'Tražim Wi‑Fi mreže', 'Povezovanje z napravo je na voljo v nameščeni Android aplikaciji.': 'Povezivanje s uređajem dostupno je u instaliranoj Android aplikaciji.', 'Čakam na izbiro …': 'Čekam odabir …', 'V Androidovem oknu izberi omrežje Cebelnjak-…': 'U Android prozoru odaberi mrežu Cebelnjak-…', 'Povezava z napravo je vzpostavljena. Iščem domača omrežja …': 'Veza s uređajem je uspostavljena. Tražim kućne mreže …', 'Povezave z napravo ni bilo mogoče vzpostaviti.': 'Nije bilo moguće uspostaviti vezu s uređajem.', 'Naprava se ni odzvala.': 'Uređaj nije odgovorio.', 'Izberi omrežje': 'Odaberi mrežu', 'zaščiteno': 'zaštićeno', 'Naprava išče razpoložljiva Wi‑Fi omrežja …': 'Uređaj traži dostupne Wi‑Fi mreže …', 'Seznama omrežij ni bilo mogoče prebrati.': 'Popis mreža nije bilo moguće učitati.', 'Izberi domače omrežje in vnesi geslo.': 'Odaberi kućnu mrežu i unesi lozinku.', 'Naprava ni našla nobenega omrežja. Poskusi znova.': 'Uređaj nije pronašao nijednu mrežu. Pokušaj ponovno.', 'Iskanje omrežij ni uspelo.': 'Pretraživanje mreža nije uspjelo.', 'Povezujem …': 'Povezujem …', 'Shrani in poveži': 'Spremi i poveži', 'Naprava se povezuje z omrežjem {ssid}. To lahko traja do 30 sekund …': 'Uređaj se povezuje s mrežom {ssid}. To može potrajati do 30 sekundi …', 'Naprava ni sprejela nastavitev.': 'Uređaj nije prihvatio postavke.', 'Povezovanje z domačim omrežjem ni uspelo.': 'Povezivanje s kućnom mrežom nije uspjelo.', 'Povezava z domačim omrežjem ni uspela. Preveri geslo.': 'Povezivanje s kućnom mrežom nije uspjelo. Provjeri lozinku.', 'Naprava v predvidenem času ni dobila povezave. Preveri omrežje in poskusi znova.': 'Uređaj nije dobio vezu u predviđenom vremenu. Provjeri mrežu i pokušaj ponovno.', 'Povezovanje ni uspelo.': 'Povezivanje nije uspjelo.', 'Naprava je povezana z omrežjem {ssid}. Nadaljuj v nadzorno ploščo in registriraj panj.': 'Uređaj je povezan s mrežom {ssid}. Nastavi na nadzornu ploču i registriraj košnicu.',
+  },
+  en: {
+    'Pametni čebelnjak': 'Smart Beehive', 'Mobilna aplikacija': 'Mobile app', 'Izberi jezik': 'Select language',
+    'DOBRODOŠLI': 'WELCOME', 'Tvoj panj.<br />Vedno blizu.': 'Your hive.<br />Always close.', 'Spremljaj meritve v cloudu ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.': 'Monitor measurements in the cloud or connect a new device to your home Wi‑Fi in a few steps.',
+    'NADZOR': 'DASHBOARD', 'Odpri nadzorno ploščo': 'Open dashboard', 'Prijava, meritve, grafi, opozorila in oddaljene posodobitve.': 'Sign in, measurements, charts, alerts, and remote updates.',
+    'PRVA NASTAVITEV': 'FIRST SETUP', 'Poveži novo napravo': 'Connect a new device', 'Aplikacija poišče dostopno točko <strong>Cebelnjak-…</strong> in te vodi do povezave z domačim omrežjem.': 'The app finds the <strong>Cebelnjak-…</strong> access point and guides you through connecting to your home network.', 'Začni nastavitev': 'Start setup',
+    'Nazaj': 'Back', 'NASTAVITEV NAPRAVE': 'DEVICE SETUP', 'Povezava z Wi‑Fi': 'Wi‑Fi connection', 'Vklopi napravo in počakaj, da se prikaže omrežje z imenom <strong>Cebelnjak-…</strong>.': 'Turn on the device and wait for the network named <strong>Cebelnjak-…</strong> to appear.',
+    '1. KORAK': 'STEP 1', 'Poveži se z napravo': 'Connect to the device', 'Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.': 'Android will show a system dialog. Select the network beginning with <strong>Cebelnjak-</strong> and confirm the connection.', '<strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova.': '<strong>Tip:</strong> if the network is not listed, restart the device and try again.', 'Poišči napravo': 'Find device',
+    '2. KORAK': 'STEP 2', 'Izberi domače omrežje': 'Select your home network', 'Naprava povezana': 'Device connected', 'Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.': 'The device finds networks itself. The Wi‑Fi password is sent directly to the device and is not stored in the app.', 'Wi‑Fi omrežje': 'Wi‑Fi network', 'Najprej poišči omrežja': 'Search for networks first', 'Ponovno poišči omrežja': 'Search networks again', 'Wi‑Fi geslo': 'Wi‑Fi password', 'Vnesi geslo omrežja': 'Enter the network password', 'Prikaži geslo': 'Show password', 'Skrij geslo': 'Hide password', 'Shrani in poveži': 'Save and connect',
+    'POVEZAVA JE USPELA': 'CONNECTION SUCCESSFUL', 'Naprava je pripravljena': 'Device is ready', 'Naprava je povezana z domačim omrežjem.': 'The device is connected to your home network.', 'Omrežje': 'Network', 'Lokalni IP': 'Local IP', 'ID naprave': 'Device ID', 'Nadaljuj v nadzorno ploščo': 'Continue to dashboard', 'Nazaj na začetek': 'Back to start', 'Nadzorna plošča': 'Dashboard', 'Odpiram nadzorno ploščo …': 'Opening dashboard …', 'Pametni čebelnjak – nadzorna plošča': 'Smart Beehive – dashboard', 'Različica aplikacije 0.1.0': 'App version 0.1.0',
+    'Google prijava ni vrnila veljavnega identifikacijskega žetona.': 'Google sign-in did not return a valid ID token.', 'Nepodprta nativna prijavna operacija.': 'Unsupported native sign-in operation.', 'Nativna prijava ni uspela.': 'Native sign-in failed.', 'Iščem Wi-Fi omrežja': 'Searching Wi‑Fi networks', 'Povezovanje z napravo je na voljo v nameščeni Android aplikaciji.': 'Device connection is available in the installed Android app.', 'Čakam na izbiro …': 'Waiting for selection …', 'V Androidovem oknu izberi omrežje Cebelnjak-…': 'In the Android dialog, select the Cebelnjak-… network.', 'Povezava z napravo je vzpostavljena. Iščem domača omrežja …': 'Connected to the device. Searching home networks …', 'Povezave z napravo ni bilo mogoče vzpostaviti.': 'Could not connect to the device.', 'Naprava se ni odzvala.': 'The device did not respond.', 'Izberi omrežje': 'Select a network', 'zaščiteno': 'secured', 'Naprava išče razpoložljiva Wi‑Fi omrežja …': 'The device is searching for available Wi‑Fi networks …', 'Seznama omrežij ni bilo mogoče prebrati.': 'Could not read the network list.', 'Izberi domače omrežje in vnesi geslo.': 'Select your home network and enter the password.', 'Naprava ni našla nobenega omrežja. Poskusi znova.': 'The device found no networks. Try again.', 'Iskanje omrežij ni uspelo.': 'Network search failed.', 'Povezujem …': 'Connecting …', 'Naprava se povezuje z omrežjem {ssid}. To lahko traja do 30 sekund …': 'The device is connecting to {ssid}. This may take up to 30 seconds …', 'Naprava ni sprejela nastavitev.': 'The device did not accept the settings.', 'Povezovanje z domačim omrežjem ni uspelo.': 'Connection to the home network failed.', 'Povezava z domačim omrežjem ni uspela. Preveri geslo.': 'Connection to the home network failed. Check the password.', 'Naprava v predvidenem času ni dobila povezave. Preveri omrežje in poskusi znova.': 'The device did not connect in time. Check the network and try again.', 'Povezovanje ni uspelo.': 'Connection failed.', 'Naprava je povezana z omrežjem {ssid}. Nadaljuj v nadzorno ploščo in registriraj panj.': 'The device is connected to {ssid}. Continue to the dashboard and register the hive.',
+  },
+};
+let activeLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY) || 'sl';
+if (!LANGUAGE_OPTIONS[activeLanguage]) activeLanguage = 'sl';
+
+function t(source, values = {}) {
+  const translated = TRANSLATIONS[activeLanguage]?.[source] || source;
+  return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), translated);
+}
+
+function dashboardUrl() {
+  const url = new URL('./dashboard/index.html?app=android', window.location.href);
+  url.searchParams.set('language', activeLanguage);
+  return url.href;
+}
+
+const CLOUD_URL = dashboardUrl();
 const ProvisioningWifi = registerPlugin('ProvisioningWifi');
 const NATIVE_AUTH_REQUEST_TYPE = 'pametni-cebelnjak-native-auth-request';
 const NATIVE_AUTH_RESULT_TYPE = 'pametni-cebelnjak-native-auth-result';
@@ -28,12 +72,47 @@ const elements = {
   resultIp: document.querySelector('#result-ip'),
   resultDeviceId: document.querySelector('#result-device-id'),
   successMessage: document.querySelector('#success-message'),
+  languageFlags: [...document.querySelectorAll('[data-language-flag]')],
+  languageButtons: [...document.querySelectorAll('[data-language]')],
+  languageSwitcher: document.querySelector('.language-switcher'),
 };
 
 let currentStep = 1;
 let scanTimer = null;
 let connectionTimer = null;
 let dashboardReady = false;
+
+function translateStaticContent() {
+  document.documentElement.lang = activeLanguage;
+  document.querySelectorAll('[data-i18n]').forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach((element) => {
+    element.innerHTML = t(element.dataset.i18nHtml);
+  });
+  document.querySelectorAll('[aria-label], [placeholder], [title]').forEach((element) => {
+    ['aria-label', 'placeholder', 'title'].forEach((attribute) => {
+      if (!element.hasAttribute(attribute)) return;
+      const source = element.dataset[`source${attribute[0].toUpperCase()}${attribute.slice(1).replace(/-([a-z])/g, (_, char) => char.toUpperCase())}`] || element.getAttribute(attribute);
+      element.dataset[`source${attribute[0].toUpperCase()}${attribute.slice(1).replace(/-([a-z])/g, (_, char) => char.toUpperCase())}`] = source;
+      element.setAttribute(attribute, t(source));
+    });
+  });
+  document.title = t('Pametni čebelnjak');
+  const option = LANGUAGE_OPTIONS[activeLanguage];
+  elements.languageFlags.forEach((element) => { element.textContent = option.flag; });
+  elements.languageButtons.forEach((button) => button.setAttribute('aria-current', String(button.dataset.language === activeLanguage)));
+}
+
+function setLanguage(language) {
+  activeLanguage = LANGUAGE_OPTIONS[language] ? language : 'sl';
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, activeLanguage);
+  translateStaticContent();
+  elements.languageSwitcher.open = false;
+  if (elements.dashboardFrame.getAttribute('src')) {
+    elements.dashboardFrame.src = dashboardUrl();
+  }
+}
 
 function showView(view) {
   elements.homeView.classList.toggle('is-active', view === 'home');
@@ -84,7 +163,7 @@ function preloadDashboard() {
     return;
   }
 
-  elements.dashboardFrame.src = elements.dashboardFrame.dataset.src || CLOUD_URL;
+  elements.dashboardFrame.src = dashboardUrl() || elements.dashboardFrame.dataset.src || CLOUD_URL;
 }
 
 async function executeNativeAuthentication(action) {
@@ -95,7 +174,7 @@ async function executeNativeAuthentication(action) {
       accessToken: result?.credential?.accessToken || '',
     };
     if (!payload.idToken) {
-      throw new Error('Google prijava ni vrnila veljavnega identifikacijskega žetona.');
+      throw new Error(t('Google prijava ni vrnila veljavnega identifikacijskega žetona.'));
     }
     return payload;
   }
@@ -105,7 +184,7 @@ async function executeNativeAuthentication(action) {
     return {};
   }
 
-  throw new Error('Nepodprta nativna prijavna operacija.');
+  throw new Error(t('Nepodprta nativna prijavna operacija.'));
 }
 
 window.PametniCebelnjakNativeAuth = Object.freeze({
@@ -137,7 +216,7 @@ async function handleNativeAuthenticationRequest(event) {
       ok: false,
       error: {
         code: error?.code || 'native-auth-failed',
-        message: error?.message || 'Nativna prijava ni uspela.',
+        message: error?.message || t('Nativna prijava ni uspela.'),
       },
     }, '*');
   }
@@ -146,43 +225,43 @@ async function handleNativeAuthenticationRequest(event) {
 function setScanBusy(busy) {
   elements.scanButton.disabled = busy;
   elements.scanButton.classList.toggle('is-loading', busy);
-  elements.scanButton.setAttribute('aria-label', busy ? 'Iščem Wi-Fi omrežja' : 'Ponovno poišči omrežja');
+  elements.scanButton.setAttribute('aria-label', busy ? t('Iščem Wi-Fi omrežja') : t('Ponovno poišči omrežja'));
 }
 
 async function connectToDevice() {
   if (!Capacitor.isNativePlatform()) {
-    setStatus('Povezovanje z napravo je na voljo v nameščeni Android aplikaciji.', true);
+    setStatus(t('Povezovanje z napravo je na voljo v nameščeni Android aplikaciji.'), true);
     return;
   }
 
-  setBusy(elements.connectButton, true, 'Čakam na izbiro …', 'Poišči napravo');
-  setStatus('V Androidovem oknu izberi omrežje Cebelnjak-…');
+  setBusy(elements.connectButton, true, t('Čakam na izbiro …'), t('Poišči napravo'));
+  setStatus(t('V Androidovem oknu izberi omrežje Cebelnjak-…'));
   try {
     await ProvisioningWifi.connect();
-    setStatus('Povezava z napravo je vzpostavljena. Iščem domača omrežja …');
+    setStatus(t('Povezava z napravo je vzpostavljena. Iščem domača omrežja …'));
     showStep(2);
     await loadDeviceStatus();
     await scanNetworks();
   } catch (error) {
-    setStatus(error?.message || 'Povezave z napravo ni bilo mogoče vzpostaviti.', true);
+    setStatus(error?.message || t('Povezave z napravo ni bilo mogoče vzpostaviti.'), true);
   } finally {
-    setBusy(elements.connectButton, false, 'Čakam na izbiro …', 'Poišči napravo');
+    setBusy(elements.connectButton, false, t('Čakam na izbiro …'), t('Poišči napravo'));
   }
 }
 
 async function loadDeviceStatus() {
   const response = await ProvisioningWifi.getStatus();
-  if (response.statusCode !== 200) throw new Error('Naprava se ni odzvala.');
+  if (response.statusCode !== 200) throw new Error(t('Naprava se ni odzvala.'));
   return JSON.parse(response.body);
 }
 
 function renderNetworks(networks) {
   const sortedNetworks = [...networks].sort((left, right) => right.rssi - left.rssi);
-  elements.ssidSelect.innerHTML = '<option value="">Izberi omrežje</option>';
+  elements.ssidSelect.innerHTML = `<option value="">${t('Izberi omrežje')}</option>`;
   sortedNetworks.forEach((network) => {
     const option = document.createElement('option');
     option.value = network.ssid;
-    option.textContent = `${network.ssid} · ${network.rssi} dBm${network.secured ? ' · zaščiteno' : ''}`;
+    option.textContent = `${network.ssid} · ${network.rssi} dBm${network.secured ? ` · ${t('zaščiteno')}` : ''}`;
     option.dataset.secured = String(network.secured);
     elements.ssidSelect.append(option);
   });
@@ -193,7 +272,7 @@ function renderNetworks(networks) {
 async function scanNetworks() {
   clearTimeout(scanTimer);
   setScanBusy(true);
-  setStatus('Naprava išče razpoložljiva Wi‑Fi omrežja …');
+  setStatus(t('Naprava išče razpoložljiva Wi‑Fi omrežja …'));
   try {
     const response = await ProvisioningWifi.scanNetworks();
     const payload = JSON.parse(response.body);
@@ -202,12 +281,12 @@ async function scanNetworks() {
       return;
     }
     if (response.statusCode !== 200 || !Array.isArray(payload.networks)) {
-      throw new Error('Seznama omrežij ni bilo mogoče prebrati.');
+      throw new Error(t('Seznama omrežij ni bilo mogoče prebrati.'));
     }
     renderNetworks(payload.networks);
-    setStatus(payload.networks.length ? 'Izberi domače omrežje in vnesi geslo.' : 'Naprava ni našla nobenega omrežja. Poskusi znova.');
+    setStatus(payload.networks.length ? t('Izberi domače omrežje in vnesi geslo.') : t('Naprava ni našla nobenega omrežja. Poskusi znova.'));
   } catch (error) {
-    setStatus(error?.message || 'Iskanje omrežij ni uspelo.', true);
+    setStatus(error?.message || t('Iskanje omrežij ni uspelo.'), true);
   } finally {
     setScanBusy(false);
   }
@@ -228,18 +307,18 @@ async function configureWifi() {
   const password = elements.password.value;
   if (!ssid) return;
 
-  setBusy(elements.configureButton, true, 'Povezujem …', 'Shrani in poveži');
-  setStatus(`Naprava se povezuje z omrežjem ${ssid}. To lahko traja do 30 sekund …`);
+  setBusy(elements.configureButton, true, t('Povezujem …'), t('Shrani in poveži'));
+  setStatus(t('Naprava se povezuje z omrežjem {ssid}. To lahko traja do 30 sekund …', { ssid }));
   try {
     const response = await ProvisioningWifi.configure({ ssid, password });
     if (response.statusCode !== 202) {
       const payload = JSON.parse(response.body || '{}');
-      throw new Error(payload.error || 'Naprava ni sprejela nastavitev.');
+      throw new Error(payload.error || t('Naprava ni sprejela nastavitev.'));
     }
     pollConnectionResult(ssid, Date.now() + 35_000);
   } catch (error) {
-    setBusy(elements.configureButton, false, 'Povezujem …', 'Shrani in poveži');
-    setStatus(error?.message || 'Povezovanje z domačim omrežjem ni uspelo.', true);
+    setBusy(elements.configureButton, false, t('Povezujem …'), t('Shrani in poveži'));
+    setStatus(error?.message || t('Povezovanje z domačim omrežjem ni uspelo.'), true);
   }
 }
 
@@ -254,11 +333,11 @@ async function pollConnectionResult(expectedSsid, deadline) {
     }
 
     if (network.connection_state === 'failed') {
-      throw new Error(network.connection_message || 'Povezava z domačim omrežjem ni uspela. Preveri geslo.');
+      throw new Error(network.connection_message || t('Povezava z domačim omrežjem ni uspela. Preveri geslo.'));
     }
 
     if (Date.now() >= deadline) {
-      throw new Error('Naprava v predvidenem času ni dobila povezave. Preveri omrežje in poskusi znova.');
+      throw new Error(t('Naprava v predvidenem času ni dobila povezave. Preveri omrežje in poskusi znova.'));
     }
     connectionTimer = window.setTimeout(() => pollConnectionResult(expectedSsid, deadline), 1200);
   } catch (error) {
@@ -266,8 +345,8 @@ async function pollConnectionResult(expectedSsid, deadline) {
       connectionTimer = window.setTimeout(() => pollConnectionResult(expectedSsid, deadline), 1200);
       return;
     }
-    setBusy(elements.configureButton, false, 'Povezujem …', 'Shrani in poveži');
-    setStatus(error?.message || 'Povezovanje ni uspelo.', true);
+    setBusy(elements.configureButton, false, t('Povezujem …'), t('Shrani in poveži'));
+    setStatus(error?.message || t('Povezovanje ni uspelo.'), true);
   }
 }
 
@@ -276,7 +355,7 @@ async function showSuccess(status) {
   elements.resultSsid.textContent = network.station_ssid || '—';
   elements.resultIp.textContent = network.station_ip || '—';
   elements.resultDeviceId.textContent = status.device?.device_id || '—';
-  elements.successMessage.textContent = `Naprava je povezana z omrežjem ${network.station_ssid}. Nadaljuj v nadzorno ploščo in registriraj panj.`;
+  elements.successMessage.textContent = t('Naprava je povezana z omrežjem {ssid}. Nadaljuj v nadzorno ploščo in registriraj panj.', { ssid: network.station_ssid });
   elements.password.value = '';
   await ProvisioningWifi.disconnect();
   showStep(3);
@@ -292,7 +371,7 @@ async function resetProvisioning() {
       // Povezava je lahko že zaprta po uspešnem provisioningu.
     }
   }
-  elements.ssidSelect.innerHTML = '<option value="">Najprej poišči omrežja</option>';
+  elements.ssidSelect.innerHTML = `<option value="">${t('Najprej poišči omrežja')}</option>`;
   elements.ssidSelect.disabled = true;
   elements.password.value = '';
   showStep(1);
@@ -301,6 +380,7 @@ async function resetProvisioning() {
 
 elements.openCloudButton.addEventListener('click', openCloud);
 elements.finishCloudButton.addEventListener('click', openCloud);
+elements.languageButtons.forEach((button) => button.addEventListener('click', () => setLanguage(button.dataset.language)));
 elements.dashboardFrame.addEventListener('load', () => {
   dashboardReady = true;
   elements.dashboardLoading.hidden = true;
@@ -320,7 +400,7 @@ elements.configureButton.addEventListener('click', configureWifi);
 document.querySelector('#toggle-password-button').addEventListener('click', (event) => {
   const showPassword = elements.password.type === 'password';
   elements.password.type = showPassword ? 'text' : 'password';
-  event.currentTarget.setAttribute('aria-label', showPassword ? 'Skrij geslo' : 'Prikaži geslo');
+  event.currentTarget.setAttribute('aria-label', showPassword ? t('Skrij geslo') : t('Prikaži geslo'));
   event.currentTarget.setAttribute('aria-pressed', String(showPassword));
 });
 
@@ -329,4 +409,5 @@ window.addEventListener('beforeunload', () => {
   clearTimeout(connectionTimer);
 });
 
+translateStaticContent();
 preloadDashboard();

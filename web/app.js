@@ -6,6 +6,12 @@ const CLOUD_DASHBOARD_URL = "https://pametnicebelnjak.web.app/";
 const OTA_IGNORE_STORAGE_KEY = "pametni-cebelnjak-ignored-ota-version";
 const CLOUD_DEVICE_QUERY_PARAMETER = "device";
 const CLOUD_DEVICE_STORAGE_KEY = "pametni-cebelnjak-cloud-device-id";
+// Cloud seja po 30 minutah brez aktivnosti ustavi RTDB poslušalce, vendar uporabnika še ne odjavi.
+const CLOUD_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000;
+// Po opozorilu ima uporabnik še pet minut za izrecno nadaljevanje seje.
+const CLOUD_LOGOUT_WARNING_MS = 5 * 60 * 1000;
+const CLOUD_INACTIVITY_STORAGE_KEY = "pametni-cebelnjak-cloud-last-activity";
+const CLOUD_INACTIVITY_CHANNEL_NAME = "pametni-cebelnjak-cloud-session";
 const THEME_STORAGE_KEY = "pametni-cebelnjak-theme";
 const LANGUAGE_STORAGE_KEY = "pametni-cebelnjak-language";
 const DEFAULT_VIEW = "overview";
@@ -58,6 +64,9 @@ const LANGUAGE_OPTIONS = {
 const TRANSLATIONS = {
   hr: {
     "SD kartica": "SD kartica",
+    "Še uporabljate Pametni čebelnjak?": "Još koristite Pametnu košnicu?",
+    "Zaradi neaktivnosti boste čez {time} samodejno odjavljeni.": "Zbog neaktivnosti bit ćete automatski odjavljeni za {time}.",
+    "Ostani prijavljen": "Ostani prijavljen",
     "Pametni čebelnjak": "Pametna košnica", "Nadzorna plošča": "Nadzorna ploča", "Pregled": "Pregled",
     "Grafi": "Grafovi", "Naprava": "Uređaj", "Posodobitve": "Ažuriranja", "Svetla tema": "Svijetla tema",
     "Temna tema": "Tamna tema", "Odjava": "Odjava", "Prijava": "Prijava", "Panj · živ pogled": "Košnica · pregled uživo",
@@ -207,6 +216,9 @@ const TRANSLATIONS = {
   },
   en: {
     "SD kartica": "SD card",
+    "Še uporabljate Pametni čebelnjak?": "Are you still using Smart Beehive?",
+    "Zaradi neaktivnosti boste čez {time} samodejno odjavljeni.": "You will be signed out automatically in {time} due to inactivity.",
+    "Ostani prijavljen": "Stay signed in",
     "Pametni čebelnjak": "Smart Beehive", "Nadzorna plošča": "Dashboard", "Pregled": "Overview",
     "Grafi": "Charts", "Naprava": "Device", "Posodobitve": "Updates", "Svetla tema": "Light theme",
     "Temna tema": "Dark theme", "Odjava": "Sign out", "Prijava": "Sign in", "Panj · živ pogled": "Hive · live view",
@@ -543,6 +555,9 @@ const elements = {
   localOtaWarningDialog: document.querySelector("#local-ota-warning-dialog"),
   localOtaWarningCancel: document.querySelector("#local-ota-warning-cancel"),
   localOtaWarningProceed: document.querySelector("#local-ota-warning-proceed"),
+  inactivityWarningDialog: document.querySelector("#inactivity-warning-dialog"),
+  inactivityWarningDescription: document.querySelector("#inactivity-warning-description"),
+  inactivityWarningStaySignedIn: document.querySelector("#inactivity-warning-stay-signed-in"),
   provisioningSection: document.querySelector("#provisioning-section"),
   provisioningDescription: document.querySelector("#provisioning-description"),
   wifiForm: document.querySelector("#wifi-form"),
@@ -683,8 +698,16 @@ let weatherPublicPublishKey = "";
 let weatherSharedLocationLookupKey = "";
 let latestSharedWeatherPublicSettings;
 let sharedWeatherEnabled = false;
+let latestSharedViewerAccess;
 let confirmationDialogResolver;
 let confirmationDialogRequiredText = "";
+let cloudRealtimePaused = false;
+let cloudInactivityWarningActive = false;
+let cloudInactivityLastActivityAt = 0;
+let cloudInactivityCheckTimer;
+let cloudLogoutCountdownTimer;
+let cloudInactivityChannel;
+let cloudInactivityTrackingInitialized = false;
 
 const OTA_STATE_LABELS = {
   preparing: "Priprava posodobitve",
@@ -791,6 +814,10 @@ function refreshTranslatedDashboard() {
     configureCloudAccountView();
     configureSelectedCloudDeviceAccess(cloudDevicePath.replace("devices/", ""));
     renderCloudDeviceSelector();
+    const selectedDeviceId = cloudDevicePath.replace("devices/", "");
+    if (getCloudDeviceAccessRole(selectedDeviceId) === "owner" && latestSharedViewerAccess !== undefined) {
+      renderSharedViewerList(selectedDeviceId, latestSharedViewerAccess);
+    }
   }
   if (latestMeasurement) renderLatestMeasurement(latestMeasurement);
   if (latestDeviceStatus) renderDeviceStatus(latestDeviceStatus);
@@ -923,6 +950,7 @@ async function ensureHistoryViewReady() {
 }
 
 function refreshVisibleHistory() {
+  if (!isLocalDashboard && cloudRealtimePaused) return;
   if (isHistoryViewActive()) ensureHistoryViewReady().catch(showDataError);
 }
 
@@ -941,6 +969,7 @@ function updateLiveHistoryRange() {
 }
 
 function refreshLiveHistoryRange() {
+  if (!isLocalDashboard && cloudRealtimePaused) return;
   if (!isHistoryViewActive() || historyViewLoading) return;
   const previousCloudSource = !isLocalDashboard && appliedRange
     ? getCloudHistorySource(
@@ -1109,6 +1138,31 @@ function clearCloudDeviceListeners() {
   clearCloudHistoryListeners();
 }
 
+function stopCloudDirectoryListeners() {
+  stopCloudDeviceListListener?.();
+  stopCloudSharedDeviceListListener?.();
+  stopCloudDeviceListListener = undefined;
+  stopCloudSharedDeviceListListener = undefined;
+  clearAdminDeviceSummaryListeners();
+}
+
+function startCloudUserDirectoryListeners(user = currentCloudUser) {
+  if (cloudRealtimePaused || !user || !firebaseDatabase || isCloudAdministrator()) return;
+  stopCloudDeviceListListener?.();
+  stopCloudSharedDeviceListListener?.();
+  const { database, onValue, ref } = firebaseDatabase;
+  stopCloudDeviceListListener = onValue(ref(database, `users/${user.uid}/devices`), (snapshot) => {
+    ownedCloudDevices = snapshot.val() ?? {};
+    ownedCloudDevicesLoaded = true;
+    rebuildCloudDevices();
+  }, showDataError);
+  stopCloudSharedDeviceListListener = onValue(ref(database, `users/${user.uid}/shared_devices`), (snapshot) => {
+    sharedCloudDevices = snapshot.val() ?? {};
+    sharedCloudDevicesLoaded = true;
+    rebuildCloudDevices();
+  }, showDataError);
+}
+
 function resetCloudDashboard() {
   setCloudDeviceManagementVisibility(false);
   elements.cloudSyncControls.hidden = true;
@@ -1172,7 +1226,7 @@ function updateAdminDeviceSummary(deviceId, property, value) {
 }
 
 function subscribeAdminDeviceSummary(deviceId) {
-  if (!firebaseDatabase || !cloudDevices[deviceId]) return;
+  if (cloudRealtimePaused || !firebaseDatabase || !cloudDevices[deviceId]) return;
   const { database, onValue, ref } = firebaseDatabase;
   const subscribe = (path, property) => {
     stopAdminDeviceSummaryListeners.push(onValue(
@@ -1187,6 +1241,7 @@ function subscribeAdminDeviceSummary(deviceId) {
 }
 
 function applyAdminDeviceDirectory(deviceIds) {
+  if (cloudRealtimePaused) return;
   clearAdminDeviceSummaryListeners();
   cloudDevices = Object.fromEntries(deviceIds.map((deviceId) => [deviceId, { access_role: "administrator" }]));
   deviceIds.forEach(subscribeAdminDeviceSummary);
@@ -1194,7 +1249,7 @@ function applyAdminDeviceDirectory(deviceIds) {
 }
 
 async function refreshAdminDeviceDirectory() {
-  if (!isCloudAdministrator() || !firebaseDatabaseUrl || !currentCloudUser) return;
+  if (cloudRealtimePaused || !isCloudAdministrator() || !firebaseDatabaseUrl || !currentCloudUser) return;
   const requestGeneration = ++adminDeviceDirectoryRequestGeneration;
   try {
     const token = await currentCloudUser.getIdToken();
@@ -1356,6 +1411,7 @@ function synchronizeCurrentUserOwnerEmails() {
 }
 
 function selectCloudDevice(deviceId) {
+  if (cloudRealtimePaused) return;
   clearCloudDeviceListeners();
   bme680CalibrationPendingUntil = 0;
   bme680CalibrationRequestedAt = 0;
@@ -1370,6 +1426,7 @@ function selectCloudDevice(deviceId) {
   elements.shareDeviceStatus.textContent = "";
   elements.shareInvitationResult.hidden = true;
   elements.sharedViewerList.replaceChildren();
+  latestSharedViewerAccess = undefined;
   activeShareInvitationCode = "";
   const isSharedViewer = getCloudDeviceAccessRole(deviceId) === "viewer";
   elements.otaSection.hidden = !cloudDevicePath || isSharedViewer;
@@ -1416,7 +1473,8 @@ function selectCloudDevice(deviceId) {
   }
   if (getCloudDeviceAccessRole(deviceId) === "owner") {
     stopCloudDeviceListeners.push(onValue(ref(database, `device_access/${deviceId}`), (snapshot) => {
-      renderSharedViewerList(deviceId, snapshot.val());
+      latestSharedViewerAccess = snapshot.val();
+      renderSharedViewerList(deviceId, latestSharedViewerAccess);
     }, showDataError));
   }
   historyViewLoading = undefined;
@@ -1800,6 +1858,7 @@ function resetWeightChangeOverview() {
 }
 
 async function refreshWeightChangeOverview() {
+  if (!isLocalDashboard && cloudRealtimePaused) return;
   const scope = getNightReferenceCacheScope();
   if (!scope) {
     resetWeightChangeOverview();
@@ -1834,6 +1893,7 @@ async function refreshWeightChangeOverview() {
 
 function scheduleWeightChangeOverviewRefresh() {
   clearTimeout(weightChangeRefreshTimer);
+  if (!isLocalDashboard && cloudRealtimePaused) return;
   const now = new Date();
   const nextRefresh = new Date(now);
   nextRefresh.setHours(5, 0, 5, 0);
@@ -2114,6 +2174,7 @@ function renderWeatherForecast(weather) {
 }
 
 async function refreshWeatherForecast(force = false) {
+  if (!isLocalDashboard && cloudRealtimePaused) return;
   const settings = latestWeatherSettings;
   if (!isOverviewViewActive() || elements.weatherOverview.hidden || !settings?.enabled || !weatherHasLocation(settings)) return;
   const deviceId = cloudDevicePath.replace("devices/", "");
@@ -5490,6 +5551,189 @@ async function signOutCurrentUser() {
   }
 }
 
+function getCloudInactivityRecord() {
+  try {
+    const record = JSON.parse(localStorage.getItem(CLOUD_INACTIVITY_STORAGE_KEY) || "null");
+    return record && typeof record === "object" ? record : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatInactivityCountdown(milliseconds) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function updateInactivityWarning() {
+  if (!cloudInactivityWarningActive) return;
+  const remaining = CLOUD_INACTIVITY_TIMEOUT_MS + CLOUD_LOGOUT_WARNING_MS - (Date.now() - cloudInactivityLastActivityAt);
+  setTranslatedElementText(elements.inactivityWarningDescription, "Zaradi neaktivnosti boste čez {time} samodejno odjavljeni.", {
+    time: formatInactivityCountdown(remaining),
+  });
+}
+
+function scheduleCloudInactivityCheck() {
+  clearTimeout(cloudInactivityCheckTimer);
+  clearInterval(cloudLogoutCountdownTimer);
+  if (isLocalDashboard || !currentCloudUser) return;
+  const elapsed = Date.now() - cloudInactivityLastActivityAt;
+  const timeout = cloudInactivityWarningActive
+    ? CLOUD_INACTIVITY_TIMEOUT_MS + CLOUD_LOGOUT_WARNING_MS - elapsed
+    : CLOUD_INACTIVITY_TIMEOUT_MS - elapsed;
+  cloudInactivityCheckTimer = window.setTimeout(checkCloudInactivity, Math.max(0, timeout));
+  if (cloudInactivityWarningActive) {
+    updateInactivityWarning();
+    cloudLogoutCountdownTimer = window.setInterval(updateInactivityWarning, 1000);
+  }
+}
+
+function broadcastCloudInactivity(message) {
+  cloudInactivityChannel?.postMessage(message);
+}
+
+function persistCloudInactivityActivity(timestamp, type = "activity") {
+  if (!currentCloudUser) return;
+  const record = { uid: currentCloudUser.uid, timestamp, type };
+  localStorage.setItem(CLOUD_INACTIVITY_STORAGE_KEY, JSON.stringify(record));
+  broadcastCloudInactivity(record);
+}
+
+function pauseCloudRealtimeForInactivity() {
+  if (cloudRealtimePaused || isLocalDashboard || !currentCloudUser) return;
+  cloudRealtimePaused = true;
+  clearCloudDeviceListeners();
+  stopCloudDirectoryListeners();
+  clearTimeout(weightChangeRefreshTimer);
+}
+
+function resumeCloudRealtimeAfterInactivity() {
+  if (!cloudRealtimePaused || !currentCloudUser || isLocalDashboard) return;
+  cloudRealtimePaused = false;
+  const selectedDeviceId = cloudDevicePath.replace("devices/", "");
+  if (isCloudAdministrator()) void refreshAdminDeviceDirectory();
+  else startCloudUserDirectoryListeners();
+  if (selectedDeviceId && cloudDevices[selectedDeviceId]) selectCloudDevice(selectedDeviceId);
+  scheduleWeightChangeOverviewRefresh();
+  void refreshWeatherForecast(true);
+}
+
+function showCloudInactivityWarning() {
+  if (cloudInactivityWarningActive || isLocalDashboard || !currentCloudUser) return;
+  cloudInactivityWarningActive = true;
+  pauseCloudRealtimeForInactivity();
+  updateInactivityWarning();
+  if (!elements.inactivityWarningDialog.open) elements.inactivityWarningDialog.showModal();
+  scheduleCloudInactivityCheck();
+}
+
+function closeCloudInactivityWarning() {
+  cloudInactivityWarningActive = false;
+  clearInterval(cloudLogoutCountdownTimer);
+  if (elements.inactivityWarningDialog.open) elements.inactivityWarningDialog.close();
+}
+
+async function signOutForCloudInactivity(broadcast = true) {
+  if (!currentCloudUser) return;
+  const uid = currentCloudUser.uid;
+  closeCloudInactivityWarning();
+  clearTimeout(cloudInactivityCheckTimer);
+  if (broadcast) broadcastCloudInactivity({ type: "logout", uid });
+  await signOutCurrentUser();
+}
+
+function checkCloudInactivity() {
+  if (isLocalDashboard || !currentCloudUser) return;
+  const elapsed = Date.now() - cloudInactivityLastActivityAt;
+  if (elapsed >= CLOUD_INACTIVITY_TIMEOUT_MS + CLOUD_LOGOUT_WARNING_MS) {
+    void signOutForCloudInactivity();
+    return;
+  }
+  if (elapsed >= CLOUD_INACTIVITY_TIMEOUT_MS) showCloudInactivityWarning();
+  else scheduleCloudInactivityCheck();
+}
+
+function recordCloudActivity() {
+  if (isLocalDashboard || !currentCloudUser || cloudInactivityWarningActive) return;
+  const timestamp = Date.now();
+  if (timestamp - cloudInactivityLastActivityAt < 1000) return;
+  cloudInactivityLastActivityAt = timestamp;
+  persistCloudInactivityActivity(timestamp);
+  scheduleCloudInactivityCheck();
+}
+
+function resumeCloudSessionFromInactivity(broadcast = true) {
+  if (isLocalDashboard || !currentCloudUser) return;
+  cloudInactivityLastActivityAt = Date.now();
+  closeCloudInactivityWarning();
+  if (broadcast) persistCloudInactivityActivity(cloudInactivityLastActivityAt, "resume");
+  resumeCloudRealtimeAfterInactivity();
+  scheduleCloudInactivityCheck();
+}
+
+function handleSharedCloudInactivityMessage(message) {
+  if (!message || message.uid !== currentCloudUser?.uid) return;
+  if (message.type === "logout") {
+    void signOutForCloudInactivity(false);
+    return;
+  }
+  const timestamp = Number(message.timestamp);
+  if (!Number.isFinite(timestamp) || timestamp <= cloudInactivityLastActivityAt) return;
+  if (message.type === "resume") {
+    cloudInactivityLastActivityAt = timestamp;
+    closeCloudInactivityWarning();
+    resumeCloudRealtimeAfterInactivity();
+    scheduleCloudInactivityCheck();
+    return;
+  }
+  if (!cloudInactivityWarningActive) {
+    cloudInactivityLastActivityAt = timestamp;
+    scheduleCloudInactivityCheck();
+  }
+}
+
+function startCloudInactivityTracking() {
+  if (isLocalDashboard || !currentCloudUser) return;
+  const sharedRecord = getCloudInactivityRecord();
+  const sharedTimestamp = Number(sharedRecord?.timestamp);
+  const maxSharedRecordAge = CLOUD_INACTIVITY_TIMEOUT_MS + CLOUD_LOGOUT_WARNING_MS;
+  const hasUsableSharedRecord = sharedRecord?.uid === currentCloudUser.uid
+    && Number.isFinite(sharedTimestamp)
+    && sharedTimestamp > 0
+    && sharedTimestamp <= Date.now()
+    && Date.now() - sharedTimestamp < maxSharedRecordAge;
+  cloudInactivityLastActivityAt = hasUsableSharedRecord ? sharedTimestamp : Date.now();
+  if (!hasUsableSharedRecord) persistCloudInactivityActivity(cloudInactivityLastActivityAt);
+  if (!cloudInactivityTrackingInitialized) {
+    cloudInactivityTrackingInitialized = true;
+    ["pointerdown", "touchstart", "keydown", "scroll", "wheel"].forEach((eventName) => {
+      window.addEventListener(eventName, recordCloudActivity, { passive: eventName !== "keydown" });
+    });
+    document.addEventListener("visibilitychange", checkCloudInactivity);
+    window.addEventListener("storage", (event) => {
+      if (event.key !== CLOUD_INACTIVITY_STORAGE_KEY || !event.newValue) return;
+      try {
+        const record = JSON.parse(event.newValue);
+        handleSharedCloudInactivityMessage({ ...record, type: record?.type || "activity" });
+      } catch {}
+    });
+    if ("BroadcastChannel" in window) {
+      cloudInactivityChannel = new BroadcastChannel(CLOUD_INACTIVITY_CHANNEL_NAME);
+      cloudInactivityChannel.addEventListener("message", (event) => handleSharedCloudInactivityMessage(event.data));
+    }
+    elements.inactivityWarningStaySignedIn.addEventListener("click", () => resumeCloudSessionFromInactivity());
+    elements.inactivityWarningDialog.addEventListener("cancel", (event) => event.preventDefault());
+  }
+  checkCloudInactivity();
+}
+
+function stopCloudInactivityTracking() {
+  clearTimeout(cloudInactivityCheckTimer);
+  clearInterval(cloudLogoutCountdownTimer);
+  cloudRealtimePaused = false;
+  closeCloudInactivityWarning();
+}
+
 async function claimDevice(event) {
   event.preventDefault();
   if (!currentCloudUser || !firebaseDatabase) return;
@@ -5936,11 +6180,7 @@ async function deleteDeviceAsAdministrator(deviceId, actionButtons, statusElemen
 
 function handleCloudAuthState(user) {
   clearCloudDeviceListeners();
-  stopCloudDeviceListListener?.();
-  stopCloudSharedDeviceListListener?.();
-  clearAdminDeviceSummaryListeners();
-  stopCloudDeviceListListener = undefined;
-  stopCloudSharedDeviceListListener = undefined;
+  stopCloudDirectoryListeners();
   cloudDevices = {};
   ownedCloudDevices = {};
   sharedCloudDevices = {};
@@ -5950,6 +6190,9 @@ function handleCloudAuthState(user) {
   currentCloudUser = user;
 
   if (!user) {
+    stopCloudInactivityTracking();
+    localStorage.removeItem(CLOUD_INACTIVITY_STORAGE_KEY);
+    cloudInactivityLastActivityAt = 0;
     document.body.dataset.authState = "signed-out";
     cloudDevicePath = "";
     elements.accountSection.hidden = true;
@@ -5970,22 +6213,13 @@ function handleCloudAuthState(user) {
   configureCloudAccountView();
   showView(DEFAULT_VIEW);
   renderHeaderDeviceState();
+  startCloudInactivityTracking();
   if (isCloudAdministrator()) {
     void refreshAdminDeviceDirectory();
     return;
   }
 
-  const { database, onValue, ref } = firebaseDatabase;
-  stopCloudDeviceListListener = onValue(ref(database, `users/${user.uid}/devices`), (snapshot) => {
-    ownedCloudDevices = snapshot.val() ?? {};
-    ownedCloudDevicesLoaded = true;
-    rebuildCloudDevices();
-  }, showDataError);
-  stopCloudSharedDeviceListListener = onValue(ref(database, `users/${user.uid}/shared_devices`), (snapshot) => {
-    sharedCloudDevices = snapshot.val() ?? {};
-    sharedCloudDevicesLoaded = true;
-    rebuildCloudDevices();
-  }, showDataError);
+  startCloudUserDirectoryListeners(user);
 }
 
 function initializeAuthControls() {
@@ -6137,6 +6371,7 @@ async function useFirebaseDataSource() {
   initializeAuthControls();
 
   refreshHistory = async () => {
+    if (cloudRealtimePaused) return;
     clearCloudHistoryListeners();
     const requestGeneration = cloudHistoryRequestGeneration;
     if (!cloudDevicePath) {

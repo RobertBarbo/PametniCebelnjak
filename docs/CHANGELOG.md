@@ -6,6 +6,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Cloud nadzorna plošča po 30 minutah neaktivnosti ustavi Firebase RTDB realtime poslušalce in po petminutnem opozorilu uporabnika odjavi. Dejavnost ter nadaljevanje seje se usklajujeta med odprtimi zavihki, lokalni ESP pogled pa ostane brez timeouta.
+
 - Na pregledu je pod kartico trenutnih meritev dodana odzivna kartica **Sprememba mase**. Prikazuje razliko zadnje zaključene nočne mediane mase proti prejšnji noči in noči pred sedmimi koledarskimi dnevi; pri nepopolni zgodovini jasno prikaže **Ni dovolj podatkov**. Za 24 h uporablja spremembo zadnje noči, za 7 dni pa povprečno dnevno spremembo; prag `±0,20 kg/dan` jo označi kot **Prirast mase**, **Stabilno** ali **Izguba mase**. Barva sledi temu statusu, ne zgolj predznaku. Deluje iz Firebase ali lokalnega SD dnevnika tudi brez interneta, uporablja skupno matematično logiko, dark/light temo in prevode SL/HR/EN.
 
 - Začetni Android provisioning zaslon je lokaliziran v slovenščino, hrvaščino in angleščino. Izbirnik z zastavami shrani izbiro, jo pošlje v vgrajeno cloud nadzorno ploščo in prevaja vse korake nastavitve Wi-Fi-ja, obrazce, statuse, napake in dostopnostne oznake.
@@ -36,6 +38,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Ob menjavi jezika se seznam uporabnikov z dostopom samo za ogled znova izriše. Oznaka **Samo ogled** in gumb **Prekliči dostop** zato ne moreta več ostati v prej izbranem jeziku.
 - Ob izbiri praznega cloud obdobja se prejšnji podatki takoj počistijo in grafi z osjo izbranega časa prikažejo lokalizirano prazno stanje.
 - Ob menjavi jezika se zdaj pravilno osvežijo tudi že prikazana dinamična statusna sporočila vremena. Prevedeni so še OTA odgovori firmware-a, čas delovanja naprave, stanje kalibracijskih odmikov, oznake serij grafov in rezervna oznaka lokacije s koordinatami. V sinhronizaciji zgodovine se ne prikazuje več tehnični razmik ponovnih poskusov.
 - Y-os grafa mase uporablja korake 0,01 / 0,02 / 0,05 kg in večje natančne večkratnike. Dve različni vmesni vrednosti se zato po prikazu na dve decimalki ne moreta več izpisati z isto oznako.

@@ -4208,6 +4208,29 @@ function formatChartAxisNumber(value, decimals = 1, fixedDecimals = false) {
     : "";
 }
 
+// Meje mase poravnamo na isti korak kot oznake osi. Tako nobena veljavna
+// meritev ne more ostati pod najnižjo izrisano oznako oziroma mrežno črto.
+function getWeightChartScaleRange(_chart, minimum, maximum) {
+  const lowerValue = Number(minimum);
+  const upperValue = Number(maximum);
+  if (!Number.isFinite(lowerValue) || !Number.isFinite(upperValue)) return [minimum, maximum];
+
+  const span = Math.max(upperValue - lowerValue, 0.01);
+  const targetIncrement = span / 4;
+  const increment = WEIGHT_AXIS_INCREMENTS.find((value) => value >= targetIncrement)
+    ?? WEIGHT_AXIS_INCREMENTS.at(-1);
+  const epsilon = increment / 1_000_000;
+  let lowerBound = Math.floor((lowerValue + epsilon) / increment) * increment;
+  let upperBound = Math.ceil((upperValue - epsilon) / increment) * increment;
+
+  if (lowerBound === upperBound) {
+    lowerBound -= increment;
+    upperBound += increment;
+  }
+
+  return [lowerBound, upperBound];
+}
+
 function getDashboardLanguage() {
   const language = document.documentElement.lang?.toLowerCase();
   return LANGUAGE_OPTIONS[language] ? language : "sl";
@@ -4939,7 +4962,7 @@ function createUPlotOptions(type, chartHost, tooltip, resetZoomButton) {
 
   return {
     ...sharedOptions,
-    scales: { ...sharedOptions.scales, weight: { auto: true } },
+    scales: { ...sharedOptions.scales, weight: { auto: true, range: getWeightChartScaleRange } },
     series: [
       {},
       {

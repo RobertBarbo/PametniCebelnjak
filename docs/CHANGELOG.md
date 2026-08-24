@@ -38,6 +38,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Skala Y grafa mase se na obeh koncih zdaj poravna na korak oznak, zato najnižja oziroma najvišja meritev ne more biti prikazana pod oziroma nad zadnjo označeno mrežno črto.
 - Ob menjavi jezika se seznam uporabnikov z dostopom samo za ogled znova izriše. Oznaka **Samo ogled** in gumb **Prekliči dostop** zato ne moreta več ostati v prej izbranem jeziku.
 - Ob izbiri praznega cloud obdobja se prejšnji podatki takoj počistijo in grafi z osjo izbranega časa prikažejo lokalizirano prazno stanje.
 - Ob menjavi jezika se zdaj pravilno osvežijo tudi že prikazana dinamična statusna sporočila vremena. Prevedeni so še OTA odgovori firmware-a, čas delovanja naprave, stanje kalibracijskih odmikov, oznake serij grafov in rezervna oznaka lokacije s koordinatami. V sinhronizaciji zgodovine se ne prikazuje več tehnični razmik ponovnih poskusov.

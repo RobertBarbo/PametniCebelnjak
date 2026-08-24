@@ -230,13 +230,6 @@
             <button class="secondary-button" id="auth-signout" type="button">Odjava</button>
           </div>
           <div class="account-management" id="account-management">
-            <section class="device-selection-card" id="device-selection-card" aria-labelledby="selected-device-heading">
-              <div><p class="eyebrow" id="device-list-eyebrow">Moji panji</p><h3 id="selected-device-heading">Izbrani panj</h3></div>
-              <label class="account-field">Panj<select id="cloud-device-select" disabled><option value="">Noben panj ni registriran</option></select></label>
-              <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
-              <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
-              <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
-            </section>
             <section class="admin-device-overview" id="admin-device-overview" aria-labelledby="admin-device-overview-heading" hidden>
               <div>
                 <p class="eyebrow">Skrbniški pregled</p>
@@ -246,14 +239,23 @@
               <div class="admin-device-list" id="admin-device-list" aria-live="polite"></div>
             </section>
             <div class="account-form-stack" id="account-form-stack">
-              <form class="claim-device-form" id="claim-device-form">
-                <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
-                <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
-                <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
-                <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
-                <button class="primary-button" type="submit">Registriraj panj</button>
-                <p class="form-status" id="claim-device-status" aria-live="polite"></p>
-              </form>
+              <section class="account-primary-section">
+                <section class="device-selection-card" id="device-selection-card" aria-labelledby="selected-device-heading">
+                  <div><p class="eyebrow" id="device-list-eyebrow">Moji panji</p><h3 id="selected-device-heading">Izbrani panj</h3></div>
+                  <label class="account-field">Panj<select id="cloud-device-select" disabled><option value="">Noben panj ni registriran</option></select></label>
+                  <p class="muted" id="selected-device-description">Izberi panj, katerega podatke želiš pregledovati.</p>
+                  <button class="secondary-button danger-button" id="unclaim-device" type="button" disabled>Odjavi izbrani panj</button>
+                  <p class="form-status" id="unclaim-device-status" aria-live="polite"></p>
+                </section>
+                <form class="claim-device-form" id="claim-device-form">
+                  <div><p class="eyebrow">Dodaj panj</p><h2>Registriraj panj</h2><p class="muted">Vnesi ID naprave in aktivacijsko kodo.</p></div>
+                  <label class="account-field">Ime panja<input id="claim-device-name" type="text" maxlength="40" placeholder="Moj panj" required /></label>
+                  <label class="account-field">ID naprave<input id="claim-device-id" type="text" maxlength="15" placeholder="CB-123456ABCDEF" autocomplete="off" required /></label>
+                  <label class="account-field">Aktivacijska koda<input id="claim-activation-code" type="text" maxlength="8" placeholder="ABCDEFGH" autocomplete="off" required /></label>
+                  <button class="primary-button" type="submit">Registriraj panj</button>
+                  <p class="form-status" id="claim-device-status" aria-live="polite"></p>
+                </form>
+              </section>
 
               <section class="share-device-panel" id="share-device-panel" aria-labelledby="share-device-heading" hidden>
                 <div><p class="eyebrow">Deli panj</p><h2 id="share-device-heading">Dostop samo za ogled</h2><p class="muted">Povabilo velja 24 ur in samo za navedeni e-poštni naslov. Povabljeni uporabnik lahko vidi meritve in grafe, naprave pa ne more upravljati.</p></div>

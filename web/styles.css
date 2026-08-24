@@ -25,6 +25,7 @@
   --radius-medium: 20px;
   --radius-small: 13px;
   --header-height: 78px;
+  --section-divider-space: 22px;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -484,6 +485,11 @@ select {
   box-shadow: var(--shadow);
 }
 
+/* Glavne cloud in lokalne kartice uporabljajo enak zunanji navpični razmik. */
+.app-view > .surface {
+  margin: 0 0 var(--section-divider-space);
+}
+
 .latest-panel,
 .weight-change-panel,
 .weather-overview,
@@ -564,14 +570,6 @@ select {
   letter-spacing: 0;
 }
 
-.weather-overview {
-  margin-top: 20px;
-}
-
-.weight-change-panel {
-  margin-top: 20px;
-}
-
 .weight-change-panel .section-heading {
   margin-bottom: 18px;
 }
@@ -635,10 +633,6 @@ select {
 .weight-change-reference {
   margin-top: 18px;
   font-weight: 700;
-}
-
-.measurement-settings-panel {
-  margin-bottom: 22px;
 }
 
 .measurement-settings-form {
@@ -1240,16 +1234,11 @@ select:disabled {
   font-size: 0.85rem;
 }
 
-.provisioning-section,
-.account-section {
-  margin-bottom: 22px;
-}
-
 .load-cell-tare-control {
   display: grid;
   gap: 10px;
-  margin-top: 24px;
-  padding-top: 22px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1272,8 +1261,8 @@ select:disabled {
 .sensor-calibration-control {
   display: grid;
   gap: 10px;
-  margin-top: 24px;
-  padding-top: 22px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1311,8 +1300,8 @@ select:disabled {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(320px, 1.2fr);
   gap: clamp(24px, 4vw, 52px);
-  margin-top: 28px;
-  padding-top: 28px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1506,8 +1495,8 @@ select:disabled {
 }
 
 .device-time-control + .cloud-sync-controls {
-  margin-top: 28px;
-  padding-top: 28px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1521,8 +1510,8 @@ select:disabled {
 .measurement-log-controls {
   display: grid;
   gap: 10px;
-  margin-top: 28px;
-  padding-top: 28px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1566,8 +1555,8 @@ select:disabled {
 .network-reset-control {
   display: grid;
   gap: 10px;
-  margin-top: 24px;
-  padding-top: 22px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1707,6 +1696,11 @@ select:focus {
   font-size: 0.82rem;
 }
 
+/* Prazen dinamični status ne sme dodajati navpičnega prostora pod obrazcem. */
+.form-status:empty {
+  display: none;
+}
+
 .account-field small {
   color: var(--text-soft);
   font-size: 0.75rem;
@@ -1774,8 +1768,8 @@ select:focus {
 .component-health-panel {
   display: grid;
   gap: 18px;
-  margin-top: 26px;
-  padding-top: 26px;
+  margin-top: var(--section-divider-space);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1859,7 +1853,7 @@ select:focus {
 
 .account-card {
   align-items: center;
-  margin-bottom: 28px;
+  margin-bottom: var(--section-divider-space);
 }
 
 .account-identity {
@@ -1896,8 +1890,8 @@ select:focus {
 }
 
 .account-management {
-  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-  padding-top: 28px;
+  grid-template-columns: minmax(0, 1fr);
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -1907,11 +1901,6 @@ select:focus {
 
 .account-management.empty-device-state {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.weather-settings-panel {
-  margin: 24px 0 22px;
-  padding-bottom: 28px;
 }
 
 .weather-settings-form {
@@ -2050,8 +2039,15 @@ select:focus {
 
 .account-form-stack {
   display: grid;
-  gap: 30px;
+  gap: var(--section-divider-space);
   min-width: 0;
+}
+
+.account-primary-section {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(28px, 5vw, 70px);
 }
 
 .device-selection-card {
@@ -2096,7 +2092,7 @@ select:focus {
 .accept-share-form {
   display: grid;
   gap: 18px;
-  padding-top: 28px;
+  padding-top: var(--section-divider-space);
   border-top: 1px solid var(--border);
 }
 
@@ -3032,7 +3028,8 @@ body[data-dashboard-mode="cloud"][data-auth-state="signed-out"] .menu-toggle {
   }
 
   .provisioning-card,
-  .account-management {
+  .account-management,
+  .account-primary-section {
     grid-template-columns: 1fr;
   }
 

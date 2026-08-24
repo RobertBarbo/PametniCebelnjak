@@ -6,6 +6,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Dodan je dokument `docs/PROJECT_RESTORE.md` z navodili za kloniranje, obnovitev PlatformIO, Firebase cloud nastavitve, Android aplikacije in varen Git backup na novem računalniku.
 - Cloud nadzorna plošča po 30 minutah neaktivnosti ustavi Firebase RTDB realtime poslušalce in po petminutnem opozorilu uporabnika odjavi. Dejavnost ter nadaljevanje seje se usklajujeta med odprtimi zavihki, lokalni ESP pogled pa ostane brez timeouta.
 
 - Na pregledu je pod kartico trenutnih meritev dodana odzivna kartica **Sprememba mase**. Prikazuje razliko zadnje zaključene nočne mediane mase proti prejšnji noči in noči pred sedmimi koledarskimi dnevi; pri nepopolni zgodovini jasno prikaže **Ni dovolj podatkov**. Za 24 h uporablja spremembo zadnje noči, za 7 dni pa povprečno dnevno spremembo; prag `±0,20 kg/dan` jo označi kot **Prirast mase**, **Stabilno** ali **Izguba mase**. Barva sledi temu statusu, ne zgolj predznaku. Deluje iz Firebase ali lokalnega SD dnevnika tudi brez interneta, uporablja skupno matematično logiko, dark/light temo in prevode SL/HR/EN.

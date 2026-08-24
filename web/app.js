@@ -23,6 +23,8 @@ const CHART_AXIS_DAY_SECONDS = 24 * CHART_AXIS_HOUR_SECONDS;
 const CHART_AXIS_MONTH_SECONDS = 31 * CHART_AXIS_DAY_SECONDS;
 const CHART_AXIS_THREE_MONTHS_SECONDS = 92 * CHART_AXIS_DAY_SECONDS;
 const CHART_AXIS_SIX_MONTHS_SECONDS = 183 * CHART_AXIS_DAY_SECONDS;
+const OVERVIEW_ANALYTICS_WINDOW_SECONDS = CHART_AXIS_DAY_SECONDS;
+const OVERVIEW_SPARKLINE_BUCKET_SECONDS = CHART_AXIS_HOUR_SECONDS;
 const NATIVE_AUTH_REQUEST_TYPE = "pametni-cebelnjak-native-auth-request";
 const NATIVE_AUTH_RESULT_TYPE = "pametni-cebelnjak-native-auth-result";
 const NATIVE_AUTH_REQUEST_TIMEOUT_MS = 90_000;
@@ -61,6 +63,12 @@ const LANGUAGE_OPTIONS = {
   hr: { flag: "🇭🇷", label: "Hrvatski" },
   en: { flag: "🇬🇧", label: "English" },
 };
+const THEME_OPTIONS = Object.freeze({
+  forest: { label: "Gozd" },
+  midnight: { label: "Polnoč" },
+  honey: { label: "Med" },
+  light: { label: "Svetla tema" },
+});
 const TRANSLATIONS = {
   hr: {
     "SD kartica": "SD kartica",
@@ -69,12 +77,12 @@ const TRANSLATIONS = {
     "Ostani prijavljen": "Ostani prijavljen",
     "Pametni čebelnjak": "Pametna košnica", "Nadzorna plošča": "Nadzorna ploča", "Pregled": "Pregled",
     "Grafi": "Grafovi", "Naprava": "Uređaj", "Posodobitve": "Ažuriranja", "Svetla tema": "Svijetla tema",
-    "Temna tema": "Tamna tema", "Odjava": "Odjava", "Prijava": "Prijava", "Panj · živ pogled": "Košnica · pregled uživo",
+    "Temna tema": "Tamna tema", "Izberi temo": "Odaberi temu", "Gozd": "Šuma", "Polnoč": "Ponoć", "Med": "Med", "Odjava": "Odjava", "Prijava": "Prijava", "Panj · živ pogled": "Košnica · pregled uživo",
     "Dobrodošel v pametnem panju": "Dobro došli u pametnu košnicu", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Trenutna mjerenja i brzi pregled zadnjeg stanja košnice.",
     "Odpri grafe": "Otvori grafove", "Opozorila naprave": "Upozorenja uređaja", "Potrebno je preveriti komponento": "Potrebno je provjeriti komponentu",
     "Zadnja meritev": "Zadnje mjerenje", "Meritve": "Mjerenja", "Čakam na podatke …": "Čekam podatke …",
-    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost",
-    "Sprememba mase": "Promjena mase", "24 h": "24 h", "7 dni": "7 dana", "Prirast mase": "Porast mase", "Stabilno": "Stabilno", "Izguba mase": "Gubitak mase", "↑ Prirast mase": "↑ Porast mase", "→ Stabilno": "→ Stabilno", "↓ Izguba mase": "↓ Gubitak mase", "v primerjavi s prejšnjo nočjo": "u usporedbi s prethodnom noći", "v primerjavi z nočjo pred 7 dnevi": "u usporedbi s noći prije 7 dana", "Primerjava temelji na nočni masi panja": "Usporedba se temelji na noćnoj masi košnice", "Ni dovolj podatkov": "Nema dovoljno podataka",
+    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost", "min {min} · max {max}": "min. {min} · maks. {max}", "Trend temperature v zadnjih 24 urah": "Trend temperature u posljednja 24 h", "Trend relativne vlage v zadnjih 24 urah": "Trend relativne vlažnosti u posljednja 24 h", "Trend mase panja v zadnjih 24 urah": "Trend mase košnice u posljednja 24 h",
+    "Sprememba mase": "Promjena mase", "24 h": "24 h", "7 dni": "7 dana", "Zadnjih 24 h": "Posljednja 24 sata", "Prirast mase": "Porast mase", "Prirast": "Porast", "Padec": "Pad", "Stabilno": "Stabilno", "Izguba mase": "Gubitak mase", "v primerjavi s prejšnjo nočjo": "u usporedbi s prethodnom noći", "v primerjavi z nočjo pred 7 dnevi": "u usporedbi s noći prije 7 dana", "Primerjava temelji na nočni masi panja": "Usporedba se temelji na noćnoj masi košnice", "Ni dovolj podatkov": "Nema dovoljno podataka", "Trend spremembe mase za zadnjih 7 dni": "Trend promjene mase za posljednjih 7 dana", "Ni dovolj podatkov za zadnjih 7 dni": "Nema dovoljno podataka za posljednjih 7 dana",
     "Podrobnosti naprave": "Pojedinosti uređaja", "Različica": "Verzija", "Preveri posodobitve": "Provjeri ažuriranja",
     "Meritve in shranjevanje": "Mjerenja i pohrana", "Nastavitve vremena": "Postavke vremena", "Stanje sistema": "Stanje sustava",
     "Začetek – konec": "Početak – kraj", "Izberi časovno obdobje grafov.": "Odaberite vremensko razdoblje grafova.",
@@ -221,12 +229,12 @@ const TRANSLATIONS = {
     "Ostani prijavljen": "Stay signed in",
     "Pametni čebelnjak": "Smart Beehive", "Nadzorna plošča": "Dashboard", "Pregled": "Overview",
     "Grafi": "Charts", "Naprava": "Device", "Posodobitve": "Updates", "Svetla tema": "Light theme",
-    "Temna tema": "Dark theme", "Odjava": "Sign out", "Prijava": "Sign in", "Panj · živ pogled": "Hive · live view",
+    "Temna tema": "Dark theme", "Izberi temo": "Choose theme", "Gozd": "Forest", "Polnoč": "Midnight", "Med": "Honey", "Odjava": "Sign out", "Prijava": "Sign in", "Panj · živ pogled": "Hive · live view",
     "Dobrodošel v pametnem panju": "Welcome to the smart hive", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Current measurements and a quick overview of the latest hive state.",
     "Odpri grafe": "Open charts", "Opozorila naprave": "Device alerts", "Potrebno je preveriti komponento": "A component needs attention",
     "Zadnja meritev": "Latest measurement", "Meritve": "Measurements", "Čakam na podatke …": "Waiting for data …",
-    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity",
-    "Sprememba mase": "Mass change", "24 h": "24 h", "7 dni": "7 days", "Prirast mase": "Mass gain", "Stabilno": "Stable", "Izguba mase": "Mass loss", "↑ Prirast mase": "↑ Mass gain", "→ Stabilno": "→ Stable", "↓ Izguba mase": "↓ Mass loss", "v primerjavi s prejšnjo nočjo": "compared with the previous night", "v primerjavi z nočjo pred 7 dnevi": "compared with the night 7 days ago", "Primerjava temelji na nočni masi panja": "Comparison is based on the hive's night-time mass", "Ni dovolj podatkov": "Not enough data",
+    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity", "min {min} · max {max}": "min {min} · max {max}", "Trend temperature v zadnjih 24 urah": "Temperature trend over the last 24 h", "Trend relativne vlage v zadnjih 24 urah": "Relative humidity trend over the last 24 h", "Trend mase panja v zadnjih 24 urah": "Hive mass trend over the last 24 h",
+    "Sprememba mase": "Mass change", "24 h": "24 h", "7 dni": "7 days", "Zadnjih 24 h": "Last 24 h", "Prirast mase": "Mass gain", "Prirast": "Gain", "Padec": "Loss", "Stabilno": "Stable", "Izguba mase": "Mass loss", "v primerjavi s prejšnjo nočjo": "compared with the previous night", "v primerjavi z nočjo pred 7 dnevi": "compared with the night 7 days ago", "Primerjava temelji na nočni masi panja": "Comparison is based on the hive's night-time mass", "Ni dovolj podatkov": "Not enough data", "Trend spremembe mase za zadnjih 7 dni": "Mass-change trend for the last 7 days", "Ni dovolj podatkov za zadnjih 7 dni": "Not enough data for the last 7 days",
     "Podrobnosti naprave": "Device details", "Različica": "Version", "Preveri posodobitve": "Check for updates",
     "Meritve in shranjevanje": "Measurements and storage", "Nastavitve vremena": "Weather settings", "Stanje sistema": "System status",
     "Začetek – konec": "Start – end", "Izberi časovno obdobje grafov.": "Choose the chart time period.",
@@ -379,7 +387,8 @@ const elements = {
   brandIcon: document.querySelector("#brand-icon"),
   menuToggle: document.querySelector("#menu-toggle"),
   topNavigation: document.querySelector("#top-navigation"),
-  themeToggles: [...document.querySelectorAll("#theme-toggle, [data-theme-toggle]")],
+  themeSwitchers: [...document.querySelectorAll(".theme-switcher")],
+  themeChoices: [...document.querySelectorAll("[data-theme-choice]")],
   themeLabels: [...document.querySelectorAll("#theme-label, [data-theme-label]")],
   languageFlags: [...document.querySelectorAll("[data-language-flag]")],
   languageLabels: [...document.querySelectorAll("[data-language-label]")],
@@ -388,7 +397,6 @@ const elements = {
   overviewNavigationItem: document.querySelector("#overview-nav-item"),
   historyNavigationItem: document.querySelector("#history-nav-item"),
   updatesNavigationItem: document.querySelector("#updates-nav-item"),
-  cloudUpdatesQuickLink: document.querySelector("#cloud-updates-quick-link"),
   navigationButtons: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view-panel]")],
   connectionStatus: document.querySelector("#connection-status"),
@@ -473,13 +481,21 @@ const elements = {
   temperature: document.querySelector("#temperature-value"),
   humidity: document.querySelector("#humidity-value"),
   weight: document.querySelector("#weight-value"),
+  temperatureRange: document.querySelector("#temperature-range"),
+  humidityRange: document.querySelector("#humidity-range"),
+  weightRange: document.querySelector("#weight-range"),
+  temperatureSparkline: document.querySelector("#temperature-sparkline"),
+  humiditySparkline: document.querySelector("#humidity-sparkline"),
+  weightSparkline: document.querySelector("#weight-sparkline"),
+  temperatureSparklineFrame: document.querySelector("#temperature-sparkline-frame"),
+  humiditySparklineFrame: document.querySelector("#humidity-sparkline-frame"),
+  weightSparklineFrame: document.querySelector("#weight-sparkline-frame"),
   latestTime: document.querySelector("#last-measurement-time"),
   weightChangeDay: document.querySelector("#weight-change-day"),
   weightChangeDayTrend: document.querySelector("#weight-change-day-trend"),
+  weightChangeDayTrendLabel: document.querySelector("#weight-change-day-trend-label"),
   weightChangeDayDetail: document.querySelector("#weight-change-day-detail"),
-  weightChangeWeek: document.querySelector("#weight-change-week"),
-  weightChangeWeekTrend: document.querySelector("#weight-change-week-trend"),
-  weightChangeWeekDetail: document.querySelector("#weight-change-week-detail"),
+  weightChangeWeekChart: document.querySelector("#weight-change-week-chart"),
   weatherOverview: document.querySelector("#weather-overview"),
   weatherOverviewHeading: document.querySelector("#weather-overview-heading"),
   weatherLocationName: document.querySelector("#weather-location-name"),
@@ -685,10 +701,18 @@ let wifiTransitionProbeGeneration = 0;
 let latestWeatherSettings;
 let latestMeasurementSettings;
 let latestMeasurement;
+let latestOverviewAnalytics;
+let overviewAnalyticsRequestGeneration = 0;
+let localHistoryRequestQueue = Promise.resolve();
+const localOverviewHistorySessionCache = {
+  readingsByTimestamp: new Map(),
+  coveredRanges: [],
+};
 const nightReferenceSessionCache = new Map();
 let weightChangeRequestGeneration = 0;
 let weightChangeRefreshTimer;
-let latestWeightChangeReferences = [null, null, null];
+let latestWeightChangeReferences = [];
+let latestWeightChangeNightDates = [];
 let weatherFetchController;
 let weatherRequestKey = "";
 let weatherLastFetchedAt = 0;
@@ -743,7 +767,7 @@ function getChartTheme() {
     textSoft: getCssColor("--text-soft"),
     border: getCssColor("--border"),
     surface: getCssColor("--surface-solid"),
-    grid: document.documentElement.dataset.theme === "dark" ? "rgba(237, 246, 239, 0.09)" : "rgba(21, 56, 43, 0.08)",
+    grid: getCssColor("--chart-grid"),
     temperature: getCssColor("--temperature"),
     humidity: getCssColor("--humidity"),
     weight: getCssColor("--weight"),
@@ -758,29 +782,30 @@ function updateChartTheme() {
   createCharts({ climateZoom, weightZoom });
 }
 
+function normalizeTheme(theme) {
+  if (THEME_OPTIONS[theme]) return theme;
+  return "forest";
+}
+
 function applyTheme(theme, persist = true) {
-  const selectedTheme = theme === "dark" ? "dark" : "light";
+  const selectedTheme = normalizeTheme(theme);
   document.documentElement.dataset.theme = selectedTheme;
-  const themeLabel = translateText(selectedTheme === "dark" ? "Svetla tema" : "Temna tema");
+  const themeLabel = translateText(THEME_OPTIONS[selectedTheme].label);
   elements.themeLabels.forEach((element) => { element.textContent = themeLabel; });
-  elements.themeToggles.forEach((element) => element.setAttribute("aria-pressed", String(selectedTheme === "dark")));
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", selectedTheme === "dark" ? "#0e1713" : "#f4f1e8");
+  elements.themeChoices.forEach((choice) => {
+    choice.setAttribute("aria-pressed", String(choice.dataset.themeChoice === selectedTheme));
+  });
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", getCssColor("--bg"));
   if (persist) localStorage.setItem(THEME_STORAGE_KEY, selectedTheme);
   updateChartTheme();
 }
 
 function initializeTheme() {
   applyTheme(document.documentElement.dataset.theme, false);
-  elements.themeToggles.forEach((toggle) => toggle.addEventListener("click", () => {
-    applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  elements.themeChoices.forEach((choice) => choice.addEventListener("click", () => {
+    applyTheme(choice.dataset.themeChoice);
+    elements.themeSwitchers.forEach((switcher) => { switcher.open = false; });
   }));
-
-  const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  const handleColorSchemeChange = (event) => {
-    if (!localStorage.getItem(THEME_STORAGE_KEY)) applyTheme(event.matches ? "dark" : "light", false);
-  };
-  if (colorSchemeQuery.addEventListener) colorSchemeQuery.addEventListener("change", handleColorSchemeChange);
-  else colorSchemeQuery.addListener(handleColorSchemeChange);
 }
 
 function applyLanguage(language, persist = true) {
@@ -820,6 +845,8 @@ function refreshTranslatedDashboard() {
     }
   }
   if (latestMeasurement) renderLatestMeasurement(latestMeasurement);
+  renderOverviewAnalytics();
+  renderWeightChangeOverview(latestWeightChangeReferences, latestWeightChangeNightDates);
   if (latestDeviceStatus) renderDeviceStatus(latestDeviceStatus);
   if (latestSDCardStatus) renderSDStatus(latestSDCardStatus);
   if (latestTimeStatus) renderTimeStatus(latestTimeStatus);
@@ -919,11 +946,16 @@ function showView(viewName, updateLocation = true) {
   if (selectedView === "overview") {
     void refreshWeatherForecast();
     void refreshWeightChangeOverview();
+    void refreshOverviewAnalytics();
   }
 }
 
 function isHistoryViewActive() {
   return elements.viewPanels.some((panel) => panel.dataset.viewPanel === "history" && !panel.hidden);
+}
+
+function isOverviewViewActive() {
+  return elements.viewPanels.some((panel) => panel.dataset.viewPanel === "overview" && !panel.hidden);
 }
 
 async function ensureHistoryViewReady() {
@@ -1076,7 +1108,6 @@ function configureSelectedCloudDeviceAccess(deviceId) {
     elements.overviewNavigationItem.hidden = true;
     elements.historyNavigationItem.hidden = true;
     elements.updatesNavigationItem.hidden = true;
-    elements.cloudUpdatesQuickLink.hidden = true;
     elements.unclaimDevice.hidden = true;
     elements.shareDevicePanel.hidden = true;
     elements.networkResetControl.hidden = true;
@@ -1099,7 +1130,6 @@ function configureSelectedCloudDeviceAccess(deviceId) {
   elements.overviewNavigationItem.hidden = false;
   elements.historyNavigationItem.hidden = false;
   elements.updatesNavigationItem.hidden = isSharedViewer;
-  elements.cloudUpdatesQuickLink.hidden = isSharedViewer;
   elements.unclaimDevice.hidden = isCloudAdministrator() || (!isOwner && !isSharedViewer);
   elements.unclaimDevice.disabled = !deviceId || (!isOwner && !isSharedViewer);
   elements.unclaimDevice.textContent = translateText(isSharedViewer ? "Odstrani deljeni panj" : "Odjavi izbrani panj");
@@ -1418,6 +1448,7 @@ function selectCloudDevice(deviceId) {
   elements.cloudBme680CalibrationForm.dataset.dirty = "false";
   cloudDevicePath = deviceId ? `devices/${deviceId}` : "";
   resetWeightChangeOverview();
+  resetOverviewAnalytics();
   elements.cloudDeviceSelect.value = deviceId;
   renderAdminDeviceOverview();
   configureSelectedCloudDeviceAccess(deviceId);
@@ -1480,6 +1511,7 @@ function selectCloudDevice(deviceId) {
   historyViewLoading = undefined;
   refreshVisibleHistory();
   void refreshWeightChangeOverview();
+  void refreshOverviewAnalytics();
 }
 
 function setConnectionState(text, state = "connected") {
@@ -1644,6 +1676,161 @@ function renderLatestMeasurement(measurement) {
   elements.latestTime.textContent = formatDateTime(measurement);
 }
 
+function getOverviewAnalyticsWindow() {
+  const to = Math.floor(Date.now() / 1000) + 1;
+  return { from: to - OVERVIEW_ANALYTICS_WINDOW_SECONDS, to };
+}
+
+function getOverviewMetricDefinitions() {
+  return [
+    {
+      valueKey: "temperature_c",
+      rangeElement: elements.temperatureRange,
+      sparkline: elements.temperatureSparkline,
+      sparklineFrame: elements.temperatureSparklineFrame,
+      decimals: 1,
+      sparklineLabel: "Trend temperature v zadnjih 24 urah",
+    },
+    {
+      valueKey: "humidity_percent",
+      rangeElement: elements.humidityRange,
+      sparkline: elements.humiditySparkline,
+      sparklineFrame: elements.humiditySparklineFrame,
+      decimals: 1,
+      sparklineLabel: "Trend relativne vlage v zadnjih 24 urah",
+    },
+    {
+      valueKey: "weight_kg",
+      rangeElement: elements.weightRange,
+      sparkline: elements.weightSparkline,
+      sparklineFrame: elements.weightSparklineFrame,
+      decimals: currentWeightDisplayDecimals(),
+      sparklineLabel: "Trend mase panja v zadnjih 24 urah",
+    },
+  ];
+}
+
+function getOverviewMetricValues(readings, valueKey) {
+  return readings
+    .map((reading) => parseMeasurementValue(reading?.[valueKey]))
+    .filter((value) => value !== null);
+}
+
+function createSparklinePath(aggregates, valueKey, window) {
+  const validPoints = aggregates
+    .map((reading) => ({
+      timestamp: Number(reading?.timestamp),
+      value: parseMeasurementValue(reading?.[valueKey]),
+    }))
+    .filter((point) => Number.isFinite(point.timestamp) && point.value !== null);
+  if (!validPoints.length) return [];
+
+  const minimum = Math.min(...validPoints.map((point) => point.value));
+  const maximum = Math.max(...validPoints.map((point) => point.value));
+  const valueSpan = Math.max(maximum - minimum, Math.max(Math.abs(maximum) * 0.04, 0.01));
+  const valueCenter = (minimum + maximum) / 2;
+  const xSpan = Math.max(1, window.to - window.from);
+  const segments = [];
+  let segment = [];
+  let previousTimestamp;
+
+  validPoints.forEach((point) => {
+    if (previousTimestamp !== undefined && point.timestamp - previousTimestamp > OVERVIEW_SPARKLINE_BUCKET_SECONDS * 1.5) {
+      if (segment.length) segments.push(segment);
+      segment = [];
+    }
+    const x = Math.max(0, Math.min(120, ((point.timestamp - window.from) / xSpan) * 120));
+    const y = Math.max(3, Math.min(33, 18 - ((point.value - valueCenter) / valueSpan) * 28));
+    segment.push([x, y]);
+    previousTimestamp = point.timestamp;
+  });
+  if (segment.length) segments.push(segment);
+
+  return segments.map((points) => points.reduce((path, [x, y], index) => (
+    `${path}${index ? " L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`
+  ), ""));
+}
+
+function renderMetricSparkline(element, frame, paths, label) {
+  if (!element || !frame) return;
+  element.replaceChildren();
+  const hasData = paths.length > 0;
+  frame.classList.toggle("is-empty", !hasData);
+  element.setAttribute("aria-label", translateText(label));
+  paths.forEach((pathData) => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    element.append(path);
+  });
+}
+
+function buildOverviewAnalytics(readings, window) {
+  const sourceReadings = (Array.isArray(readings) ? readings : []).filter((reading) => {
+    const timestamp = Number(reading?.timestamp);
+    return Number.isFinite(timestamp) && timestamp >= window.from && timestamp < window.to;
+  });
+  const range = {
+    from: new Date(window.from * 1000),
+    to: new Date(window.to * 1000),
+  };
+  const hourlyAverages = aggregateReadings(sourceReadings, range, {
+    bucketSeconds: OVERVIEW_SPARKLINE_BUCKET_SECONDS,
+    bucketAnchorTimestamp: window.from,
+  });
+  const metrics = {};
+  getOverviewMetricDefinitions().forEach(({ valueKey }) => {
+    const values = getOverviewMetricValues(sourceReadings, valueKey);
+    metrics[valueKey] = {
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
+      sparklinePaths: createSparklinePath(hourlyAverages, valueKey, window),
+    };
+  });
+  return { window, metrics };
+}
+
+function renderOverviewAnalytics(analytics = latestOverviewAnalytics) {
+  const metrics = analytics?.metrics ?? {};
+  getOverviewMetricDefinitions().forEach((definition) => {
+    const metric = metrics[definition.valueKey];
+    const min = formatValue(metric?.min, definition.decimals);
+    const max = formatValue(metric?.max, definition.decimals);
+    const unit = definition.valueKey === "temperature_c" ? "°C"
+      : definition.valueKey === "humidity_percent" ? "%"
+        : "kg";
+    setTranslatedElementText(definition.rangeElement, "min {min} · max {max}", {
+      min: min === "—" ? min : `${min} ${unit}`,
+      max: max === "—" ? max : `${max} ${unit}`,
+    });
+    renderMetricSparkline(definition.sparkline, definition.sparklineFrame, metric?.sparklinePaths ?? [], definition.sparklineLabel);
+  });
+}
+
+function resetOverviewAnalytics() {
+  overviewAnalyticsRequestGeneration += 1;
+  latestOverviewAnalytics = undefined;
+  renderOverviewAnalytics();
+}
+
+async function refreshOverviewAnalytics() {
+  if (!dashboardDataSourceReady || !isOverviewViewActive() || (!isLocalDashboard && (!cloudDevicePath || cloudRealtimePaused))) return;
+  const requestGeneration = ++overviewAnalyticsRequestGeneration;
+  const window = getOverviewAnalyticsWindow();
+  try {
+    const readings = isLocalDashboard
+      ? await fetchLocalOverviewHistoryReadings(window)
+      : await fetchCloudHistoryWindowReadings(cloudDevicePath, "measurements", window);
+    if (requestGeneration !== overviewAnalyticsRequestGeneration || !isOverviewViewActive()) return;
+    latestOverviewAnalytics = buildOverviewAnalytics(readings, window);
+    renderOverviewAnalytics();
+  } catch (error) {
+    if (requestGeneration !== overviewAnalyticsRequestGeneration) return;
+    console.warn("24-urna statistika kartic ni dosegljiva.", error);
+    latestOverviewAnalytics = undefined;
+    renderOverviewAnalytics();
+  }
+}
+
 function renderSharedLatestMeasurement(measurement) {
   renderLatestMeasurement(measurement);
   const timestamp = Number(measurement?.timestamp);
@@ -1730,15 +1917,15 @@ function getCloudHistoryReadingsInRange(entry, from, to) {
   return readings;
 }
 
-async function fetchCloudNightWindowReadings(devicePath, window) {
+async function fetchCloudHistoryWindowReadings(devicePath, sourcePath, window) {
   if (!firebaseDatabase || !devicePath) throw new Error("Cloud zgodovina ni pripravljena.");
   const { database, endAt, get, orderByKey, query, ref, startAt } = firebaseDatabase;
-  const cacheEntry = getCloudHistorySessionCacheEntry(devicePath, "measurements");
+  const cacheEntry = getCloudHistorySessionCacheEntry(devicePath, sourcePath);
   const missingRanges = getCloudHistoryCacheCoverageGaps(cacheEntry, window.from, window.to - 1);
 
   await Promise.all(missingRanges.map(async (missingRange) => {
     const snapshot = await get(query(
-      ref(database, `${devicePath}/measurements`),
+      ref(database, `${devicePath}/${sourcePath}`),
       orderByKey(),
       startAt(String(missingRange.from)),
       endAt(String(missingRange.to)),
@@ -1757,18 +1944,95 @@ async function fetchCloudNightWindowReadings(devicePath, window) {
   return getCloudHistoryReadingsInRange(cacheEntry, window.from, window.to);
 }
 
-async function fetchLocalNightWindowReadings(window) {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    const response = await fetch(`/api/history?from=${window.from}&to=${window.to}`, { cache: "no-store" });
-    if (response.status === 202) {
-      await delay(250);
-      continue;
+function fetchCloudNightWindowReadings(devicePath, window) {
+  return fetchCloudHistoryWindowReadings(devicePath, "measurements", window);
+}
+
+function enqueueLocalHistoryRequest(request) {
+  const queuedRequest = localHistoryRequestQueue.then(request, request);
+  localHistoryRequestQueue = queuedRequest.catch(() => undefined);
+  return queuedRequest;
+}
+
+function fetchLocalHistoryWindow(window, onPreparing) {
+  return enqueueLocalHistoryRequest(async () => {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await fetch(`/api/history?from=${window.from}&to=${window.to}`, { cache: "no-store" });
+      if (response.status === 202) {
+        onPreparing?.();
+        await delay(250);
+        continue;
+      }
+      if (!response.ok) {
+        const error = new Error("Lokalna zgodovina ni dosegljiva.");
+        error.status = response.status;
+        throw error;
+      }
+      const history = await response.json();
+      return history.readings ?? [];
     }
-    if (!response.ok) throw new Error("Lokalna nočna zgodovina ni dosegljiva.");
-    const history = await response.json();
-    return history.readings ?? [];
+    throw new Error("Priprava lokalne zgodovine je trajala predolgo.");
+  });
+}
+
+function addLocalOverviewHistoryCacheCoverage(from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) return;
+  const ranges = [...localOverviewHistorySessionCache.coveredRanges, { from, to }]
+    .sort((first, second) => first.from - second.from);
+  localOverviewHistorySessionCache.coveredRanges = ranges.reduce((mergedRanges, range) => {
+    const previous = mergedRanges[mergedRanges.length - 1];
+    if (!previous || range.from > previous.to + 1) mergedRanges.push({ ...range });
+    else previous.to = Math.max(previous.to, range.to);
+    return mergedRanges;
+  }, []);
+}
+
+function getLocalOverviewHistoryCacheCoverageGaps(from, to) {
+  if (from > to) return [];
+  const gaps = [];
+  let nextFrom = from;
+  for (const range of localOverviewHistorySessionCache.coveredRanges) {
+    if (range.to < nextFrom) continue;
+    if (range.from > to) break;
+    if (range.from > nextFrom) gaps.push({ from: nextFrom, to: Math.min(to, range.from - 1) });
+    nextFrom = Math.max(nextFrom, range.to + 1);
+    if (nextFrom > to) break;
   }
-  throw new Error("Priprava lokalne nočne zgodovine je trajala predolgo.");
+  if (nextFrom <= to) gaps.push({ from: nextFrom, to });
+  return gaps;
+}
+
+async function fetchLocalOverviewHistoryReadings(window) {
+  const retainedFrom = window.from - OVERVIEW_SPARKLINE_BUCKET_SECONDS;
+  localOverviewHistorySessionCache.readingsByTimestamp.forEach((_reading, timestamp) => {
+    if (timestamp < retainedFrom) localOverviewHistorySessionCache.readingsByTimestamp.delete(timestamp);
+  });
+  localOverviewHistorySessionCache.coveredRanges = localOverviewHistorySessionCache.coveredRanges
+    .map((range) => ({ ...range, from: Math.max(range.from, retainedFrom) }))
+    .filter((range) => range.from <= range.to);
+  const missingRanges = getLocalOverviewHistoryCacheCoverageGaps(window.from, window.to - 1);
+  for (const missingRange of missingRanges) {
+    const readings = await fetchLocalHistoryWindow(missingRange);
+    readings.forEach((reading) => {
+      const timestamp = Number(reading?.timestamp);
+      if (Number.isFinite(timestamp)) localOverviewHistorySessionCache.readingsByTimestamp.set(timestamp, reading);
+    });
+    addLocalOverviewHistoryCacheCoverage(missingRange.from, missingRange.to);
+  }
+  return [...localOverviewHistorySessionCache.readingsByTimestamp.values()]
+    .filter((reading) => {
+      const timestamp = Number(reading?.timestamp);
+      return Number.isFinite(timestamp) && timestamp >= window.from && timestamp < window.to;
+    });
+}
+
+function clearLocalOverviewHistorySessionCache() {
+  localOverviewHistorySessionCache.readingsByTimestamp.clear();
+  localOverviewHistorySessionCache.coveredRanges = [];
+}
+
+function fetchLocalNightWindowReadings(window) {
+  return fetchLocalHistoryWindow(window);
 }
 
 async function getNightReference(scope, nightDate) {
@@ -1795,15 +2059,21 @@ function getWeightChangeTrend(changeKg, days) {
 
   const dailyAverage = changeKg / days;
   if (dailyAverage > WEIGHT_CHANGE_STABLE_THRESHOLD_KG) {
-    return { className: "gain", label: "↑ Prirast mase" };
+    return { className: "gain", label: "Prirast" };
   }
   if (dailyAverage < -WEIGHT_CHANGE_STABLE_THRESHOLD_KG) {
-    return { className: "loss", label: "↓ Izguba mase" };
+    return { className: "loss", label: "Padec" };
   }
-  return { className: "stable", label: "→ Stabilno" };
+  return { className: "stable", label: "Stabilno" };
 }
 
-function renderWeightChangeValue(valueElement, trendElement, detailElement, change, days, detailText) {
+function formatWeightChange(change) {
+  if (!Number.isFinite(change)) return "—";
+  const sign = change > 0 ? "+" : change < 0 ? "−" : "";
+  return `${sign}${Math.abs(change).toFixed(currentWeightDisplayDecimals())} kg`;
+}
+
+function renderWeightChangeValue(valueElement, trendElement, trendLabelElement, detailElement, change, days, detailText) {
   const hasChange = Number.isFinite(change);
   const trend = getWeightChangeTrend(change, days);
   valueElement.classList.remove("gain", "stable", "loss", "neutral");
@@ -1812,49 +2082,170 @@ function renderWeightChangeValue(valueElement, trendElement, detailElement, chan
     valueElement.textContent = "—";
     trendElement.hidden = true;
     trendElement.className = "weight-change-trend";
-    trendElement.removeAttribute("data-i18n-source");
-    trendElement.textContent = "";
+    trendLabelElement.removeAttribute("data-i18n-source");
+    trendLabelElement.textContent = "";
     setTranslatedElementText(detailElement, "Ni dovolj podatkov");
     return;
   }
 
   valueElement.classList.add(trend.className);
-  const sign = change > 0 ? "+" : change < 0 ? "−" : "";
-  valueElement.textContent = `${sign}${Math.abs(change).toFixed(currentWeightDisplayDecimals())} kg`;
+  valueElement.textContent = formatWeightChange(change);
   trendElement.hidden = false;
   trendElement.className = `weight-change-trend ${trend.className}`;
-  setTranslatedElementText(trendElement, trend.label);
+  setTranslatedElementText(trendLabelElement, trend.label);
   setTranslatedElementText(detailElement, detailText);
 }
 
-function renderWeightChangeOverview(latestReference, previousReference, weekReference) {
-  latestWeightChangeReferences = [latestReference, previousReference, weekReference];
+function getWeightChangeDayLabel(nightDate) {
+  if (!(nightDate instanceof Date) || Number.isNaN(nightDate.getTime())) return "—";
+  return `${String(nightDate.getDate()).padStart(2, "0")}.${String(nightDate.getMonth() + 1).padStart(2, "0")}.`;
+}
+
+function getWeightChangeDailyBars(references, nightDates) {
+  const bars = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const currentReference = references[offset];
+    const previousReference = references[offset + 1];
+    bars.push({
+      label: getWeightChangeDayLabel(nightDates[offset]),
+      change: currentReference && previousReference
+        ? currentReference.weight - previousReference.weight
+        : null,
+    });
+  }
+  return bars;
+}
+
+function formatWeightChangeChartValue(change) {
+  if (!Number.isFinite(change)) return "—";
+  const sign = change > 0 ? "+" : change < 0 ? "−" : "";
+  return `${sign}${Math.abs(change).toLocaleString(getDashboardLocale(), {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatWeightChangeScaleValue(value) {
+  return Math.abs(value) < 0.000001
+    ? "0"
+    : value.toLocaleString(getDashboardLocale(), {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+}
+
+function renderWeightChangeBarChart(bars) {
+  const chart = elements.weightChangeWeekChart;
+  if (!chart) return;
+
+  const validBars = bars.filter((bar) => Number.isFinite(bar.change));
+  const maxAbs = Math.max(WEIGHT_CHANGE_STABLE_THRESHOLD_KG, ...validBars.map((bar) => Math.abs(bar.change)));
+  const scaleTicks = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
+  const scalePositions = [14, 32, 50, 68, 86];
+
+  chart.replaceChildren();
+  chart.classList.toggle("is-empty", validBars.length === 0);
+  chart.setAttribute("aria-label", translateText(validBars.length
+    ? "Trend spremembe mase za zadnjih 7 dni"
+    : "Ni dovolj podatkov za zadnjih 7 dni"));
+
+  const axis = document.createElement("div");
+  axis.className = "weight-change-axis";
+  axis.setAttribute("aria-hidden", "true");
+  const axisUnit = document.createElement("span");
+  axisUnit.className = "weight-change-axis-unit";
+  axisUnit.textContent = "kg/d";
+  axis.append(axisUnit);
+
+  const plotGrid = document.createElement("div");
+  plotGrid.className = "weight-change-plot-grid";
+  plotGrid.setAttribute("aria-hidden", "true");
+  const gridLines = document.createElement("div");
+  gridLines.className = "weight-change-grid-lines";
+  const days = document.createElement("div");
+  days.className = "weight-change-days";
+  scaleTicks.forEach((tick, index) => {
+    const position = scalePositions[index];
+    const scaleLabel = document.createElement("span");
+    scaleLabel.className = "weight-change-scale-label";
+    scaleLabel.style.setProperty("--weight-change-line-position", `${position}%`);
+    scaleLabel.textContent = formatWeightChangeScaleValue(tick);
+    axis.append(scaleLabel);
+
+    const gridLine = document.createElement("span");
+    gridLine.className = `weight-change-grid-line${tick === 0 ? " zero" : ""}`;
+    gridLine.style.setProperty("--weight-change-line-position", `${position}%`);
+    gridLines.append(gridLine);
+  });
+
+  bars.forEach((bar) => {
+    const day = document.createElement("div");
+    day.className = "weight-change-day";
+    const plot = document.createElement("div");
+    plot.className = "weight-change-day-plot";
+
+    if (Number.isFinite(bar.change)) {
+      const colorClass = bar.change > 0 ? "positive" : bar.change < 0 ? "negative" : "neutral";
+      const heightPercent = bar.change === 0
+        ? 0
+        : Math.max(2, (Math.abs(bar.change) / maxAbs) * 36);
+      const barElement = document.createElement("span");
+      barElement.className = `weight-change-day-bar ${colorClass}`;
+      barElement.style.setProperty("--bar-height", `${heightPercent}%`);
+      const value = document.createElement("span");
+      value.className = `weight-change-day-value ${colorClass}`;
+      value.style.setProperty("--bar-height", `${heightPercent}%`);
+      value.textContent = formatWeightChangeChartValue(bar.change);
+      plot.append(value, barElement);
+    }
+
+    const label = document.createElement("span");
+    label.className = "weight-change-day-label";
+    label.textContent = bar.label;
+    day.append(plot, label);
+    days.append(day);
+  });
+
+  plotGrid.append(gridLines, days);
+  chart.append(axis, plotGrid);
+}
+
+function renderWeightChangeOverview(references = [], nightDates = []) {
+  latestWeightChangeReferences = references;
+  latestWeightChangeNightDates = nightDates;
+  const latestReference = references[0];
+  const previousReference = references[1];
   const dailyChange = latestReference && previousReference
     ? latestReference.weight - previousReference.weight
-    : null;
-  const weeklyChange = latestReference && weekReference
-    ? latestReference.weight - weekReference.weight
     : null;
   renderWeightChangeValue(
     elements.weightChangeDay,
     elements.weightChangeDayTrend,
+    elements.weightChangeDayTrendLabel,
     elements.weightChangeDayDetail,
     dailyChange,
     1,
     "v primerjavi s prejšnjo nočjo",
   );
-  renderWeightChangeValue(
-    elements.weightChangeWeek,
-    elements.weightChangeWeekTrend,
-    elements.weightChangeWeekDetail,
-    weeklyChange,
-    7,
-    "v primerjavi z nočjo pred 7 dnevi",
-  );
+  renderWeightChangeBarChart(getWeightChangeDailyBars(references, nightDates));
 }
 
 function resetWeightChangeOverview() {
-  renderWeightChangeOverview(null, null, null);
+  renderWeightChangeOverview();
+}
+
+function getWeightChangeNightDates(latestNightDate) {
+  return Array.from({ length: 8 }, (_unused, index) => shiftLocalCalendarDate(latestNightDate, -index));
+}
+
+async function getWeightChangeNightReferences(scope, nightDates) {
+  if (scope !== "local") return Promise.all(nightDates.map((nightDate) => getNightReference(scope, nightDate)));
+
+  const references = [];
+  for (const nightDate of nightDates) {
+    references.push(await getNightReference(scope, nightDate));
+  }
+  return references;
 }
 
 async function refreshWeightChangeOverview() {
@@ -1867,23 +2258,13 @@ async function refreshWeightChangeOverview() {
 
   const requestGeneration = ++weightChangeRequestGeneration;
   const latestNightDate = getLatestCompletedNightDate();
-  const nightDates = [
-    latestNightDate,
-    shiftLocalCalendarDate(latestNightDate, -1),
-    shiftLocalCalendarDate(latestNightDate, -7),
-  ];
+  const nightDates = getWeightChangeNightDates(latestNightDate);
   try {
     // Lokalni ESP streže eno pripravljano history okno naenkrat, zato ga beremo
-    // zaporedno; Firebase lahko iste tri ozke nočne intervale bere vzporedno.
-    const references = scope === "local"
-      ? [
-        await getNightReference(scope, nightDates[0]),
-        await getNightReference(scope, nightDates[1]),
-        await getNightReference(scope, nightDates[2]),
-      ]
-      : await Promise.all(nightDates.map((nightDate) => getNightReference(scope, nightDate)));
+    // zaporedno; Firebase lahko manjkajoča ozka nočna okna bere vzporedno.
+    const references = await getWeightChangeNightReferences(scope, nightDates);
     if (requestGeneration !== weightChangeRequestGeneration || scope !== getNightReferenceCacheScope()) return;
-    renderWeightChangeOverview(references[0], references[1], references[2]);
+    renderWeightChangeOverview(references, nightDates);
   } catch (error) {
     if (requestGeneration !== weightChangeRequestGeneration) return;
     console.warn("Nočne reference mase niso dosegljive.", error);
@@ -1969,10 +2350,6 @@ function formatWindDirection(direction) {
   if (!Number.isFinite(degrees)) return "—";
   const labels = ["S", "SV", "V", "JV", "J", "JZ", "Z", "SZ"];
   return labels[Math.round((((degrees % 360) + 360) % 360) / 45) % labels.length];
-}
-
-function isOverviewViewActive() {
-  return elements.viewPanels.some((panel) => panel.dataset.viewPanel === "overview" && !panel.hidden);
 }
 
 function updateWeatherOverviewVisibility() {
@@ -2224,7 +2601,8 @@ function renderMeasurementSettings(settings) {
     elements.sdArchiveIntervalMinutes.value = String(latestMeasurementSettings.sdArchiveIntervalMinutes);
   }
   if (latestMeasurement) renderLatestMeasurement(latestMeasurement);
-  renderWeightChangeOverview(...latestWeightChangeReferences);
+  renderOverviewAnalytics();
+  renderWeightChangeOverview(latestWeightChangeReferences, latestWeightChangeNightDates);
   if (weightChart) updateChartTheme();
 }
 
@@ -3506,8 +3884,10 @@ async function deleteLocalMeasurementHistory() {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Brisanje meritev s SD kartice ni uspelo");
     clearNightReferenceSessionCacheForScope("local");
+    clearLocalOverviewHistorySessionCache();
     weightChangeRequestGeneration += 1;
     resetWeightChangeOverview();
+    resetOverviewAnalytics();
     elements.localMeasurementLogStatus.textContent = translateText("Brisanje dnevnika je uvrščeno v čakalno vrsto …");
   } catch (error) {
     elements.localMeasurementLogStatus.textContent = error.message;
@@ -3995,6 +4375,7 @@ function clearCloudHistorySessionCacheForDevice(devicePath) {
     weightChangeRequestGeneration += 1;
     resetWeightChangeOverview();
   }
+  if (cloudDevicePath === devicePath) resetOverviewAnalytics();
 }
 
 function addCloudHistoryCacheCoverage(entry, from, to) {
@@ -4081,8 +4462,11 @@ function scheduleCloudHistoryRender() {
   scheduledCloudHistoryRender = requestAnimationFrame(renderCloudHistoryFromCache);
 }
 
-function aggregateReadings(readings, range) {
-  const bucketSeconds = getBucketSeconds(range);
+function aggregateReadings(readings, range, options = {}) {
+  const bucketSeconds = options.bucketSeconds ?? getBucketSeconds(range);
+  const bucketAnchorTimestamp = Number.isFinite(options.bucketAnchorTimestamp)
+    ? options.bucketAnchorTimestamp
+    : 0;
   const buckets = new Map();
 
   readings.forEach((reading) => {
@@ -4100,7 +4484,7 @@ function aggregateReadings(readings, range) {
       return Number.isFinite(count) && count > 0 ? count : sampleCount;
     };
 
-    const bucket = Math.floor(timestamp / bucketSeconds) * bucketSeconds;
+    const bucket = bucketAnchorTimestamp + Math.floor((timestamp - bucketAnchorTimestamp) / bucketSeconds) * bucketSeconds;
     const current = buckets.get(bucket) ?? {
       timestamp: bucket,
       temperature: 0,
@@ -6281,8 +6665,6 @@ async function useLocalDataSource() {
   elements.localManualUpdateSection.hidden = false;
   elements.localElegantOtaLink.href = "/update";
   elements.updatesNavigationItem.hidden = false;
-  document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = true; });
-  document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = false; });
   document.querySelectorAll("[data-local-only]").forEach((element) => { element.hidden = false; });
   elements.cloudSyncControls.hidden = false;
   setCloudDeviceManagementVisibility(false);
@@ -6315,31 +6697,22 @@ async function useLocalDataSource() {
     const to = Math.floor(appliedRange.to.getTime() / 1000);
     const requestGeneration = ++localHistoryRequestGeneration;
     try {
-      for (let attempt = 0; attempt < 120; attempt += 1) {
-        const historyResponse = await fetch(`/api/history?from=${from}&to=${to}`, { cache: "no-store" });
-        if (requestGeneration !== localHistoryRequestGeneration) return;
-        if (historyResponse.status === 202) {
+      const readings = await fetchLocalHistoryWindow({ from, to }, () => {
+        if (requestGeneration === localHistoryRequestGeneration) {
           elements.historySummary.textContent = translateText("Pripravljam lokalno zgodovino s SD kartice …");
-          await delay(250);
-          continue;
         }
-        if (!historyResponse.ok) {
-          renderHistory([], true);
-          elements.historySummary.textContent = translateText(historyResponse.status === 503
-            ? "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo."
-            : "Lokalna zgodovina trenutno ni dosegljiva.");
-          return;
-        }
-        const history = await historyResponse.json();
-        renderHistory(history.readings ?? [], true);
-        return;
-      }
-      renderHistory([], true);
-      elements.historySummary.textContent = translateText("Priprava lokalne zgodovine je trajala predolgo.");
+      });
+      if (requestGeneration !== localHistoryRequestGeneration) return;
+      renderHistory(readings, true);
     } catch (error) {
+      if (requestGeneration !== localHistoryRequestGeneration) return;
       console.error(error);
       renderHistory([], true);
-      elements.historySummary.textContent = translateText("Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.");
+      elements.historySummary.textContent = translateText(error?.status === 503
+        ? "SD kartica trenutno ni dosegljiva; lokalno stanje naprave ostaja na voljo."
+        : error?.message === "Priprava lokalne zgodovine je trajala predolgo."
+          ? "Priprava lokalne zgodovine je trajala predolgo."
+          : "Lokalne zgodovine ni bilo mogoče prebrati; povezava z napravo ostaja aktivna.");
     }
   };
 
@@ -6357,8 +6730,6 @@ async function useFirebaseDataSource() {
   elements.updatesSubtitle.textContent = translateText("Varna namestitev nove različice na izbrano napravo.");
   elements.updatesNavigationItem.hidden = false;
   elements.localManualUpdateSection.hidden = true;
-  document.querySelectorAll(".cloud-only-link").forEach((element) => { element.hidden = false; });
-  document.querySelectorAll(".local-only-link").forEach((element) => { element.hidden = true; });
   document.querySelectorAll("[data-local-only]").forEach((element) => { element.hidden = true; });
   setCloudDeviceManagementVisibility(false);
   const [{ initializeApp }, authModule, databaseModule, configModule] = await Promise.all([
@@ -6517,6 +6888,7 @@ async function startDashboard() {
   }
   dashboardDataSourceReady = true;
   scheduleWeightChangeOverviewRefresh();
+  void refreshOverviewAnalytics();
   refreshVisibleHistory();
 }
 

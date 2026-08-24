@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="sl" data-theme="light">
+<html lang="sl" data-theme="forest">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f4f1e8" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#081b13" />
+    <meta name="color-scheme" content="dark" />
     <title>Pametni čebelnjak</title>
     <link id="app-favicon" rel="icon" type="image/svg+xml" href="assets/favicon2.svg" />
     <script>
       (() => {
         const savedTheme = localStorage.getItem("pametni-cebelnjak-theme");
         const savedLanguage = localStorage.getItem("pametni-cebelnjak-language");
-        const preferredTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-        document.documentElement.dataset.theme = savedTheme || preferredTheme;
+        const supportedThemes = ["forest", "midnight", "honey", "light"];
+        document.documentElement.dataset.theme = supportedThemes.includes(savedTheme) ? savedTheme : "forest";
         document.documentElement.lang = ["sl", "hr", "en"].includes(savedLanguage) ? savedLanguage : "sl";
       })();
     </script>
@@ -37,9 +37,15 @@
           <button class="nav-link" type="button" data-view-target="device">Naprava</button>
           <button class="nav-link" id="updates-nav-item" type="button" data-view-target="updates">Posodobitve</button>
           <div class="mobile-navigation-preferences">
-            <button class="mobile-preference" type="button" data-theme-toggle>
-              <span class="theme-indicator" aria-hidden="true"></span><span data-theme-label>Temna tema</span>
-            </button>
+            <details class="theme-switcher mobile-theme-switcher">
+              <summary aria-label="Izberi temo"><span class="theme-active-icon" aria-hidden="true"><svg class="theme-active-icon-forest" viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg><svg class="theme-active-icon-midnight" viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg><svg class="theme-active-icon-honey" viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg><svg class="theme-active-icon-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg></span><span data-theme-label>Gozd</span></summary>
+              <div class="theme-menu">
+                <button type="button" data-theme-choice="forest"><span class="theme-icon theme-icon-forest" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg></span><span>Gozd</span></button>
+                <button type="button" data-theme-choice="midnight"><span class="theme-icon theme-icon-midnight" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg></span><span>Polnoč</span></button>
+                <button type="button" data-theme-choice="honey"><span class="theme-icon theme-icon-honey" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg></span><span>Med</span></button>
+                <button type="button" data-theme-choice="light"><span class="theme-icon theme-icon-light" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg></span><span>Svetla tema</span></button>
+              </div>
+            </details>
             <details class="language-switcher mobile-language-switcher">
               <summary><span data-language-flag>🇸🇮</span><span data-language-label>Slovenščina</span></summary>
               <div class="language-menu">
@@ -60,10 +66,15 @@
             <span class="status-dot"></span>
             <span id="connection-text">Vzpostavljam povezavo …</span>
           </div>
-          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Preklopi barvno temo">
-            <span class="theme-indicator" aria-hidden="true"></span>
-            <span id="theme-label">Temna tema</span>
-          </button>
+          <details class="theme-switcher desktop-theme-switcher" id="theme-toggle">
+            <summary aria-label="Izberi temo"><span class="theme-active-icon" aria-hidden="true"><svg class="theme-active-icon-forest" viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg><svg class="theme-active-icon-midnight" viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg><svg class="theme-active-icon-honey" viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg><svg class="theme-active-icon-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg></span><span id="theme-label">Gozd</span></summary>
+            <div class="theme-menu">
+              <button type="button" data-theme-choice="forest"><span class="theme-icon theme-icon-forest" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg></span><span>Gozd</span></button>
+              <button type="button" data-theme-choice="midnight"><span class="theme-icon theme-icon-midnight" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg></span><span>Polnoč</span></button>
+              <button type="button" data-theme-choice="honey"><span class="theme-icon theme-icon-honey" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg></span><span>Med</span></button>
+              <button type="button" data-theme-choice="light"><span class="theme-icon theme-icon-light" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg></span><span>Svetla tema</span></button>
+            </div>
+          </details>
           <details class="language-switcher desktop-language-switcher">
             <summary aria-label="Izberi jezik"><span class="language-flag" data-language-flag>🇸🇮</span><span class="sr-only" data-language-label>Slovenščina</span></summary>
             <div class="language-menu">
@@ -112,16 +123,28 @@
               <span class="metric-symbol" aria-hidden="true">🌡</span>
               <p>Temperatura</p>
               <strong><span id="temperature-value">—</span><small>°C</small></strong>
+              <p class="metric-range" id="temperature-range">min — · max —</p>
+              <div class="metric-sparkline-frame is-empty" id="temperature-sparkline-frame">
+                <svg class="metric-sparkline" id="temperature-sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Trend temperature v zadnjih 24 urah"></svg>
+              </div>
             </article>
             <article class="metric-card humidity-card">
               <span class="metric-symbol" aria-hidden="true">💧</span>
               <p>Relativna vlaga</p>
               <strong><span id="humidity-value">—</span><small>%</small></strong>
+              <p class="metric-range" id="humidity-range">min — · max —</p>
+              <div class="metric-sparkline-frame is-empty" id="humidity-sparkline-frame">
+                <svg class="metric-sparkline" id="humidity-sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Trend relativne vlage v zadnjih 24 urah"></svg>
+              </div>
             </article>
             <article class="metric-card weight-card">
               <span class="metric-symbol" aria-hidden="true">⚖</span>
               <p>Masa panja</p>
               <strong><span id="weight-value">—</span><small>kg</small></strong>
+              <p class="metric-range" id="weight-range">min — · max —</p>
+              <div class="metric-sparkline-frame is-empty" id="weight-sparkline-frame">
+                <svg class="metric-sparkline" id="weight-sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Trend mase panja v zadnjih 24 urah"></svg>
+              </div>
             </article>
           </div>
         </section>
@@ -134,17 +157,31 @@
             </div>
           </div>
           <div class="weight-change-grid" aria-live="polite">
-            <article class="weight-change-item">
-              <p>24 h</p>
+            <article class="weight-change-item weight-change-summary">
+              <p>Zadnjih 24 h</p>
               <strong class="weight-change-value neutral" id="weight-change-day">—</strong>
-              <span class="weight-change-trend" id="weight-change-day-trend" hidden></span>
+              <span class="weight-change-trend" id="weight-change-day-trend" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <g class="weight-change-badge-icon weight-change-badge-icon-gain">
+                    <circle class="weight-change-badge-disc" cx="12" cy="12" r="10" />
+                    <path class="weight-change-badge-arrow" d="M12 17V7m-4 4 4-4 4 4" />
+                  </g>
+                  <g class="weight-change-badge-icon weight-change-badge-icon-stable">
+                    <circle class="weight-change-badge-disc" cx="12" cy="12" r="10" />
+                    <path class="weight-change-badge-arrow" d="M6.5 12h11m-8-3-3 3 3 3m5-6 3 3-3 3" />
+                  </g>
+                  <g class="weight-change-badge-icon weight-change-badge-icon-loss">
+                    <circle class="weight-change-badge-disc" cx="12" cy="12" r="10" />
+                    <path class="weight-change-badge-arrow" d="M12 7v10m-4-4 4 4 4-4" />
+                  </g>
+                </svg>
+                <span id="weight-change-day-trend-label"></span>
+              </span>
               <small id="weight-change-day-detail">Ni dovolj podatkov</small>
             </article>
-            <article class="weight-change-item">
-              <p>7 dni</p>
-              <strong class="weight-change-value neutral" id="weight-change-week">—</strong>
-              <span class="weight-change-trend" id="weight-change-week-trend" hidden></span>
-              <small id="weight-change-week-detail">Ni dovolj podatkov</small>
+            <article class="weight-change-item weight-change-history">
+              <p>Zadnjih 7 dni</p>
+              <div class="weight-change-week-chart is-empty" id="weight-change-week-chart" role="img" aria-label="Trend spremembe mase za zadnjih 7 dni"></div>
             </article>
           </div>
           <p class="weight-change-reference">Primerjava temelji na nočni masi panja</p>
@@ -171,11 +208,6 @@
           <div class="weather-forecast" id="weather-forecast" aria-live="polite"></div>
         </section>
 
-        <div class="overview-links">
-          <button class="quick-link" type="button" data-view-target="device"><span>Naprava</span><strong>Podrobnosti naprave</strong></button>
-          <button class="quick-link cloud-only-link" id="cloud-updates-quick-link" type="button" data-view-target="updates"><span>Različica</span><strong>Preveri posodobitve</strong></button>
-          <button class="quick-link local-only-link" type="button" data-view-target="updates" hidden><span>Različica</span><strong>Ročna posodobitev naprave</strong></button>
-        </div>
       </section>
 
       <section class="app-view" data-view-panel="history" aria-labelledby="history-heading" hidden>

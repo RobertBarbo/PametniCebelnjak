@@ -6,6 +6,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Dodana je četrta podoba **Svetla tema** z lastno sončno SVG ikono, svetlo paleto in podporo v namiznem ter mobilnem izbirniku. Izbira se, enako kot ostale teme, shrani v `localStorage` in velja za cloud ter lokalni pogled.
+- Kartice **Temperatura**, **Relativna vlaga** in **Masa panja** na pregledu zdaj poleg trenutne vrednosti prikažejo najmanjšo in največjo shranjeno vrednost zadnjih 24 ur ter neinterpoliran SVG trend z največ 24 urnimi povprečji. Prenovljena odzivna postavitev ima ikono ob naslovu, zgoščen prikaz vrednosti in trenda ter enak videz v cloud in lokalnem pogledu. Cloud uporabi omejen RAW prenos iz obstoječega session cache-a brez novega realtime listenerja, lokalni pogled pa isti omejeni `/api/history` vir z zaporedno čakalno vrsto zahtevkov.
 - Dodan je dokument `docs/PROJECT_RESTORE.md` z navodili za kloniranje, obnovitev PlatformIO, Firebase cloud nastavitve, Android aplikacije in varen Git backup na novem računalniku.
 - Cloud nadzorna plošča po 30 minutah neaktivnosti ustavi Firebase RTDB realtime poslušalce in po petminutnem opozorilu uporabnika odjavi. Dejavnost ter nadaljevanje seje se usklajujeta med odprtimi zavihki, lokalni ESP pogled pa ostane brez timeouta.
 
@@ -24,6 +26,9 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
+- Kartica **Sprememba mase** ima na levi nespremenjeno 24-urno primerjavo nočnih median z jasnim semantičnim SVG badgeom **Prirast**, **Stabilno** ali **Padec**. Na desni je lahek HTML/CSS stolpčni prikaz sedmih zaporednih dnevnih razlik: stolpci imajo datum, prikazano vrednost, zeleno oziroma rdečo barvo po predznaku, prazni dnevi pa ostanejo prazni. Skala `kg/dan` se simetrično in samodejno prilagodi največji absolutni razliki. Za osem potrebnih nočnih referenc cloud bere le manjkajoča dvourna RAW okna iz obstoječega session cache-a brez realtime listenerja, lokalni pogled pa ista okna varno pripravi zaporedno prek obstoječe čakalne vrste SD zgodovine.
+- Glavna cloud in lokalna nadzorna plošča imata prenovljen stekleni vizualni sistem ter štiri teme: **Gozd** (privzeta), **Polnoč**, **Med** in **Svetla tema**. Izbirnik teme je na namizju v glavi, na telefonu pa v hamburger meniju; izbira se shrani lokalno in tematsko posodobi tudi barve grafov. Obstoječe podatkovne, Firebase in lokalne API funkcije ostanejo nespremenjene.
+- Android aplikacija ima `versionCode 2` in `versionName 0.1.0-rc.57`; v vgrajeni cloud nadzorni plošči so vključene iste aktualne spremembe web vmesnika kot v brskalniku.
 - Uporabniški vmesnik in trenutna dokumentacija za podatek v kilogramih dosledno uporabljata izraz **masa**: slovensko **Masa/Masa panja**, hrvaško **Masa/Masa košnice** in angleško **Mass/Hive mass**. Imena podatkovnih polj, kot sta `weight_kg` in `weight_sample_count`, ostanejo zaradi združljivosti nespremenjena.
 - Skrbniški seznam panjev ne posluša več celotne Firebase veje `/devices`. Ob prijavi pridobi samo ID-je z avtenticirano RTDB REST zahtevo `shallow=true`, nato pa za vsak ID realtime spremlja le `owner_uid`, `owner_email` in `status/device`. Po trajnem izbrisu naprave se imenik enkrat znova pridobi z isto majhno shallow zahtevo.
 - Hitre izbire zgodovine z odprtim koncem, kot so **Zadnja ura**, **Zadnjih 24 ur**, **Zadnjih 7 dni** in koledarska obdobja do trenutka, na lokalnem in cloud pogledu zdaj vsakih 60 sekund samodejno pomaknejo časovno okno. Lokalni pogled osveži svoj API grafov, cloud pogled pa samo ponovno izriše že prejeto realtime predpomnjeno zgodovino brez nove Firebase poizvedbe; ročno določen interval in približan graf ostaneta fiksna.

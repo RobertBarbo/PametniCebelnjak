@@ -9,11 +9,13 @@ git clone <URL_REPOZITORIJA>
 cd Pametni_Cebelnjak
 ```
 
-Preklopi na razvojno vejo:
+Privzeta veja za obnovitev trenutnega stabilnega projektnega stanja je `main`:
 
 ```powershell
-git switch codex/mass-change-trends
+git switch main
 ```
+
+Če želiš nadaljevati delo na ločeni razvojni veji, jo izberi šele po kloniranju oziroma preveri njeno trenutno ime na GitHubu.
 
 Preveri stanje:
 
@@ -102,10 +104,10 @@ git branch --show-current
 git log -1 --oneline
 ```
 
-Za trenutno razvojno stanje mora biti aktivna veja:
+Za trenutno skupno projektno stanje mora biti aktivna veja:
 
 ```text
-codex/mass-change-trends
+main
 ```
 
 Nato preveri:

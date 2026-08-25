@@ -1,6 +1,7 @@
 package si.pametnicebelnjak.app;
 
 import android.Manifest;
+import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -8,6 +9,7 @@ import android.net.NetworkRequest;
 import android.net.wifi.WifiNetworkSpecifier;
 import android.os.Build;
 import android.os.PatternMatcher;
+import android.provider.Settings;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -77,6 +79,45 @@ public class ProvisioningWifiPlugin extends Plugin {
     @PluginMethod
     public void disconnect(PluginCall call) {
         releaseDeviceNetwork();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void openWifiSettings(PluginCall call) {
+        try {
+            Intent intent = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                ? new Intent(Settings.Panel.ACTION_WIFI)
+                : new Intent(Settings.ACTION_WIFI_SETTINGS);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (RuntimeException exception) {
+            call.reject("Android ni mogel odpreti nastavitev Wi-Fi omrežja.", exception);
+        }
+    }
+
+    @PluginMethod
+    public void openLocalDashboard(PluginCall call) {
+        Network network = deviceNetwork;
+        if (network == null) {
+            call.reject("Aplikacija ni povezana z dostopno točko naprave.");
+            return;
+        }
+
+        if (!connectivityManager.bindProcessToNetwork(network)) {
+            call.reject("Lokalne nadzorne plošče ni bilo mogoče odpreti.");
+            return;
+        }
+
+        JSObject result = new JSObject();
+        result.put("url", DEVICE_BASE_URL + "/");
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void closeLocalDashboard(PluginCall call) {
+        if (connectivityManager != null) {
+            connectivityManager.bindProcessToNetwork(null);
+        }
         call.resolve();
     }
 
@@ -218,6 +259,9 @@ public class ProvisioningWifiPlugin extends Plugin {
     }
 
     private void releaseDeviceNetwork() {
+        if (connectivityManager != null) {
+            connectivityManager.bindProcessToNetwork(null);
+        }
         deviceNetwork = null;
         if (connectivityManager != null && networkCallback != null) {
             try {

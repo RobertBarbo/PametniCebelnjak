@@ -29,6 +29,7 @@ const NATIVE_AUTH_REQUEST_TYPE = "pametni-cebelnjak-native-auth-request";
 const NATIVE_AUTH_RESULT_TYPE = "pametni-cebelnjak-native-auth-result";
 const NATIVE_AUTH_REQUEST_TIMEOUT_MS = 90_000;
 const ANDROID_DASHBOARD_FRAME_NAME = "pametni-cebelnjak-dashboard";
+const APP_RETURN_MESSAGE_TYPE = "pametni-cebelnjak-return-to-app";
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPENSTREETMAP_REVERSE_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse";
@@ -49,10 +50,15 @@ const WEIGHT_CHANGE_STABLE_THRESHOLD_KG = 0.20;
 const WEIGHT_AXIS_INCREMENTS = Object.freeze([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]);
 const CHART_AXIS_FORMATTERS = new Map();
 const isEmbeddedDashboard = window.parent !== window;
+const dashboardQueryParameters = new URLSearchParams(window.location.search);
+const isAndroidLocalDashboard = dashboardQueryParameters.get("mode") === "local";
 const isAndroidAppDashboard =
-  new URLSearchParams(window.location.search).get("app") === "android"
-  || window.name === ANDROID_DASHBOARD_FRAME_NAME
-  || isEmbeddedDashboard;
+  !isAndroidLocalDashboard
+  && (
+    dashboardQueryParameters.get("app") === "android"
+    || window.name === ANDROID_DASHBOARD_FRAME_NAME
+    || isEmbeddedDashboard
+  );
 const UI_TEXT = {
   sl: { resetZoom: "Ponastavi zoom" },
   hr: { resetZoom: "Poništi zumiranje" },
@@ -81,7 +87,7 @@ const TRANSLATIONS = {
     "Dobrodošel v pametnem panju": "Dobro došli u pametnu košnicu", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Trenutna mjerenja i brzi pregled zadnjeg stanja košnice.",
     "Odpri grafe": "Otvori grafove", "Opozorila naprave": "Upozorenja uređaja", "Potrebno je preveriti komponento": "Potrebno je provjeriti komponentu",
     "Zadnja meritev": "Zadnje mjerenje", "Meritve": "Mjerenja", "Čakam na podatke …": "Čekam podatke …",
-    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost", "min {min} · max {max}": "min. {min} · maks. {max}", "Trend temperature v zadnjih 24 urah": "Trend temperature u posljednja 24 h", "Trend relativne vlage v zadnjih 24 urah": "Trend relativne vlažnosti u posljednja 24 h", "Trend mase panja v zadnjih 24 urah": "Trend mase košnice u posljednja 24 h",
+    "Temperatura": "Temperatura", "Relativna vlaga": "Relativna vlažnost", "min": "min.", "max": "maks.", "min {min} · max {max}": "min. {min} · maks. {max}", "Trend temperature v zadnjih 24 urah": "Trend temperature u posljednja 24 h", "Trend relativne vlage v zadnjih 24 urah": "Trend relativne vlažnosti u posljednja 24 h", "Trend mase panja v zadnjih 24 urah": "Trend mase košnice u posljednja 24 h",
     "Sprememba mase": "Promjena mase", "24 h": "24 h", "7 dni": "7 dana", "Zadnjih 24 h": "Posljednja 24 sata", "Prirast mase": "Porast mase", "Prirast": "Porast", "Padec": "Pad", "Stabilno": "Stabilno", "Izguba mase": "Gubitak mase", "v primerjavi s prejšnjo nočjo": "u usporedbi s prethodnom noći", "v primerjavi z nočjo pred 7 dnevi": "u usporedbi s noći prije 7 dana", "Primerjava temelji na nočni masi panja": "Usporedba se temelji na noćnoj masi košnice", "Ni dovolj podatkov": "Nema dovoljno podataka", "Trend spremembe mase za zadnjih 7 dni": "Trend promjene mase za posljednjih 7 dana", "Ni dovolj podatkov za zadnjih 7 dni": "Nema dovoljno podataka za posljednjih 7 dana",
     "Podrobnosti naprave": "Pojedinosti uređaja", "Različica": "Verzija", "Preveri posodobitve": "Provjeri ažuriranja",
     "Meritve in shranjevanje": "Mjerenja i pohrana", "Nastavitve vremena": "Postavke vremena", "Stanje sistema": "Stanje sustava",
@@ -132,7 +138,7 @@ const TRANSLATIONS = {
     "DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.": "DS3231 nije spreman; postavljanje i sinkronizacija vremena trenutačno nisu mogući.",
     "Panj je offline; nastavljanje datuma in ure trenutno ni možno.": "Košnica je izvan mreže; postavljanje datuma i vremena trenutačno nije moguće.", "Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.": "Uređaj je online; datum i vrijeme možete postaviti ili sinkronizirati s internetom.",
     "Zaznana": "Otkrivena", "Ni zaznana": "Nije otkrivena", "Po petih poskusih ni bila zaznana.": "Nije otkrivena nakon pet pokušaja.",
-    "Odpri meni": "Otvori izbornik", "Glavna navigacija": "Glavna navigacija", "Opozorilo komponent": "Upozorenje komponenti", "Vzpostavljam povezavo …": "Uspostavljam vezu …", "Preklopi barvno temo": "Promijeni temu boja", "Izberi jezik": "Odaberite jezik",
+    "Odpri meni": "Otvori izbornik", "Glavna navigacija": "Glavna navigacija", "Nazaj": "Natrag", "Opozorilo komponent": "Upozorenje komponenti", "Vzpostavljam povezavo …": "Uspostavljam vezu …", "Preklopi barvno temo": "Promijeni temu boja", "Izberi jezik": "Odaberite jezik",
     "Vreme": "Vrijeme", "Vreme v kraju": "Vrijeme u mjestu", "Vlaga": "Vlažnost", "Tlak": "Tlak", "Veter": "Vjetar", "Nastavljam obdobje …": "Postavljam razdoblje …", "Čakam na zgodovino meritev …": "Čekam povijest mjerenja …",
     "Pametni kontroler": "Pametni kontroler", "Moj račun": "Moj račun", "Izbrani panj": "Odabrana košnica", "Vsi registrirani panji": "Sve registrirane košnice", "Dodaj panj": "Dodaj košnicu", "Registriraj panj": "Registriraj košnicu", "Vnesi ID naprave in aktivacijsko kodo.": "Unesite ID uređaja i aktivacijski kod.",
     "Ime panja": "Naziv košnice", "ID naprave": "ID uređaja", "Aktivacijska koda": "Aktivacijski kod", "Deli panj": "Podijeli košnicu", "Dostop samo za ogled": "Pristup samo za pregled", "E-poštni naslov prejemnika": "Adresa e-pošte primatelja", "Ustvari povabilo": "Izradi poziv", "Koda povabila": "Kod poziva", "Kopiraj kodo": "Kopiraj kod", "Uporabniki z ogledom": "Korisnici s pristupom za pregled", "Panj še ni deljen.": "Košnica još nije podijeljena.",
@@ -233,7 +239,7 @@ const TRANSLATIONS = {
     "Dobrodošel v pametnem panju": "Welcome to the smart hive", "Trenutne meritve in hiter pregled zadnjega stanja panja.": "Current measurements and a quick overview of the latest hive state.",
     "Odpri grafe": "Open charts", "Opozorila naprave": "Device alerts", "Potrebno je preveriti komponento": "A component needs attention",
     "Zadnja meritev": "Latest measurement", "Meritve": "Measurements", "Čakam na podatke …": "Waiting for data …",
-    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity", "min {min} · max {max}": "min {min} · max {max}", "Trend temperature v zadnjih 24 urah": "Temperature trend over the last 24 h", "Trend relativne vlage v zadnjih 24 urah": "Relative humidity trend over the last 24 h", "Trend mase panja v zadnjih 24 urah": "Hive mass trend over the last 24 h",
+    "Temperatura": "Temperature", "Relativna vlaga": "Relative humidity", "min": "min", "max": "max", "min {min} · max {max}": "min {min} · max {max}", "Trend temperature v zadnjih 24 urah": "Temperature trend over the last 24 h", "Trend relativne vlage v zadnjih 24 urah": "Relative humidity trend over the last 24 h", "Trend mase panja v zadnjih 24 urah": "Hive mass trend over the last 24 h",
     "Sprememba mase": "Mass change", "24 h": "24 h", "7 dni": "7 days", "Zadnjih 24 h": "Last 24 h", "Prirast mase": "Mass gain", "Prirast": "Gain", "Padec": "Loss", "Stabilno": "Stable", "Izguba mase": "Mass loss", "v primerjavi s prejšnjo nočjo": "compared with the previous night", "v primerjavi z nočjo pred 7 dnevi": "compared with the night 7 days ago", "Primerjava temelji na nočni masi panja": "Comparison is based on the hive's night-time mass", "Ni dovolj podatkov": "Not enough data", "Trend spremembe mase za zadnjih 7 dni": "Mass-change trend for the last 7 days", "Ni dovolj podatkov za zadnjih 7 dni": "Not enough data for the last 7 days",
     "Podrobnosti naprave": "Device details", "Različica": "Version", "Preveri posodobitve": "Check for updates",
     "Meritve in shranjevanje": "Measurements and storage", "Nastavitve vremena": "Weather settings", "Stanje sistema": "System status",
@@ -284,7 +290,7 @@ const TRANSLATIONS = {
     "DS3231 ni pripravljen; nastavljanje in sinhronizacija časa trenutno nista mogoča.": "DS3231 is not ready; setting and synchronizing time are currently unavailable.",
     "Panj je offline; nastavljanje datuma in ure trenutno ni možno.": "The hive is offline; setting the date and time is currently unavailable.", "Naprava je online; datum in uro lahko nastaviš ali sinhroniziraš z internetom.": "The device is online; you can set the date and time or synchronize it with the internet.",
     "Zaznana": "Detected", "Ni zaznana": "Not detected", "Po petih poskusih ni bila zaznana.": "It was not detected after five attempts.",
-    "Odpri meni": "Open menu", "Glavna navigacija": "Main navigation", "Opozorilo komponent": "Component warning", "Vzpostavljam povezavo …": "Establishing connection …", "Preklopi barvno temo": "Switch color theme", "Izberi jezik": "Select language",
+    "Odpri meni": "Open menu", "Glavna navigacija": "Main navigation", "Nazaj": "Back", "Opozorilo komponent": "Component warning", "Vzpostavljam povezavo …": "Establishing connection …", "Preklopi barvno temo": "Switch color theme", "Izberi jezik": "Select language",
     "Vreme": "Weather", "Vreme v kraju": "Weather in", "Vlaga": "Humidity", "Tlak": "Pressure", "Veter": "Wind", "Nastavljam obdobje …": "Setting period …", "Čakam na zgodovino meritev …": "Waiting for measurement history …",
     "Pametni kontroler": "Smart controller", "Moj račun": "My account", "Izbrani panj": "Selected hive", "Vsi registrirani panji": "All registered hives", "Dodaj panj": "Add hive", "Registriraj panj": "Register hive", "Vnesi ID naprave in aktivacijsko kodo.": "Enter the device ID and activation code.",
     "Ime panja": "Hive name", "ID naprave": "Device ID", "Aktivacijska koda": "Activation code", "Deli panj": "Share hive", "Dostop samo za ogled": "View-only access", "E-poštni naslov prejemnika": "Recipient email address", "Ustvari povabilo": "Create invitation", "Koda povabila": "Invitation code", "Kopiraj kodo": "Copy code", "Uporabniki z ogledom": "View-only users", "Panj še ni deljen.": "The hive has not been shared yet.",
@@ -385,8 +391,10 @@ const chartSeriesVisibility = {
 const elements = {
   appFavicon: document.querySelector("#app-favicon"),
   brandIcon: document.querySelector("#brand-icon"),
+  localBrandIcon: document.querySelector("#brand-icon-local"),
   menuToggle: document.querySelector("#menu-toggle"),
   topNavigation: document.querySelector("#top-navigation"),
+  appReturnLink: document.querySelector("#app-return-link"),
   themeSwitchers: [...document.querySelectorAll(".theme-switcher")],
   themeChoices: [...document.querySelectorAll("[data-theme-choice]")],
   themeLabels: [...document.querySelectorAll("#theme-label, [data-theme-label]")],
@@ -914,7 +922,9 @@ function applyBrandAssets(useLocalAssets) {
   const source = useLocalAssets ? "assets/favicon2.svg" : "assets/favicon.png";
   elements.appFavicon.href = source;
   elements.appFavicon.type = useLocalAssets ? "image/svg+xml" : "image/png";
-  elements.brandIcon.src = source;
+  elements.brandIcon.hidden = useLocalAssets;
+  elements.localBrandIcon.hidden = !useLocalAssets;
+  if (!useLocalAssets) elements.brandIcon.src = source;
 }
 
 function showView(viewName, updateLocation = true) {
@@ -1038,6 +1048,12 @@ function initializeNavigation() {
     const isOpen = elements.topNavigation.classList.toggle("open");
     elements.menuToggle.setAttribute("aria-expanded", String(isOpen));
   });
+  if (isEmbeddedDashboard || isAndroidLocalDashboard) {
+    elements.appReturnLink.hidden = false;
+    elements.appReturnLink.addEventListener("click", () => {
+      window.parent.postMessage({ type: APP_RETURN_MESSAGE_TYPE }, "*");
+    });
+  }
   window.addEventListener("hashchange", () => showView(window.location.hash.slice(1), false));
   showView(window.location.hash.slice(1) || DEFAULT_VIEW, false);
 }
@@ -1723,13 +1739,21 @@ function createSparklinePath(aggregates, valueKey, window) {
       value: parseMeasurementValue(reading?.[valueKey]),
     }))
     .filter((point) => Number.isFinite(point.timestamp) && point.value !== null);
-  if (!validPoints.length) return [];
+  if (!validPoints.length) return { paths: [], scaleMin: null, scaleMax: null };
 
   const minimum = Math.min(...validPoints.map((point) => point.value));
   const maximum = Math.max(...validPoints.map((point) => point.value));
   const valueSpan = Math.max(maximum - minimum, Math.max(Math.abs(maximum) * 0.04, 0.01));
   const valueCenter = (minimum + maximum) / 2;
-  const xSpan = Math.max(1, window.to - window.from);
+  const scaleMin = valueCenter - valueSpan / 2;
+  const scaleMax = valueCenter + valueSpan / 2;
+  // Sparkline nima časovne osi, zato veljavne točke razporedimo po celotni
+  // risalni širini z enakim notranjim odmikom na obeh straneh panela.
+  const firstTimestamp = Math.min(...validPoints.map((point) => point.timestamp));
+  const lastTimestamp = Math.max(...validPoints.map((point) => point.timestamp));
+  const xSpan = Math.max(1, lastTimestamp - firstTimestamp);
+  const xInset = 4;
+  const xWidth = 120 - xInset * 2;
   const segments = [];
   let segment = [];
   let previousTimestamp;
@@ -1739,16 +1763,29 @@ function createSparklinePath(aggregates, valueKey, window) {
       if (segment.length) segments.push(segment);
       segment = [];
     }
-    const x = Math.max(0, Math.min(120, ((point.timestamp - window.from) / xSpan) * 120));
-    const y = Math.max(3, Math.min(33, 18 - ((point.value - valueCenter) / valueSpan) * 28));
+    const x = firstTimestamp === lastTimestamp
+      ? 60
+      : xInset + ((point.timestamp - firstTimestamp) / xSpan) * xWidth;
+    const y = Math.max(3, Math.min(33, 33 - ((point.value - scaleMin) / valueSpan) * 30));
     segment.push([x, y]);
     previousTimestamp = point.timestamp;
   });
   if (segment.length) segments.push(segment);
 
-  return segments.map((points) => points.reduce((path, [x, y], index) => (
-    `${path}${index ? " L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`
-  ), ""));
+  const paths = segments.map((points) => {
+    const line = points.reduce((path, [x, y], index) => (
+      `${path}${index ? " L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`
+    ), "");
+    const [firstX] = points[0];
+    const [lastX, lastY] = points[points.length - 1];
+    const areaLine = points.map(([x, y]) => ` L${x.toFixed(2)} ${y.toFixed(2)}`).join("");
+    return {
+      line,
+      area: `M${firstX.toFixed(2)} 36${areaLine} L${lastX.toFixed(2)} 36 Z`,
+      lastPoint: [lastX, lastY],
+    };
+  });
+  return { paths, scaleMin, scaleMax };
 }
 
 function renderMetricSparkline(element, frame, paths, label) {
@@ -1757,11 +1794,39 @@ function renderMetricSparkline(element, frame, paths, label) {
   const hasData = paths.length > 0;
   frame.classList.toggle("is-empty", !hasData);
   element.setAttribute("aria-label", translateText(label));
-  paths.forEach((pathData) => {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", pathData);
-    element.append(path);
+  paths.forEach((pathData, index) => {
+    const area = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    area.classList.add("metric-sparkline-area");
+    area.setAttribute("d", pathData.area);
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.classList.add("metric-sparkline-line");
+    line.setAttribute("d", pathData.line);
+    element.append(area, line);
+    if (index === paths.length - 1) {
+      const point = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      point.classList.add("metric-sparkline-point");
+      point.setAttribute("cx", pathData.lastPoint[0].toFixed(2));
+      point.setAttribute("cy", pathData.lastPoint[1].toFixed(2));
+      point.setAttribute("r", "2.1");
+      element.append(point);
+    }
   });
+}
+
+function renderMetricRange(element, min, max, unit) {
+  if (!element) return;
+  const createValue = (label, value) => {
+    const container = document.createElement("span");
+    const valueElement = document.createElement("span");
+    valueElement.className = "metric-range-value";
+    valueElement.textContent = value === "—" ? value : `${value} ${unit}`;
+    container.append(`${translateText(label)} `, valueElement);
+    return container;
+  };
+  const separator = document.createElement("span");
+  separator.className = "metric-range-separator";
+  separator.textContent = "·";
+  element.replaceChildren(createValue("min", min), separator, createValue("max", max));
 }
 
 function buildOverviewAnalytics(readings, window) {
@@ -1780,10 +1845,13 @@ function buildOverviewAnalytics(readings, window) {
   const metrics = {};
   getOverviewMetricDefinitions().forEach(({ valueKey }) => {
     const values = getOverviewMetricValues(sourceReadings, valueKey);
+    const sparkline = createSparklinePath(hourlyAverages, valueKey, window);
     metrics[valueKey] = {
       min: values.length ? Math.min(...values) : null,
       max: values.length ? Math.max(...values) : null,
-      sparklinePaths: createSparklinePath(hourlyAverages, valueKey, window),
+      sparklinePaths: sparkline.paths,
+      sparklineScaleMin: sparkline.scaleMin,
+      sparklineScaleMax: sparkline.scaleMax,
     };
   });
   return { window, metrics };
@@ -1798,10 +1866,7 @@ function renderOverviewAnalytics(analytics = latestOverviewAnalytics) {
     const unit = definition.valueKey === "temperature_c" ? "°C"
       : definition.valueKey === "humidity_percent" ? "%"
         : "kg";
-    setTranslatedElementText(definition.rangeElement, "min {min} · max {max}", {
-      min: min === "—" ? min : `${min} ${unit}`,
-      max: max === "—" ? max : `${max} ${unit}`,
-    });
+    renderMetricRange(definition.rangeElement, min, max, unit);
     renderMetricSparkline(definition.sparkline, definition.sparklineFrame, metric?.sparklinePaths ?? [], definition.sparklineLabel);
   });
 }
@@ -2201,7 +2266,18 @@ function renderWeightChangeBarChart(bars) {
 
     const label = document.createElement("span");
     label.className = "weight-change-day-label";
-    label.textContent = bar.label;
+    const dateParts = /^([0-9]{2}\.)([0-9]{2}\.)$/.exec(bar.label);
+    if (dateParts) {
+      const dayPart = document.createElement("span");
+      dayPart.className = "weight-change-day-label-day";
+      dayPart.textContent = dateParts[1];
+      const monthPart = document.createElement("span");
+      monthPart.className = "weight-change-day-label-month";
+      monthPart.textContent = dateParts[2];
+      label.append(dayPart, monthPart);
+    } else {
+      label.textContent = bar.label;
+    }
     day.append(plot, label);
     days.append(day);
   });
@@ -2319,30 +2395,80 @@ function updateWeatherOverviewTitle() {
   elements.weatherOverviewHeading.textContent = formatTranslatedText("Vreme v kraju {place}", { place: weatherPlaceName() });
 }
 
-const WEATHER_ICON_SVG = Object.freeze({
-  sunny: `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="13" fill="#fbbf24"/><g fill="none" stroke="#fbbf24" stroke-linecap="round" stroke-width="4"><path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/></g></svg>`,
-  partlyCloudy: `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="25" cy="23" r="12" fill="#fbbf24"/><g fill="none" stroke="#fbbf24" stroke-linecap="round" stroke-width="3"><path d="M25 5v5M8 23h5M12.3 10.3l3.5 3.5M37.7 10.3l-3.5 3.5"/></g><path d="M18 48h29a10 10 0 0 0 .8-20A15 15 0 0 0 20 32a8 8 0 0 0-2 16Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="2.5"/></svg>`,
-  cloudy: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 47h37a11 11 0 0 0 1-22A16 16 0 0 0 21 30a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/></svg>`,
-  fog: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M16 37h31a10 10 0 0 0 .6-20A14 14 0 0 0 22 22a8 8 0 0 0-6 15Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="2.5"/><g fill="none" stroke="#9ab7c6" stroke-linecap="round" stroke-width="3"><path d="M13 45h32M20 52h29"/></g></svg>`,
-  rain: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 39h37a11 11 0 0 0 1-22A16 16 0 0 0 21 22a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/><g fill="none" stroke="#45aee8" stroke-linecap="round" stroke-width="4"><path d="m22 47-2 7M34 47l-2 7M46 47l-2 7"/></g></svg>`,
-  snow: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 38h37a11 11 0 0 0 1-22A16 16 0 0 0 21 21a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/><g fill="none" stroke="#6ec2ec" stroke-linecap="round" stroke-width="2.8"><path d="M22 47v9m-4.5-4.5h9M34 47v9m-4.5-4.5h9M46 47v9m-4.5-4.5h9"/></g></svg>`,
-  thunder: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 38h37a11 11 0 0 0 1-22A16 16 0 0 0 21 21a9 9 0 0 0-8 17Z" fill="#d9edf7" stroke="#7fb8d7" stroke-linejoin="round" stroke-width="3"/><path d="m34 43-7 10h6l-2 7 9-12h-6l3-5Z" fill="#fbbf24" stroke="#e6a400" stroke-linejoin="round" stroke-width="1.5"/></svg>`,
-});
+const WEATHER_ICON_NAMES = new Set([
+  "clear-day", "clear-night", "partly-cloudy-day", "partly-cloudy-night", "cloudy",
+  "fog-day", "fog-night", "drizzle", "rain", "snow", "thunderstorms-day", "thunderstorms-night",
+]);
+const androidAnimatedWeatherIconCache = new Map();
 
-function renderWeatherIcon(element, iconName) {
-  element.innerHTML = WEATHER_ICON_SVG[iconName] || WEATHER_ICON_SVG.partlyCloudy;
+async function loadAndroidAnimatedWeatherIcon(name) {
+  let request = androidAnimatedWeatherIconCache.get(name);
+  if (!request) {
+    request = fetch(`assets/weather/animated/${name}.svg`, { cache: "force-cache" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Vremenske ikone ${name} ni bilo mogoče naložiti.`);
+        return response.text();
+      })
+      .then((markup) => {
+        if (!markup.trimStart().startsWith("<svg")) {
+          throw new Error(`Vremenska ikona ${name} ni veljaven SVG.`);
+        }
+        return markup;
+      });
+    androidAnimatedWeatherIconCache.set(name, request);
+  }
+
+  try {
+    return await request;
+  } catch (error) {
+    androidAnimatedWeatherIconCache.delete(name);
+    throw error;
+  }
 }
 
-function weatherCodeInfo(weatherCode) {
+async function replaceAndroidWeatherIconWithAnimation(element, name) {
+  try {
+    const markup = await loadAndroidAnimatedWeatherIcon(name);
+    if (element.dataset.weatherIcon !== name) return;
+    element.innerHTML = markup;
+    const svg = element.querySelector("svg");
+    svg?.classList.add("weather-icon-animation");
+    svg?.setAttribute("aria-hidden", "true");
+    svg?.removeAttribute("focusable");
+  } catch (error) {
+    // PNG ostane viden kot zanesljiv Android fallback.
+    console.warn("Animirane vremenske ikone ni bilo mogoče prikazati.", error);
+  }
+}
+
+function renderWeatherIcon(element, iconName) {
+  const name = WEATHER_ICON_NAMES.has(iconName) ? iconName : "partly-cloudy-day";
+  // Android WebView kompleksnejših animiranih SVG-jev prek <img> ne izriše
+  // zanesljivo. PNG je zato začetni nadomestek, nato pa animirani SVG
+  // vstavimo neposredno v DOM, kjer se njegova SMIL animacija lahko izvaja.
+  if (isAndroidAppDashboard) {
+    element.dataset.weatherIcon = name;
+    element.innerHTML = `<img class="weather-icon-static" src="assets/weather/android/${name}.png" width="256" height="256" alt=""/>`;
+    if (!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      void replaceAndroidWeatherIconWithAnimation(element, name);
+    }
+    return;
+  }
+  delete element.dataset.weatherIcon;
+  element.innerHTML = `<picture class="weather-icon-picture"><source media="(prefers-reduced-motion: no-preference)" srcset="assets/weather/animated/${name}.svg" type="image/svg+xml"/><img src="assets/weather/static/${name}.svg" alt=""/></picture>`;
+}
+
+function weatherCodeInfo(weatherCode, isDay = true) {
   const code = Number(weatherCode);
-  if (code === 0) return { label: translateText("Jasno"), icon: "sunny" };
-  if ([1, 2].includes(code)) return { label: translateText("Delno oblačno"), icon: "partlyCloudy" };
+  const period = isDay === false ? "night" : "day";
+  if (code === 0) return { label: translateText("Jasno"), icon: `clear-${period}` };
+  if ([1, 2].includes(code)) return { label: translateText("Delno oblačno"), icon: `partly-cloudy-${period}` };
   if (code === 3) return { label: translateText("Oblačno"), icon: "cloudy" };
-  if ([45, 48].includes(code)) return { label: translateText("Megla"), icon: "fog" };
-  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { label: translateText(code < 61 ? "Pršenje" : "Dež"), icon: "rain" };
+  if ([45, 48].includes(code)) return { label: translateText("Megla"), icon: `fog-${period}` };
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { label: translateText(code < 61 ? "Pršenje" : "Dež"), icon: code < 61 ? "drizzle" : "rain" };
   if ([71, 73, 75, 77, 85, 86].includes(code)) return { label: translateText("Sneg"), icon: "snow" };
-  if ([95, 96, 99].includes(code)) return { label: translateText("Nevihta"), icon: "thunder" };
-  return { label: translateText("Spremenljivo"), icon: "partlyCloudy" };
+  if ([95, 96, 99].includes(code)) return { label: translateText("Nevihta"), icon: `thunderstorms-${period}` };
+  return { label: translateText("Spremenljivo"), icon: `partly-cloudy-${period}` };
 }
 
 function formatWindDirection(direction) {
@@ -2500,7 +2626,7 @@ function renderWeatherForecast(weather) {
   if (!current || !daily) {
     throw new Error("Vremenska storitev ni vrnila popolnih podatkov.");
   }
-  const currentInfo = weatherCodeInfo(current.weather_code);
+  const currentInfo = weatherCodeInfo(current.weather_code, Number(current.is_day) !== 0);
   renderWeatherIcon(elements.weatherCurrentIcon, currentInfo.icon);
   elements.weatherCurrentCondition.textContent = translateText(currentInfo.label);
   elements.weatherCurrentTemperature.textContent = Number.isFinite(Number(current.temperature_2m))
@@ -2567,7 +2693,7 @@ async function refreshWeatherForecast(force = false) {
     const url = new URL(OPEN_METEO_FORECAST_URL);
     url.searchParams.set("latitude", String(settings.latitude));
     url.searchParams.set("longitude", String(settings.longitude));
-    url.searchParams.set("current", "temperature_2m,relative_humidity_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code");
+    url.searchParams.set("current", "temperature_2m,relative_humidity_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code,is_day");
     url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
     url.searchParams.set("forecast_days", String(settings.forecastDays));
     url.searchParams.set("timezone", "auto");

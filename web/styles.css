@@ -206,7 +206,7 @@ select {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-height: 48px;
   padding: 0;
   border: 0;
@@ -224,10 +224,11 @@ select {
   background: var(--surface-solid);
 }
 
-.brand-mark img {
+.brand-mark img,
+.brand-mark svg {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: inherit;
+  height: inherit;
   object-fit: contain;
 }
 
@@ -625,7 +626,7 @@ select {
 }
 
 .overview-heading {
-  min-height: 178px;
+  min-height: 90px; /* 178px */
 }
 
 .page-heading h1,
@@ -721,8 +722,12 @@ select {
 
 .metric-card {
   position: relative;
-  min-height: 174px;
-  padding: 22px 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.78fr);
+  grid-template-rows: auto minmax(52px, 1fr) auto;
+  column-gap: clamp(14px, 1.5vw, 22px);
+  min-height: 168px;
+  padding: 16px 20px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
@@ -741,18 +746,6 @@ select {
   }
 }
 
-.metric-card::after {
-  position: absolute;
-  right: -34px;
-  bottom: -54px;
-  width: 150px;
-  height: 150px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.08;
-  content: "";
-}
-
 .metric-card p,
 .status-card p,
 .cloud-sync-controls p:not(.eyebrow) {
@@ -762,23 +755,38 @@ select {
   font-weight: 800;
 }
 
-.metric-card > p:not(.metric-range) {
-  max-width: calc(100% - 64px);
-  margin-left: 50px;
+.metric-card-heading {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.metric-card-heading p {
   color: var(--text-soft);
   font-size: 0.75rem;
   font-weight: 900;
   letter-spacing: 0.13em;
   text-transform: uppercase;
+  transform: translateY(-5px);
 }
 
 .metric-card strong {
+  position: relative;
+  z-index: 2;
   display: flex;
+  grid-column: 1;
+  grid-row: 2;
   align-items: baseline;
+  align-self: center;
   gap: 7px;
-  margin-top: 24px;
+  margin: 1px 0 8px;
   color: var(--text);
-  font-size: clamp(2.5rem, 5vw, 4.3rem);
+  font-size: clamp(2.45rem, 3.8vw, 3.25rem);
   letter-spacing: -0.065em;
   line-height: 0.95;
 }
@@ -796,57 +804,93 @@ select {
 }
 
 .metric-range {
-  position: absolute;
-  right: 42%;
-  bottom: 20px;
-  left: 28px;
+  position: relative;
   z-index: 1;
+  display: flex;
+  grid-column: 1;
+  grid-row: 3;
+  align-items: center;
+  align-self: end;
+  gap: 7px;
   margin: 0 !important;
   font-size: 0.76rem !important;
   font-weight: 700 !important;
   letter-spacing: 0.01em;
 }
 
+.metric-range-value {
+  font-weight: 900;
+}
+
+.temperature-card .metric-range-value { color: var(--temperature); }
+.humidity-card .metric-range-value { color: var(--humidity); }
+.weight-card .metric-range-value { color: var(--weight); }
+
+.metric-range-separator {
+  color: var(--text-soft);
+}
+
 .metric-sparkline-frame {
-  position: absolute;
-  right: 28px;
-  top: 66px;
+  position: relative;
   z-index: 1;
-  width: min(34%, 184px);
-  height: 54px;
+  grid-column: 2;
+  grid-row: 1 / 4;
+  width: 100%;
+  min-width: 0;
+  height: 60%;
+  min-height: 0;
+  align-self: center;
+  transform: translateY(8px);
   margin: 0;
   overflow: hidden;
-  border-radius: 10px;
-  background: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 34%, var(--border));
+  border-radius: 16px;
+  background: linear-gradient(145deg, color-mix(in srgb, currentColor 10%, var(--surface-solid)), color-mix(in srgb, currentColor 4%, var(--surface-solid)));
+  box-shadow: 0 0 22px color-mix(in srgb, currentColor 8%, transparent), inset 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .metric-sparkline-frame.is-empty::after {
   position: absolute;
-  inset: 50% 0 auto;
+  right: 12px;
+  left: 12px;
+  top: 50%;
   height: 1px;
   background: var(--border);
   content: "";
 }
 
 .metric-sparkline {
+  position: absolute;
+  inset: 12px;
   display: block;
-  width: 100%;
-  height: 100%;
+  width: calc(100% - 24px);
+  height: calc(100% - 24px);
   overflow: visible;
 }
 
-.metric-sparkline path {
+.metric-sparkline-line {
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.35;
+  stroke-width: 2.8;
   vector-effect: non-scaling-stroke;
 }
 
-.temperature-card .metric-sparkline { color: var(--temperature); }
-.humidity-card .metric-sparkline { color: var(--humidity); }
-.weight-card .metric-sparkline { color: var(--weight); }
+.metric-sparkline-area {
+  fill: currentColor;
+  opacity: 0.12;
+  stroke: none;
+}
+
+.metric-sparkline-point {
+  fill: currentColor;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.temperature-card .metric-sparkline-frame { color: var(--temperature); }
+.humidity-card .metric-sparkline-frame { color: var(--humidity); }
+.weight-card .metric-sparkline-frame { color: var(--weight); }
 
 .weight-change-panel .section-heading {
   margin-bottom: 18px;
@@ -891,7 +935,7 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 16px;
   padding: 7px 12px;
   border: 1px solid currentColor;
   border-radius: 999px;
@@ -937,7 +981,7 @@ select {
 .weight-change-item small {
   display: block;
   min-height: 2.6em;
-  margin-top: 8px;
+  margin-top: 16px;
   color: var(--text-soft);
   font-size: 0.9rem;
   line-height: 1.4;
@@ -1116,6 +1160,11 @@ select {
   white-space: nowrap;
 }
 
+.weight-change-day-label-day,
+.weight-change-day-label-month {
+  display: inline;
+}
+
 @media (max-width: 640px) {
   .weight-change-week-chart {
     grid-template-columns: 40px minmax(0, 1fr);
@@ -1123,7 +1172,17 @@ select {
   }
 
   .weight-change-days {
-    gap: 4px;
+    gap: 2px;
+  }
+
+  .weight-change-day-label {
+    line-height: 1.05;
+    white-space: normal;
+  }
+
+  .weight-change-day-label-day,
+  .weight-change-day-label-month {
+    display: block;
   }
 
   .weight-change-day-bar {
@@ -1199,11 +1258,21 @@ select {
   overflow: hidden;
 }
 
+.weather-icon-picture,
+.weather-icon-picture img,
+.weather-icon > .weather-icon-static,
 .weather-icon svg,
-.weather-forecast-icon svg {
+.weather-forecast-icon svg,
+.weather-forecast-icon img {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.weather-icon-picture img,
+.weather-icon > .weather-icon-static,
+.weather-forecast-icon img {
+  object-fit: contain;
 }
 
 .weather-condition div,
@@ -1352,28 +1421,50 @@ select {
 }
 
 .metric-symbol {
-  position: absolute;
-  top: 10px;
-  right: auto;
-  left: 28px;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  width: 50px;
+  height: 56px;
   margin: 0;
-  border-radius: 12px;
-  color: var(--text-inverse);
-  font-size: 1.3rem;
-  font-weight: 900;
+  color: currentColor;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, currentColor 34%, transparent));
+}
+
+.metric-symbol svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.metric-symbol-hexagon {
+  fill: color-mix(in srgb, currentColor 8%, transparent);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.metric-symbol-icon,
+.metric-symbol-highlight {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.7;
+}
+
+.metric-symbol-icon-fill {
+  fill: currentColor;
+}
+
+.metric-symbol-highlight {
+  opacity: 0.75;
+  stroke-width: 2;
 }
 
 .temperature-card { color: var(--temperature); }
 .humidity-card { color: var(--humidity); }
 .weight-card { color: var(--weight); }
-.temperature-card .metric-symbol { background: var(--temperature); }
-.humidity-card .metric-symbol { background: var(--humidity); }
-.weight-card .metric-symbol { background: var(--weight); }
 
 .primary-button,
 .secondary-button,
@@ -3727,38 +3818,42 @@ body[data-dashboard-mode="cloud"][data-auth-state="signed-out"] .menu-toggle {
   }
 
   .metric-card {
-    min-height: 144px;
-    padding: 20px;
+    grid-template-columns: minmax(0, 0.95fr) minmax(142px, 1.05fr);
+    grid-template-rows: auto minmax(50px, 1fr) auto;
+    column-gap: 14px;
+    min-height: 160px;
+    padding: 14px;
   }
 
   .metric-card strong {
-    margin-top: 20px;
+    margin: 10px 0 6px;
+    font-size: clamp(2.35rem, 11vw, 3.25rem);
   }
 
   .metric-range {
-    right: 42%;
-    top: 112px;
-    bottom: auto;
-    left: 20px;
+    gap: 5px;
     font-size: 0.7rem !important;
   }
 
   .metric-sparkline-frame {
-    right: 20px;
-    top: 64px;
-    width: min(34%, 144px);
-    height: 46px;
+    width: 100%;
+    height: 50%;
+    min-height: 0;
+    border-radius: 14px;
   }
 
   .metric-symbol {
-    top: 8px;
-    right: auto;
-    left: 20px;
+    width: 44px;
+    height: 50px;
   }
 
-  .metric-card > p:not(.metric-range) {
-    max-width: calc(100% - 76px);
-    margin-left: 50px;
+  .metric-card-heading {
+    gap: 9px;
+  }
+
+  .metric-card-heading p {
+    font-size: 0.69rem;
+    letter-spacing: 0.1em;
   }
 
   .status-card {
@@ -3862,6 +3957,79 @@ body[data-dashboard-mode="cloud"][data-auth-state="signed-out"] .menu-toggle {
 @media (max-width: 440px) {
   .brand > span:last-child {
     display: none;
+  }
+
+  .metric-card {
+    grid-template-columns: minmax(0, 0.95fr) minmax(120px, 1.05fr);
+    column-gap: 10px;
+    min-height: 154px;
+    padding: 14px;
+  }
+
+  .metric-card-heading {
+    gap: 7px;
+  }
+
+  .metric-card-heading p {
+    font-size: 0.62rem;
+    letter-spacing: 0.075em;
+  }
+
+  .metric-symbol {
+    width: 38px;
+    height: 44px;
+  }
+
+  .metric-card strong {
+    gap: 4px;
+    font-size: clamp(2.05rem, 11.5vw, 2.65rem);
+  }
+
+  .metric-card strong small {
+    font-size: 0.8rem;
+  }
+
+  .metric-range {
+    gap: 4px;
+    font-size: 0.62rem !important;
+  }
+
+  .metric-sparkline-frame {
+    height: 50%;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .metric-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto 106px;
+    row-gap: 8px;
+  }
+
+  .metric-card-heading,
+  .metric-card strong,
+  .metric-range,
+  .metric-sparkline-frame {
+    grid-column: 1;
+  }
+
+  .metric-card-heading { grid-row: 1; }
+
+  .metric-card strong {
+    grid-row: 2;
+    margin: 6px 0 0;
+  }
+
+  .metric-range {
+    grid-row: 3;
+  }
+
+  .metric-sparkline-frame {
+    grid-row: 4;
+    height: 106px;
+    min-height: 106px;
+    align-self: stretch;
   }
 }
 

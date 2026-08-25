@@ -9,10 +9,14 @@ Android aplikacija združuje začetno nastavitev naprave in dostop do spletne na
 - prek lokalnega API-ja naprave poišče domača Wi-Fi omrežja,
 - napravi varno pošlje izbrani SSID in geslo,
 - prikaže rezultat povezovanja, novi lokalni IP ter ID naprave,
-- odpre spletno nadzorno ploščo `https://pametnicebelnjak.web.app/` v istem aplikacijskem WebView,
+- v istem aplikacijskem WebView odpre ob gradnji vključeno kopijo cloud nadzorne plošče, ki se poveže z istim Firebase projektom kot `https://pametnicebelnjak.web.app/`,
 - Google prijavo izvede z nativnim Android izbirnikom računa in rezultat varno preda Firebase spletni aplikaciji brez odpiranja zunanjega brskalnika.
 
 Wi-Fi geslo se ne shranjuje v aplikaciji. Posreduje se neposredno napravi prek njene začasne lokalne povezave.
+
+## Zagonski zaslon
+
+Android najprej prikaže nativni statični zagonski zaslon, da med ustvarjanjem WebViewa ni praznega ali utripajočega okvirja. Takoj za njim aplikacijski HTML prikaže približno 1,75 sekunde dolgo lokalno animacijo znaka: čebela se pojavi, krili znotraj heksagona nežno zamahneta, zlata točka utripne in zaporedno se izrišeta dva razmaknjena signalna loka. Vse PNG plasti so vključene v APK in ne potrebujejo omrežja. Pri vključeni sistemski nastavitvi zmanjšanega gibanja se animacija preskoči in znak le na kratko prikaže.
 
 ## Zahteve
 
@@ -40,6 +44,8 @@ cd android-app
 npm install
 npm run sync
 ```
+
+Ukaz `npm run sync` pred Android gradnjo skopira trenutno vsebino mape `web/` v aplikacijski `dashboard/`. Sprememba Firebase Hosting strani zato ne posodobi že nameščenega APK-ja; za spremembe uporabniškega vmesnika v aplikaciji je treba izdelati in namestiti nov APK.
 
 Za odpiranje projekta v Android Studiu:
 
@@ -84,6 +90,7 @@ npx capacitor-assets generate --android
 
 - `src/main.js` – uporabniški tok in povezava z nativnim vtičnikom,
 - `src/styles.css` – odzivni uporabniški vmesnik,
+- `public/assets/splash-*.png` – lokalne plasti animiranega aplikacijskega zagonskega znaka,
 - `android/app/src/main/java/si/pametnicebelnjak/app/ProvisioningWifiPlugin.java` – Android Wi-Fi povezava in lokalni HTTP klici,
 - `android/app/src/main/res/xml/network_security_config.xml` – dovoljen lokalni HTTP samo do `192.168.4.1`,
 - `@capacitor-firebase/authentication` – nativna Google prijava brez prehoda v zunanji brskalnik,

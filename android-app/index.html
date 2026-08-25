@@ -5,13 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#08150f" />
     <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        const theme = localStorage.getItem('pametni-cebelnjak-theme');
+        document.documentElement.dataset.theme = ['forest', 'midnight', 'honey', 'light'].includes(theme) ? theme : 'forest';
+      })();
+    </script>
     <title>Pametni čebelnjak</title>
     <link rel="icon" href="/assets/favicon.png" type="image/png" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
+    <div id="animated-splash" class="animated-splash" aria-hidden="true">
+      <div class="animated-splash__stage">
+        <span class="animated-splash__wing animated-splash__wing--left">
+          <img src="/assets/splash-bee-wing.png" alt="" />
+        </span>
+        <span class="animated-splash__wing animated-splash__wing--right">
+          <img src="/assets/splash-bee-wing.png" alt="" />
+        </span>
+        <img class="animated-splash__base" src="/assets/splash-bee-base.png" alt="" />
+        <img class="animated-splash__signal animated-splash__signal--large" src="/assets/splash-signal-large.png" alt="" />
+        <img class="animated-splash__signal animated-splash__signal--medium" src="/assets/splash-signal-medium.png" alt="" />
+        <img class="animated-splash__signal animated-splash__signal--small" src="/assets/splash-signal-small.png" alt="" />
+        <img class="animated-splash__signal-dot" src="/assets/splash-signal-dot.png" alt="" />
+      </div>
+    </div>
     <div class="app-shell">
       <header class="app-header">
+        <details class="app-menu">
+          <summary aria-label="Meni"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg></summary>
+          <div class="app-menu-options">
+            <p class="menu-label" data-i18n="Tema">Tema</p>
+            <div class="app-theme-options" role="group" aria-label="Izberi temo">
+              <button type="button" data-app-theme-choice="forest"><span class="app-theme-swatch app-theme-swatch--forest" aria-hidden="true"></span><span data-i18n="Gozd">Gozd</span></button>
+              <button type="button" data-app-theme-choice="midnight"><span class="app-theme-swatch app-theme-swatch--midnight" aria-hidden="true"></span><span data-i18n="Polnoč">Polnoč</span></button>
+              <button type="button" data-app-theme-choice="honey"><span class="app-theme-swatch app-theme-swatch--honey" aria-hidden="true"></span><span data-i18n="Med">Med</span></button>
+              <button type="button" data-app-theme-choice="light"><span class="app-theme-swatch app-theme-swatch--light" aria-hidden="true"></span><span data-i18n="Svetla tema">Svetla tema</span></button>
+            </div>
+            <p class="app-version" data-i18n="Različica aplikacije 0.1.0-rc.67">Različica aplikacije 0.1.0-rc.67</p>
+          </div>
+        </details>
         <img class="brand-icon" src="/assets/favicon.png" alt="" />
         <div class="brand-copy">
           <p class="brand-name" data-i18n="Pametni čebelnjak">Pametni čebelnjak</p>
@@ -20,6 +54,7 @@
         <details class="language-switcher">
           <summary aria-label="Izberi jezik"><span data-language-flag>🇸🇮</span></summary>
           <div class="language-options" role="group" aria-label="Izberi jezik">
+            <p class="menu-label" data-i18n="Jezik">Jezik</p>
             <button type="button" data-language="sl">🇸🇮 <span>Slovenščina</span></button>
             <button type="button" data-language="hr">🇭🇷 <span>Hrvatski</span></button>
             <button type="button" data-language="en">🇬🇧 <span>English</span></button>
@@ -32,7 +67,7 @@
           <div class="hero">
             <p class="eyebrow" data-i18n="DOBRODOŠLI">DOBRODOŠLI</p>
             <h1 id="home-title" data-i18n-html="Tvoj panj.<br />Vedno blizu.">Tvoj panj.<br />Vedno blizu.</h1>
-            <p class="lead" data-i18n="Spremljaj meritve v cloudu ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.">Spremljaj meritve v cloudu ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.</p>
+            <p class="lead" data-i18n="Spremljaj meritve v oblaku ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.">Spremljaj meritve v oblaku ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.</p>
           </div>
           <div class="action-grid">
             <article class="action-card action-card--primary"><span class="card-number">01</span><div><p class="eyebrow" data-i18n="NADZOR">NADZOR</p><h2 data-i18n="Odpri nadzorno ploščo">Odpri nadzorno ploščo</h2><p data-i18n="Prijava, meritve, grafi, opozorila in oddaljene posodobitve.">Prijava, meritve, grafi, opozorila in oddaljene posodobitve.</p></div><button id="open-cloud-button" class="button button--gold" type="button" data-i18n="Odpri nadzorno ploščo">Odpri nadzorno ploščo</button></article>
@@ -41,17 +76,16 @@
         </section>
 
         <section id="provisioning-view" class="view" aria-labelledby="provisioning-title">
-          <button id="back-button" class="back-button" type="button" aria-label="Nazaj">← <span data-i18n="Nazaj">Nazaj</span></button>
+          <button id="back-button" class="button button--primary back-button" type="button" aria-label="Nazaj">← <span data-i18n="Nazaj">Nazaj</span></button>
           <div class="hero hero--compact"><p class="eyebrow" data-i18n="NASTAVITEV NAPRAVE">NASTAVITEV NAPRAVE</p><h1 id="provisioning-title" data-i18n="Povezava z Wi‑Fi">Povezava z Wi‑Fi</h1><p id="provisioning-intro" class="lead" data-i18n-html="Vklopi napravo in počakaj, da se prikaže omrežje z imenom <strong>Cebelnjak-…</strong>.">Vklopi napravo in počakaj, da se prikaže omrežje z imenom <strong>Cebelnjak-…</strong>.</p></div>
           <div class="progress-steps" aria-label="Napredek nastavitve"><span class="progress-step is-current">1</span><span class="progress-line"></span><span class="progress-step">2</span><span class="progress-line"></span><span class="progress-step">3</span></div>
-          <section id="connect-step" class="setup-card is-active" aria-live="polite"><div class="setup-icon">⌁</div><p class="eyebrow" data-i18n="1. KORAK">1. KORAK</p><h2 data-i18n="Poveži se z napravo">Poveži se z napravo</h2><p data-i18n-html="Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.">Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.</p><div class="notice" data-i18n-html="<strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova."><strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova.</div><button id="connect-device-button" class="button button--primary" type="button" data-i18n="Poišči napravo">Poišči napravo</button></section>
-          <section id="wifi-step" class="setup-card" aria-live="polite"><div class="setup-heading"><div><p class="eyebrow" data-i18n="2. KORAK">2. KORAK</p><h2 data-i18n="Izberi domače omrežje">Izberi domače omrežje</h2></div><span id="device-badge" class="device-badge" data-i18n="Naprava povezana">Naprava povezana</span></div><p data-i18n="Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.">Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.</p><label for="ssid-select" data-i18n="Wi‑Fi omrežje">Wi‑Fi omrežje</label><div class="field-row"><select id="ssid-select" disabled><option value="" data-i18n="Najprej poišči omrežja">Najprej poišči omrežja</option></select><button id="scan-button" class="icon-button" type="button" aria-label="Ponovno poišči omrežja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66" /><path d="M20 4v7h-7" /></svg></button></div><label for="wifi-password" data-i18n="Wi‑Fi geslo">Wi‑Fi geslo</label><div class="password-field"><input id="wifi-password" type="password" autocomplete="new-password" maxlength="63" placeholder="Vnesi geslo omrežja" /><button id="toggle-password-button" type="button" aria-label="Prikaži geslo" aria-pressed="false"><svg class="password-icon password-icon--show" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></svg><svg class="password-icon password-icon--hide" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18" /><path d="M10.6 6.15A10.2 10.2 0 0 1 12 6c6 0 9.5 6 9.5 6a16.3 16.3 0 0 1-2.1 2.75" /><path d="M6.4 7.4C3.9 9.1 2.5 12 2.5 12S6 18 12 18c1.2 0 2.3-.24 3.3-.63" /></svg></button></div><button id="configure-button" class="button button--primary" type="button" disabled data-i18n="Shrani in poveži">Shrani in poveži</button></section>
-          <section id="success-step" class="setup-card setup-card--success" aria-live="polite"><div class="success-mark">✓</div><p class="eyebrow" data-i18n="POVEZAVA JE USPELA">POVEZAVA JE USPELA</p><h2 data-i18n="Naprava je pripravljena">Naprava je pripravljena</h2><p id="success-message" data-i18n="Naprava je povezana z domačim omrežjem.">Naprava je povezana z domačim omrežjem.</p><dl class="result-list"><div><dt data-i18n="Omrežje">Omrežje</dt><dd id="result-ssid">—</dd></div><div><dt data-i18n="Lokalni IP">Lokalni IP</dt><dd id="result-ip">—</dd></div><div><dt data-i18n="ID naprave">ID naprave</dt><dd id="result-device-id">—</dd></div></dl><button id="finish-cloud-button" class="button button--gold" type="button" data-i18n="Nadaljuj v nadzorno ploščo">Nadaljuj v nadzorno ploščo</button><button id="finish-home-button" class="button button--quiet" type="button" data-i18n="Nazaj na začetek">Nazaj na začetek</button></section>
+          <section id="connect-step" class="setup-card is-active" aria-live="polite"><div class="setup-icon">⌁</div><p class="eyebrow" data-i18n="1. KORAK">1. KORAK</p><h2 data-i18n="Poveži se z napravo">Poveži se z napravo</h2><p data-i18n-html="Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.">Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.</p><div class="notice" data-i18n-html="<strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova."><strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova.</div><div class="notice notice--connection" data-i18n-html="<strong>Pred povezovanjem:</strong> vklopi Wi‑Fi. Če uporabljaš VPN, ga začasno izklopi, ker lahko prepreči povezavo z lokalno napravo."><strong>Pred povezovanjem:</strong> vklopi Wi‑Fi. Če uporabljaš VPN, ga začasno izklopi, ker lahko prepreči povezavo z lokalno napravo.</div><button id="open-wifi-settings-button" class="button button--quiet button--compact" type="button" data-i18n="Odpri nastavitve Wi‑Fi">Odpri nastavitve Wi‑Fi</button><button id="connect-device-button" class="button button--primary" type="button" data-i18n="Poišči napravo">Poišči napravo</button></section>
+          <section id="wifi-step" class="setup-card" aria-live="polite"><div class="setup-heading"><div><p class="eyebrow" data-i18n="2. KORAK">2. KORAK</p><h2 data-i18n="Izberi domače omrežje">Izberi domače omrežje</h2></div><span id="device-badge" class="device-badge" data-i18n="Naprava povezana">Naprava povezana</span></div><p data-i18n="Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.">Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.</p><button id="open-local-dashboard-button" class="button button--quiet" type="button" data-i18n="Odpri lokalno nadzorno ploščo">Odpri lokalno nadzorno ploščo</button><label for="ssid-select" data-i18n="Wi‑Fi omrežje">Wi‑Fi omrežje</label><div class="field-row"><select id="ssid-select" disabled><option value="" data-i18n="Najprej poišči omrežja">Najprej poišči omrežja</option></select><button id="scan-button" class="icon-button" type="button" aria-label="Ponovno poišči omrežja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66" /><path d="M20 4v7h-7" /></svg></button></div><label for="wifi-password" data-i18n="Wi‑Fi geslo">Wi‑Fi geslo</label><div class="password-field"><input id="wifi-password" type="password" autocomplete="new-password" maxlength="63" placeholder="Vnesi geslo omrežja" /><button id="toggle-password-button" type="button" aria-label="Prikaži geslo" aria-pressed="false"><svg class="password-icon password-icon--show" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></svg><svg class="password-icon password-icon--hide" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18" /><path d="M10.6 6.15A10.2 10.2 0 0 1 12 6c6 0 9.5 6 9.5 6a16.3 16.3 0 0 1-2.1 2.75" /><path d="M6.4 7.4C3.9 9.1 2.5 12 2.5 12S6 18 12 18c1.2 0 2.3-.24 3.3-.63" /></svg></button></div><button id="configure-button" class="button button--primary" type="button" disabled data-i18n="Shrani in poveži">Shrani in poveži</button></section>
+          <section id="success-step" class="setup-card setup-card--success" aria-live="polite"><div class="success-mark">✓</div><p class="eyebrow" data-i18n="POVEZAVA JE USPELA">POVEZAVA JE USPELA</p><h2 data-i18n="Naprava je pripravljena">Naprava je pripravljena</h2><p id="success-message" data-i18n="Naprava je povezana z domačim omrežjem.">Naprava je povezana z domačim omrežjem.</p><dl class="result-list"><div><dt data-i18n="Omrežje">Omrežje</dt><dd id="result-ssid">—</dd></div><div><dt data-i18n="Lokalni IP">Lokalni IP</dt><dd id="result-ip">—</dd></div><div><dt data-i18n="ID naprave">ID naprave</dt><dd id="result-device-id">—</dd></div><div><dt data-i18n="Aktivacijska koda">Aktivacijska koda</dt><dd id="result-activation-code">—</dd></div></dl><button id="finish-cloud-button" class="button button--gold" type="button" data-i18n="Nadaljuj v nadzorno ploščo">Nadaljuj v nadzorno ploščo</button><button id="finish-home-button" class="button button--quiet" type="button" data-i18n="Nazaj na začetek">Nazaj na začetek</button></section>
           <div id="status-message" class="status-message" role="status" aria-live="polite"></div>
         </section>
         <section id="dashboard-view" class="view dashboard-view" aria-label="Nadzorna plošča"><div id="dashboard-loading" class="dashboard-loading" role="status" data-i18n="Odpiram nadzorno ploščo …">Odpiram nadzorno ploščo …</div><iframe id="dashboard-frame" class="dashboard-frame" name="pametni-cebelnjak-dashboard" title="Pametni čebelnjak – nadzorna plošča" data-src="./dashboard/index.html?app=android" loading="eager"></iframe></section>
       </main>
-      <footer data-i18n="Različica aplikacije 0.1.0">Različica aplikacije 0.1.0</footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

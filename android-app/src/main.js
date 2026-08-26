@@ -1,9 +1,11 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { App } from '@capacitor/app';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 
 const LANGUAGE_STORAGE_KEY = 'pametni-cebelnjak-language';
 const THEME_STORAGE_KEY = 'pametni-cebelnjak-theme';
 const APP_RETURN_MESSAGE_TYPE = 'pametni-cebelnjak-return-to-app';
+const APP_THEME_LABELS = { forest: 'Gozd', midnight: 'Polnoč', honey: 'Med', light: 'Svetla tema' };
 const LANGUAGE_OPTIONS = {
   sl: { flag: '🇸🇮', label: 'Slovenščina' },
   hr: { flag: '🇭🇷', label: 'Hrvatski' },
@@ -11,7 +13,7 @@ const LANGUAGE_OPTIONS = {
 };
 const TRANSLATIONS = {
   hr: {
-    'Pametni čebelnjak': 'Pametna košnica', 'Mobilna aplikacija': 'Mobilna aplikacija', 'Izberi jezik': 'Odaberi jezik', 'Tema': 'Tema', 'Izberi temo': 'Odaberi temu', 'Gozd': 'Šuma', 'Polnoč': 'Ponoć', 'Med': 'Med', 'Svetla tema': 'Svijetla tema',
+    'Pametni čebelnjak': 'Pametna košnica', 'Mobilna aplikacija': 'Mobilna aplikacija', 'Izberi jezik': 'Odaberi jezik', 'Tema': 'Tema', 'Izberi temo': 'Odaberi temu', 'Gozd': 'Šuma', 'Polnoč': 'Ponoć', 'Med': 'Med', 'Svetla tema': 'Svijetla tema', 'O aplikaciji': 'O aplikaciji', 'Izhod iz aplikacije': 'Izlaz iz aplikacije', 'PAMETNI ČEBELNJAK': 'PAMETNA KOŠNICA', 'Različica aplikacije': 'Verzija aplikacije', 'Avtor': 'Autor', 'E-poštni naslov': 'E-poštna adresa',
     'DOBRODOŠLI': 'DOBRO DOŠLI', 'Tvoj panj.<br />Vedno blizu.': 'Tvoja košnica.<br />Uvijek blizu.', 'Spremljaj meritve v oblaku ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.': 'Prati mjerenja u oblaku ili u nekoliko koraka poveži novi uređaj s kućnom Wi‑Fi mrežom.',
     'NADZOR': 'NADZOR', 'Odpri nadzorno ploščo': 'Otvori nadzornu ploču', 'Prijava, meritve, grafi, opozorila in oddaljene posodobitve.': 'Prijava, mjerenja, grafovi, upozorenja i udaljena ažuriranja.',
     'PRVA NASTAVITEV': 'PRVO POSTAVLJANJE', 'Poveži novo napravo': 'Poveži novi uređaj', 'Aplikacija poišče dostopno točko <strong>Cebelnjak-…</strong> in te vodi do povezave z domačim omrežjem.': 'Aplikacija pronalazi pristupnu točku <strong>Cebelnjak-…</strong> i vodi te do povezivanja s kućnom mrežom.', 'Začni nastavitev': 'Započni postavljanje',
@@ -23,7 +25,7 @@ const TRANSLATIONS = {
     'Odpri lokalno nadzorno ploščo': 'Otvori lokalnu nadzornu ploču',
   },
   en: {
-    'Pametni čebelnjak': 'Smart Beehive', 'Mobilna aplikacija': 'Mobile app', 'Izberi jezik': 'Select language', 'Tema': 'Theme', 'Izberi temo': 'Select theme', 'Gozd': 'Forest', 'Polnoč': 'Midnight', 'Med': 'Honey', 'Svetla tema': 'Light theme',
+    'Pametni čebelnjak': 'Smart Beehive', 'Mobilna aplikacija': 'Mobile app', 'Izberi jezik': 'Select language', 'Tema': 'Theme', 'Izberi temo': 'Select theme', 'Gozd': 'Forest', 'Polnoč': 'Midnight', 'Med': 'Honey', 'Svetla tema': 'Light theme', 'O aplikaciji': 'About', 'Izhod iz aplikacije': 'Exit app', 'PAMETNI ČEBELNJAK': 'SMART BEEHIVE', 'Različica aplikacije': 'App version', 'Avtor': 'Author', 'E-poštni naslov': 'Email address',
     'DOBRODOŠLI': 'WELCOME', 'Tvoj panj.<br />Vedno blizu.': 'Your hive.<br />Always close.', 'Spremljaj meritve v oblaku ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.': 'Monitor measurements in the cloud or connect a new device to your home Wi‑Fi in a few steps.',
     'NADZOR': 'DASHBOARD', 'Odpri nadzorno ploščo': 'Open dashboard', 'Prijava, meritve, grafi, opozorila in oddaljene posodobitve.': 'Sign in, measurements, charts, alerts, and remote updates.',
     'PRVA NASTAVITEV': 'FIRST SETUP', 'Poveži novo napravo': 'Connect a new device', 'Aplikacija poišče dostopno točko <strong>Cebelnjak-…</strong> in te vodi do povezave z domačim omrežjem.': 'The app finds the <strong>Cebelnjak-…</strong> access point and guides you through connecting to your home network.', 'Začni nastavitev': 'Start setup',
@@ -65,10 +67,17 @@ const elements = {
   animatedSplash: document.querySelector('#animated-splash'),
   homeView: document.querySelector('#home-view'),
   provisioningView: document.querySelector('#provisioning-view'),
+  aboutView: document.querySelector('#about-view'),
   dashboardView: document.querySelector('#dashboard-view'),
   dashboardFrame: document.querySelector('#dashboard-frame'),
   dashboardLoading: document.querySelector('#dashboard-loading'),
   appMenu: document.querySelector('.app-menu'),
+  appThemePicker: document.querySelector('#app-theme-picker'),
+  openThemePickerButton: document.querySelector('#open-theme-picker-button'),
+  activeThemeMenuLabel: document.querySelector('#active-theme-menu-label'),
+  openAboutButton: document.querySelector('#open-about-button'),
+  aboutBackButton: document.querySelector('#about-back-button'),
+  exitAppButton: document.querySelector('#exit-app-button'),
   appThemeChoices: [...document.querySelectorAll('[data-app-theme-choice]')],
   openCloudButton: document.querySelector('#open-cloud-button'),
   finishCloudButton: document.querySelector('#finish-cloud-button'),
@@ -115,7 +124,21 @@ function applyAppTheme(theme, persist = true) {
   elements.appThemeChoices.forEach((button) => {
     button.setAttribute('aria-pressed', String(button.dataset.appThemeChoice === selectedTheme));
   });
+  updateThemeMenuTrigger(selectedTheme);
   if (persist) localStorage.setItem(THEME_STORAGE_KEY, selectedTheme);
+}
+
+function updateThemeMenuTrigger(theme = document.documentElement.dataset.theme) {
+  const selectedTheme = APP_THEME_LABELS[theme] ? theme : 'forest';
+  const label = t(APP_THEME_LABELS[selectedTheme]);
+  elements.openThemePickerButton.dataset.theme = selectedTheme;
+  elements.openThemePickerButton.setAttribute('aria-label', `${t('Tema')}: ${label}`);
+  elements.activeThemeMenuLabel.textContent = label;
+}
+
+function setThemePickerOpen(isOpen) {
+  elements.appThemePicker.hidden = !isOpen;
+  elements.openThemePickerButton.setAttribute('aria-expanded', String(isOpen));
 }
 
 function translateStaticContent() {
@@ -138,6 +161,7 @@ function translateStaticContent() {
   const option = LANGUAGE_OPTIONS[activeLanguage];
   elements.languageFlags.forEach((element) => { element.textContent = option.flag; });
   elements.languageButtons.forEach((button) => button.setAttribute('aria-current', String(button.dataset.language === activeLanguage)));
+  updateThemeMenuTrigger();
 }
 
 function setLanguage(language) {
@@ -155,9 +179,19 @@ function setLanguage(language) {
 function showView(view) {
   elements.homeView.classList.toggle('is-active', view === 'home');
   elements.provisioningView.classList.toggle('is-active', view === 'provisioning');
+  elements.aboutView.classList.toggle('is-active', view === 'about');
   elements.dashboardView.classList.toggle('is-active', view === 'dashboard');
   document.body.classList.toggle('is-dashboard-open', view === 'dashboard');
   window.scrollTo({ top: 0, behavior: view === 'dashboard' ? 'auto' : 'smooth' });
+}
+
+async function exitApplication() {
+  elements.appMenu.open = false;
+  if (Capacitor.isNativePlatform()) {
+    await App.exitApp();
+    return;
+  }
+  window.close();
 }
 
 function showStep(step) {
@@ -484,10 +518,23 @@ async function resetProvisioning() {
 
 elements.openCloudButton.addEventListener('click', openCloud);
 elements.finishCloudButton.addEventListener('click', openCloud);
+elements.openAboutButton.addEventListener('click', () => {
+  elements.appMenu.open = false;
+  showView('about');
+});
+elements.aboutBackButton.addEventListener('click', () => showView('home'));
+elements.exitAppButton.addEventListener('click', () => { void exitApplication(); });
+elements.openThemePickerButton.addEventListener('click', () => {
+  setThemePickerOpen(elements.appThemePicker.hidden);
+});
 elements.appThemeChoices.forEach((button) => button.addEventListener('click', () => {
   applyAppTheme(button.dataset.appThemeChoice);
+  setThemePickerOpen(false);
   elements.appMenu.open = false;
 }));
+elements.appMenu.addEventListener('toggle', () => {
+  if (!elements.appMenu.open) setThemePickerOpen(false);
+});
 elements.languageButtons.forEach((button) => button.addEventListener('click', () => setLanguage(button.dataset.language)));
 elements.dashboardFrame.addEventListener('load', () => {
   dashboardReady = true;

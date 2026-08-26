@@ -728,7 +728,7 @@ void completeCloudHistoryReconciliationRequest(CloudSyncRequestType requestType)
 bool processCloudHistoryReconciliationIndex(const String &payload);
 void appendJsonEscaped(String &json, const String &value);
 bool extractJsonUnsignedValue(const String &json, const char *key, uint32_t &value);
-void requestMeasurementSettings();
+bool requestMeasurementSettings();
 void processMeasurementSettings(const String &payload);
 
 bool isCloudSyncRequest(const String &requestId)
@@ -3713,11 +3713,12 @@ void processMeasurementSettings(const String &payload)
   }
 }
 
-void requestMeasurementSettings()
+bool requestMeasurementSettings()
 {
-  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) return;
+  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) return false;
   measurementSettingsRequestPending = true;
   database.get(asyncClient, measurementSettingsDatabasePath, processData, false, "readMeasurementSettings");
+  return true;
 }
 
 bool queueTimeCommand(TimeCommandType type, time_t timestamp, bool fromCloud)
@@ -7110,8 +7111,9 @@ void loop()
     if (isFirebaseReady() && !measurementSettingsRequestPending &&
         (lastMeasurementSettingsRefreshMillis == 0 ||
          currentMillis - lastMeasurementSettingsRefreshMillis >= MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS)) {
-      lastMeasurementSettingsRefreshMillis = currentMillis;
-      requestMeasurementSettings();
+      if (requestMeasurementSettings()) {
+        lastMeasurementSettingsRefreshMillis = currentMillis;
+      }
     }
 
     if (isFirebaseReady() && !timeCommandPending && !timeCommandQueued &&

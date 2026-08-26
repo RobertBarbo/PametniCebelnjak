@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Enako izhodiščno ozadje kot lokalna aplikacijska animacija. -->
+    <color name="splash_background">#08150F</color>
+</resources>

@@ -12,11 +12,13 @@ Android aplikacija združuje začetno nastavitev naprave in dostop do spletne na
 - v istem aplikacijskem WebView odpre ob gradnji vključeno kopijo cloud nadzorne plošče, ki se poveže z istim Firebase projektom kot `https://pametnicebelnjak.web.app/`,
 - Google prijavo izvede z nativnim Android izbirnikom računa in rezultat varno preda Firebase spletni aplikaciji brez odpiranja zunanjega brskalnika.
 
+Začetni hamburger meni pod glavnima ukazoma prikaže manjši gumb trenutno izbrane teme z SVG ikono in brez puščice; dotik odpre lebdeči prevedeni izbor štirih tem, ne da bi povečal glavni meni. Vsebuje tudi stran **O aplikaciji** (različica, avtor, e-poštni naslov in avtorske pravice) ter ukaz za izhod iz Android aplikacije.
+
 Wi-Fi geslo se ne shranjuje v aplikaciji. Posreduje se neposredno napravi prek njene začasne lokalne povezave.
 
 ## Zagonski zaslon
 
-Android najprej prikaže nativni statični zagonski zaslon, da med ustvarjanjem WebViewa ni praznega ali utripajočega okvirja. Takoj za njim aplikacijski HTML prikaže približno 1,75 sekunde dolgo lokalno animacijo znaka: čebela se pojavi, krili znotraj heksagona nežno zamahneta, zlata točka utripne in zaporedno se izrišeta dva razmaknjena signalna loka. Vse PNG plasti so vključene v APK in ne potrebujejo omrežja. Pri vključeni sistemski nastavitvi zmanjšanega gibanja se animacija preskoči in znak le na kratko prikaže.
+Android najprej prikaže najkrajši možni sistemski splash: enotno temno ozadje brez vidne ikone, zato med ustvarjanjem WebViewa ni praznega, belega ali neujemajočega se okvirja. Takoj za njim aplikacijski HTML prikaže približno 1,75 sekunde dolgo lokalno animacijo znaka: čebela se pojavi, krili znotraj heksagona nežno zamahneta, zlata točka utripne in zaporedno se izrišeta dva razmaknjena signalna loka. Vse PNG plasti so vključene v APK in ne potrebujejo omrežja. Pri vključeni sistemski nastavitvi zmanjšanega gibanja se animacija preskoči in znak le na kratko prikaže.
 
 ## Zahteve
 

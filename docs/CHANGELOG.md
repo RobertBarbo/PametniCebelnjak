@@ -2,6 +2,18 @@
 
 Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
+## [Unreleased]
+
+### Added
+
+- Androidov začetni hamburger meni pod ukazoma **O aplikaciji** in **Izhod iz aplikacije** prikaže manjši gumb trenutno izbrane teme z enako SVG ikono kot mobilna nadzorna plošča in brez puščice. Dotik odpre lebdeči prevedeni izbor vseh štirih tem, ki ne poveča glavnega menija. Stran **O aplikaciji** prikaže različico paketa, avtorja Roberta Barbiriča, e-poštni naslov in avtorske pravice, ukaz za izhod pa varno zapre aplikacijo. Android paket je `0.1.0-rc.72` (`versionCode 17`).
+
+### Fixed
+
+- Periodično branje `measurement_settings` ne prestavi več 30-sekundnega časovnika, kadar je edini Firebase async kanal zaseden. Firmware zato zahtevo brez blokiranja ponovi v naslednjih prehodih glavne zanke in nastavitev intervala meritev ne more več stradati ob sočasnem preverjanju OTA ukazov. Firmware je povišan na `0.1.0-rc.64`.
+
+- Androidov sistemski zagonski zaslon pred lokalno animacijo znaka ne uporablja več ikone aplikacije z ločenim ozadjem. Prikaže samo enotno temno ozadje najkrajši čas, ki ga za zagon WebViewa določi Android.
+
 ## [0.1.0-rc.63] - 2026-08-25
 
 ### Added

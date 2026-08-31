@@ -75,6 +75,39 @@ const THEME_OPTIONS = Object.freeze({
   honey: { label: "Med" },
   light: { label: "Svetla tema" },
 });
+
+// Vsak enkratni cloud ukaz dobi svoj ID, da ga naprava po ponovni povezavi
+// z realtime tokom ne izvede še enkrat.
+function createCloudControlCommand(action, fields = {}) {
+  const requestId = typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
+  return {
+    action,
+    ...fields,
+    request_id: requestId,
+    requested_at: Math.floor(Date.now() / 1000),
+  };
+}
+
+// Enotni kanal podpira samo en čakajoči ukaz. Transaction prepreči prepis
+// starega ukaza tudi, kadar dve odprti strani pošljeta ukaz hkrati.
+async function sendCloudControlCommand(action, fields = {}) {
+  if (!firebaseDatabase || !cloudDevicePath) {
+    throw new Error(translateText("Izbrana naprava ni na voljo."));
+  }
+  const { database, ref, runTransaction } = firebaseDatabase;
+  const command = createCloudControlCommand(action, fields);
+  const commandReference = ref(database, `${cloudDevicePath}/control/command`);
+  const result = await runTransaction(commandReference, (currentCommand) => {
+    if (currentCommand !== null) return undefined;
+    return command;
+  });
+  if (!result.committed) {
+    throw new Error(translateText("Prejšnji ukaz napravi še čaka na prevzem."));
+  }
+  return command;
+}
 const TRANSLATIONS = {
   hr: {
     "SD kartica": "SD kartica",
@@ -121,7 +154,7 @@ const TRANSLATIONS = {
     "Posodobljeno: {time}": "Ažurirano: {time}", "Posodobljeno": "Ažurirano", "{value} % padavin": "{value} % oborina", "Padavine —": "Oborine —",
     "Pridobivam vreme …": "Dohvaćam vrijeme …", "Vremenski podatki trenutno niso dosegljivi.": "Vremenski podaci trenutačno nisu dostupni.",
     "Preveri dovoljene meje nastavitev.": "Provjerite dopuštene granice postavki.", "Zapis zgodovine na SD ne more biti pogostejši od meritev.": "Zapis povijesti na SD ne može biti češći od mjerenja.",
-    "Shranjujem nastavitve …": "Spremam postavke …", "Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.": "Postavke su spremljene. Uređaj će ih preuzeti u roku od 30 sekundi.",
+    "Shranjujem nastavitve …": "Spremam postavke …", "Nastavitev je poslana napravi.": "Postavka je poslana uređaju.", "Izbrana naprava ni na voljo.": "Odabrani uređaj nije dostupan.", "Prejšnji ukaz napravi še čaka na prevzem.": "Prethodna naredba uređaju još čeka preuzimanje.",
     "Nastavitev meritev ni bilo mogoče shraniti.": "Postavke mjerenja nije bilo moguće spremiti.", "Nastavitve vremena ni bilo mogoče shraniti.": "Postavke vremena nije bilo moguće spremiti.",
     "Shranjujem nastavitev …": "Spremam postavku …", "Vreme je prikazano na tvojem pregledu.": "Vrijeme je prikazano u vašem pregledu.", "Vreme je skrito na tvojem pregledu.": "Vrijeme je skriveno u vašem pregledu.",
     "Brskalnik ne podpira določanja lokacije.": "Preglednik ne podržava određivanje lokacije.", "Brskalnik čaka na dovoljenje za lokacijo …": "Preglednik čeka dopuštenje za lokaciju …",
@@ -151,7 +184,7 @@ const TRANSLATIONS = {
     "Posodobitev naprave": "Ažuriranje uređaja", "Razpoložljiva OTA posodobitev": "Dostupno OTA ažuriranje", "Trenutna različica naprave:": "Trenutačna verzija uređaja:", "Preverjam razpoložljive različice …": "Provjeravam dostupne verzije …", "Prezri": "Zanemari", "Posodobi napravo": "Ažuriraj uređaj", "Brez interneta": "Bez interneta", "Orodje za posodobitev": "Alat za ažuriranje", "Odpri orodje za posodobitev": "Otvori alat za ažuriranje",
     "Izberi": "Odaberi", "Cloud dostop": "Cloud pristup", "Prijava uporabnika": "Prijava korisnika", "E-poštni naslov": "Adresa e-pošte", "Geslo": "Lozinka", "Prijava z e-pošto": "Prijava e-poštom", "Ustvari nov račun": "Izradi novi račun", "Nadaljuj z Googlom": "Nastavi s Googleom", "Zapri": "Zatvori", "Nadaljuj": "Nastavi", "Potrditev dejanja": "Potvrda radnje", "Ali želiš nadaljevati?": "Želite li nastaviti?",
     "Nevarno dejanje": "Opasna radnja", "Za potrditev vpiši {text}.": "Za potvrdu upišite {text}.", "Trajni izbris meritev": "Trajno brisanje mjerenja", "Trajno izbriši": "Trajno izbriši", "Izbriši Wi‑Fi": "Izbriši Wi‑Fi",
-    "Za popoln izbris mora biti naprava online.": "Za potpuno brisanje uređaj mora biti online.", "Ukaz za popoln izbris pošiljam napravi …": "Šaljem uređaju naredbu za potpuno brisanje …", "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.": "Naredba je poslana. Uređaj će je provjeriti u roku od 30 sekundi.", "Pošiljanje ukaza za brisanje ni uspelo.": "Slanje naredbe za brisanje nije uspjelo.",
+    "Za popoln izbris mora biti naprava online.": "Za potpuno brisanje uređaj mora biti online.", "Ukaz za popoln izbris pošiljam napravi …": "Šaljem uređaju naredbu za potpuno brisanje …", "Ukaz je poslan napravi.": "Naredba je poslana uređaju.", "Pošiljanje ukaza za brisanje ni uspelo.": "Slanje naredbe za brisanje nije uspjelo.",
     "Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …": "Šaljem uređaju naredbu za brisanje Wi‑Fi vjerodajnica …", "Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.": "Slanje naredbe za brisanje Wi‑Fi vjerodajnica nije uspjelo.",
     "Vpiši ime Wi‑Fi omrežja.": "Unesite naziv Wi‑Fi mreže.", "Preverjam povezavo z Wi‑Fi omrežjem …": "Provjeravam vezu s Wi‑Fi mrežom …", "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …": "Uređaj provjerava vezu. Postavke će spremiti tek nakon uspjeha …", "Skrij Wi‑Fi geslo": "Sakrij Wi‑Fi lozinku", "Prikaži Wi‑Fi geslo": "Prikaži Wi‑Fi lozinku", "Novi lokalni naslov je kopiran.": "Nova lokalna adresa je kopirana.", "Kopiranje ni uspelo. Naslov označi in kopiraj ročno.": "Kopiranje nije uspjelo. Označite adresu i kopirajte je ručno.", "Ni najdenih Wi‑Fi omrežij.": "Nije pronađena nijedna Wi‑Fi mreža.", " · zaščiteno": " · zaštićeno", " · odprto": " · otvoreno", "Iščem omrežja …": "Tražim mreže …",
     "Ponovno sinhroniziraj zgodovino": "Ponovno sinkroniziraj povijest", "Začni sinhronizacijo": "Pokreni sinkronizaciju", "Pripravljam primerjavo SD zgodovine in Firebase …": "Pripremam usporedbu SD povijesti i Firebasea …", "Primerjava dnevne zgodovine se je začela.": "Usporedba dnevne povijesti je započela.",
@@ -192,7 +225,7 @@ const TRANSLATIONS = {
     "Graf temperature in relativne vlage": "Graf temperature i relativne vlažnosti", "Graf mase panja": "Graf mase košnice", "Hitre izbire obdobja": "Brzi odabir razdoblja", "Koledar za izbiro obdobja": "Kalendar za odabir razdoblja", "Napredek OTA posodobitve": "Napredak OTA ažuriranja", "Naslednji mesec": "Sljedeći mjesec", "Prejšnji mesec": "Prethodni mjesec", "Odpri pregled": "Otvori pregled", "Moj panj": "Moja košnica", "npr. Ljubljana": "npr. Zagreb",
     "{label}: prikaži ali skrij serijo": "{label}: prikaži ili sakrij niz",
     "Panj": "Košnica", "ID naprave:": "ID uređaja:", "Aktivacijska koda:": "Aktivacijski kod:", "ali": "ili", "Pozor:": "Pažnja:", "Pomembno:": "Važno:", "programsko opremo": "programski softver", "lokalni spletni vmesnik": "lokalno web sučelje", "Na ločeni strani izberi": "Na zasebnoj stranici odaberite", "Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko": "Otvorit će se alat za ažuriranje. Odaberite samo pouzdanu datoteku", "za": "za", "za to napravo.": "za ovaj uređaj.", ". Po uspešni posodobitvi se naprava znova zažene.": ". Nakon uspješnog ažuriranja uređaj će se ponovno pokrenuti.", "med posodobitvijo naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "tijekom ažuriranja ne isključujte uređaj i ne prekidajte Wi‑Fi vezu.", "med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.": "tijekom prijenosa ne isključujte napajanje, ne zatvarajte preglednik i ne prekidajte Wi‑Fi vezu. Nakon uspješnog ažuriranja uređaj će se automatski ponovno pokrenuti.", "Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.": "Upotrijebite samo datoteke iz pouzdanog izdanja za ovaj uređaj. Programski softver i lokalno web sučelje instalirajte zasebno.",
-    "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "Pomak temperature mora biti između -10,0 i +10,0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "Pomak vlažnosti mora biti između -30,0 i +30,0 %.", "Kalibracijo pošiljam napravi …": "Šaljem kalibraciju uređaju …", "Ukaz za kalibracijo pošiljam napravi …": "Šaljem naredbu za kalibraciju uređaju …", "Ročno nastavitev pošiljam napravi …": "Šaljem ručnu postavku uređaju …", "Ročno nastavitev pošiljam izbranemu panju …": "Šaljem ručnu postavku odabranoj košnici …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "Postavka je prihvaćena. Uređaj će ažurirati sistemski sat i DS3231.", "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.": "Naredba je poslana. Uređaj će je preuzeti u roku od 15 sekundi.", "NTP sinhronizacija je uvrščena.": "NTP sinkronizacija je stavljena u red čekanja.",
+    "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "Pomak temperature mora biti između -10,0 i +10,0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "Pomak vlažnosti mora biti između -30,0 i +30,0 %.", "Kalibracijo pošiljam napravi …": "Šaljem kalibraciju uređaju …", "Ukaz za kalibracijo pošiljam napravi …": "Šaljem naredbu za kalibraciju uređaju …", "Ročno nastavitev pošiljam napravi …": "Šaljem ručnu postavku uređaju …", "Ročno nastavitev pošiljam izbranemu panju …": "Šaljem ručnu postavku odabranoj košnici …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "Postavka je prihvaćena. Uređaj će ažurirati sistemski sat i DS3231.", "NTP sinhronizacija je uvrščena.": "NTP sinkronizacija je stavljena u red čekanja.",
     "Naprava bo trajno izbrisala shranjeno domače Wi-Fi omrežje, prekinila cloud povezavo in odprla lokalni nastavitveni dostop. Nato se poveži z njenim provisioning Wi-Fi omrežjem in odpri 192.168.4.1.": "Uređaj će trajno izbrisati spremljenu kućnu Wi‑Fi mrežu, prekinuti cloud vezu i otvoriti lokalni pristup postavkama. Zatim se povežite s njegovom provisioning Wi‑Fi mrežom i otvorite 192.168.4.1.", "Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.": "Trajno izbrisati sva mjerenja sa SD kartice i Firebasea? To nije moguće poništiti.", "Naprava bo nato odprla svojo dostopno točko.": "Uređaj će zatim otvoriti svoju pristupnu točku.", "Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve.": "Usporedit ću dnevne indekse SD kartice i Firebasea te prenijeti samo dane koji nedostaju ili se ne podudaraju.", "Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.": "Trajno izbrisati sva mjerenja samo sa SD kartice? Povijest u Firebaseu ostat će nepromijenjena.",
     "Namesti posodobitev": "Instaliraj ažuriranje", "Začni posodobitev": "Pokreni ažuriranje", "Napravo posodobim na verzijo {version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "Ažurirati uređaj na verziju {version}? Tijekom prijenosa ne isključujte uređaj i ne prekidajte Wi‑Fi vezu.", "Prekliči deljeni dostop": "Opozovi dijeljeni pristup", "Prekličem dostop samo za ogled uporabniku {user}?": "Opozvati pristup samo za pregled korisniku {user}?", "Odregistriraj panj": "Odjavi košnicu", "Odregistriraj": "Odjavi", "Odstrani": "Ukloni", "Trajno izbriši napravo": "Trajno izbriši uređaj",
     "Ali želiš panj »{name}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.": "Želite li odjaviti košnicu »{name}«? Mjerenja i povijest ostaju u bazi, a svi dijeljeni pristupi bit će opozvani. Za ponovni pristup košnicu će trebati registrirati aktivacijskim kodom.", "Ali želiš deljeni panj »{name}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.": "Želite li ukloniti dijeljenu košnicu »{name}« sa svojeg računa? Vlasnik, mjerenja i povijest ostaju nepromijenjeni. Za ponovni pristup trebat će vam novi poziv vlasnika.",
@@ -273,7 +306,7 @@ const TRANSLATIONS = {
     "Posodobljeno: {time}": "Updated: {time}", "Posodobljeno": "Updated", "{value} % padavin": "{value}% precipitation", "Padavine —": "Precipitation —",
     "Pridobivam vreme …": "Fetching weather …", "Vremenski podatki trenutno niso dosegljivi.": "Weather data is currently unavailable.",
     "Preveri dovoljene meje nastavitev.": "Check the allowed setting limits.", "Zapis zgodovine na SD ne more biti pogostejši od meritev.": "SD history cannot be recorded more frequently than measurements.",
-    "Shranjujem nastavitve …": "Saving settings …", "Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.": "Settings saved. The device will apply them within 30 seconds.",
+    "Shranjujem nastavitve …": "Saving settings …", "Nastavitev je poslana napravi.": "The setting was sent to the device.", "Izbrana naprava ni na voljo.": "The selected device is unavailable.", "Prejšnji ukaz napravi še čaka na prevzem.": "The previous device command is still waiting to be received.",
     "Nastavitev meritev ni bilo mogoče shraniti.": "Measurement settings could not be saved.", "Nastavitve vremena ni bilo mogoče shraniti.": "Weather settings could not be saved.",
     "Shranjujem nastavitev …": "Saving setting …", "Vreme je prikazano na tvojem pregledu.": "Weather is shown on your overview.", "Vreme je skrito na tvojem pregledu.": "Weather is hidden from your overview.",
     "Brskalnik ne podpira določanja lokacije.": "The browser does not support location detection.", "Brskalnik čaka na dovoljenje za lokacijo …": "The browser is waiting for location permission …",
@@ -303,7 +336,7 @@ const TRANSLATIONS = {
     "Posodobitev naprave": "Device update", "Razpoložljiva OTA posodobitev": "Available OTA update", "Trenutna različica naprave:": "Current device version:", "Preverjam razpoložljive različice …": "Checking available versions …", "Prezri": "Ignore", "Posodobi napravo": "Update device", "Brez interneta": "Offline", "Orodje za posodobitev": "Update tool", "Odpri orodje za posodobitev": "Open update tool",
     "Izberi": "Select", "Cloud dostop": "Cloud access", "Prijava uporabnika": "User sign-in", "E-poštni naslov": "Email address", "Geslo": "Password", "Prijava z e-pošto": "Sign in with email", "Ustvari nov račun": "Create new account", "Nadaljuj z Googlom": "Continue with Google", "Zapri": "Close", "Nadaljuj": "Continue", "Potrditev dejanja": "Confirm action", "Ali želiš nadaljevati?": "Do you want to continue?",
     "Nevarno dejanje": "Dangerous action", "Za potrditev vpiši {text}.": "Type {text} to confirm.", "Trajni izbris meritev": "Permanent measurement deletion", "Trajno izbriši": "Permanently delete", "Izbriši Wi‑Fi": "Delete Wi‑Fi",
-    "Za popoln izbris mora biti naprava online.": "The device must be online for a complete deletion.", "Ukaz za popoln izbris pošiljam napravi …": "Sending the complete deletion command to the device …", "Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.": "Command sent. The device will check it within 30 seconds.", "Pošiljanje ukaza za brisanje ni uspelo.": "The deletion command could not be sent.",
+    "Za popoln izbris mora biti naprava online.": "The device must be online for a complete deletion.", "Ukaz za popoln izbris pošiljam napravi …": "Sending the complete deletion command to the device …", "Ukaz je poslan napravi.": "The command was sent to the device.", "Pošiljanje ukaza za brisanje ni uspelo.": "The deletion command could not be sent.",
     "Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …": "Sending the Wi‑Fi credential deletion command to the device …", "Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.": "The Wi‑Fi credential deletion command could not be sent.",
     "Vpiši ime Wi‑Fi omrežja.": "Enter the Wi‑Fi network name.", "Preverjam povezavo z Wi‑Fi omrežjem …": "Checking the Wi‑Fi network connection …", "Naprava preverja povezavo. Nastavitve shrani šele po uspehu …": "The device is checking the connection. It will save settings only after success …", "Skrij Wi‑Fi geslo": "Hide Wi‑Fi password", "Prikaži Wi‑Fi geslo": "Show Wi‑Fi password", "Novi lokalni naslov je kopiran.": "The new local address was copied.", "Kopiranje ni uspelo. Naslov označi in kopiraj ročno.": "Copying failed. Select the address and copy it manually.", "Ni najdenih Wi‑Fi omrežij.": "No Wi‑Fi networks were found.", " · zaščiteno": " · secured", " · odprto": " · open", "Iščem omrežja …": "Searching for networks …",
     "Ponovno sinhroniziraj zgodovino": "Resynchronize history", "Začni sinhronizacijo": "Start synchronization", "Pripravljam primerjavo SD zgodovine in Firebase …": "Preparing a comparison of SD history and Firebase …", "Primerjava dnevne zgodovine se je začela.": "Daily history comparison has started.",
@@ -344,7 +377,7 @@ const TRANSLATIONS = {
     "Graf temperature in relativne vlage": "Temperature and relative humidity chart", "Graf mase panja": "Hive mass chart", "Hitre izbire obdobja": "Quick period selections", "Koledar za izbiro obdobja": "Period selection calendar", "Napredek OTA posodobitve": "OTA update progress", "Naslednji mesec": "Next month", "Prejšnji mesec": "Previous month", "Odpri pregled": "Open overview", "Moj panj": "My hive", "npr. Ljubljana": "e.g. London",
     "{label}: prikaži ali skrij serijo": "{label}: show or hide series",
     "Panj": "Hive", "ID naprave:": "Device ID:", "Aktivacijska koda:": "Activation code:", "ali": "or", "Pozor:": "Warning:", "Pomembno:": "Important:", "programsko opremo": "firmware", "lokalni spletni vmesnik": "local web interface", "Na ločeni strani izberi": "On the separate page, select", "Odprlo se bo orodje za posodobitev. Izberi samo zaupanja vredno datoteko": "The update tool will open. Select only a trusted file", "za": "for", "za to napravo.": "for this device.", ". Po uspešni posodobitvi se naprava znova zažene.": ". The device restarts after a successful update.", "med posodobitvijo naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "do not turn off the device or interrupt the Wi‑Fi connection during the update.", "med prenosom ne odklapljaj napajanja, ne zapiraj brskalnika in ne prekinjaj Wi-Fi povezave. Po uspešni posodobitvi se naprava samodejno znova zažene.": "do not disconnect power, close the browser, or interrupt the Wi‑Fi connection during transfer. The device restarts automatically after a successful update.", "Uporabi samo datoteke iz zaupanja vredne izdaje za to napravo. Programsko opremo in lokalni spletni vmesnik namesti ločeno.": "Use only files from a trusted release for this device. Install the firmware and local web interface separately.",
-    "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "The temperature offset must be between -10.0 and +10.0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "The humidity offset must be between -30.0 and +30.0%.", "Kalibracijo pošiljam napravi …": "Sending calibration to the device …", "Ukaz za kalibracijo pošiljam napravi …": "Sending the calibration command to the device …", "Ročno nastavitev pošiljam napravi …": "Sending the manual setting to the device …", "Ročno nastavitev pošiljam izbranemu panju …": "Sending the manual setting to the selected hive …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "The setting was accepted. The device will update the system clock and DS3231.", "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.": "Command sent. The device will retrieve it within 15 seconds.", "NTP sinhronizacija je uvrščena.": "NTP synchronization has been queued.",
+    "Temperaturni odmik mora biti med -10,0 in +10,0 °C.": "The temperature offset must be between -10.0 and +10.0 °C.", "Odmik vlage mora biti med -30,0 in +30,0 %.": "The humidity offset must be between -30.0 and +30.0%.", "Kalibracijo pošiljam napravi …": "Sending calibration to the device …", "Ukaz za kalibracijo pošiljam napravi …": "Sending the calibration command to the device …", "Ročno nastavitev pošiljam napravi …": "Sending the manual setting to the device …", "Ročno nastavitev pošiljam izbranemu panju …": "Sending the manual setting to the selected hive …", "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231.": "The setting was accepted. The device will update the system clock and DS3231.", "NTP sinhronizacija je uvrščena.": "NTP synchronization has been queued.",
     "Naprava bo trajno izbrisala shranjeno domače Wi-Fi omrežje, prekinila cloud povezavo in odprla lokalni nastavitveni dostop. Nato se poveži z njenim provisioning Wi-Fi omrežjem in odpri 192.168.4.1.": "The device will permanently delete the saved home Wi‑Fi network, disconnect from the cloud, and open local setup access. Then connect to its provisioning Wi‑Fi network and open 192.168.4.1.", "Trajno izbrišem vse meritve iz SD kartice in Firebase? Tega ni mogoče razveljaviti.": "Permanently delete all measurements from the SD card and Firebase? This cannot be undone.", "Naprava bo nato odprla svojo dostopno točko.": "The device will then open its access point.", "Primerjam dnevne indekse SD kartice in Firebase ter prenesem samo manjkajoče ali neskladne dneve.": "Compare the daily SD card and Firebase indexes and transfer only missing or mismatched days.", "Trajno izbrišem vse meritve samo s SD kartice? Zgodovina v Firebase bo ostala nespremenjena.": "Permanently delete all measurements only from the SD card? Firebase history will remain unchanged.",
     "Namesti posodobitev": "Install update", "Začni posodobitev": "Start update", "Napravo posodobim na verzijo {version}? Med prenosom naprave ne izklapljaj in ne prekinjaj povezave Wi-Fi.": "Update the device to version {version}? Do not turn off the device or interrupt the Wi‑Fi connection during the transfer.", "Prekliči deljeni dostop": "Revoke shared access", "Prekličem dostop samo za ogled uporabniku {user}?": "Revoke view-only access for user {user}?", "Odregistriraj panj": "Unclaim hive", "Odregistriraj": "Unclaim", "Odstrani": "Remove", "Trajno izbriši napravo": "Permanently delete device",
     "Ali želiš panj »{name}« odregistrirati? Meritve in zgodovina ostanejo v bazi, vsi deljeni dostopi pa bodo preklicani. Za ponoven dostop bo panj treba registrirati z aktivacijsko kodo.": "Do you want to unclaim hive “{name}”? Measurements and history remain in the database, but all shared access will be revoked. The hive will need to be registered with its activation code to regain access.", "Ali želiš deljeni panj »{name}« odstraniti iz svojega računa? Lastnik panja, meritve in zgodovina ostanejo nespremenjeni. Za ponoven dostop boš potreboval novo povabilo lastnika.": "Do you want to remove shared hive “{name}” from your account? The hive owner, measurements, and history remain unchanged. You will need a new invitation from the owner to regain access.",
@@ -1511,7 +1544,7 @@ function selectCloudDevice(deviceId) {
     if (canManageCloudDevice(deviceId)) {
       subscribe("weather", renderWeatherSettings);
     }
-    if (isCloudAdministrator()) subscribe("measurement_settings", renderMeasurementSettings);
+    if (isCloudAdministrator()) subscribe("control/settings", renderMeasurementSettings);
   } else {
     subscribe("weather_public", renderSharedWeatherSettings);
     stopCloudDeviceListeners.push(onValue(ref(database, `users/${currentCloudUser.uid}/weather_preferences/${deviceId}`), (snapshot) => {
@@ -2755,13 +2788,12 @@ async function saveMeasurementSettings(event) {
   elements.measurementSettingsStatus.textContent = translateText("Shranjujem nastavitve …");
   try {
     const { database, ref, set } = firebaseDatabase;
-    await set(ref(database, `${cloudDevicePath}/measurement_settings`), {
+    await set(ref(database, `${cloudDevicePath}/control/settings`), {
       measurement_interval_seconds: measurementIntervalSeconds,
       sd_archive_interval_minutes: sdArchiveIntervalMinutes,
       weight_display_decimals: weightDisplayDecimals,
-      updated_at: Math.floor(Date.now() / 1000),
     });
-    elements.measurementSettingsStatus.textContent = translateText("Nastavitve so shranjene. Naprava jih prevzame v največ 30 sekundah.");
+    elements.measurementSettingsStatus.textContent = translateText("Nastavitev je poslana napravi.");
   } catch (error) {
     console.error("Nastavitev meritev ni bilo mogoče shraniti.", error);
     elements.measurementSettingsStatus.textContent = translateText("Nastavitev meritev ni bilo mogoče shraniti.");
@@ -3759,15 +3791,11 @@ async function deleteDeviceHistory() {
   elements.deleteDeviceHistory.disabled = true;
   elements.historyManagementStatus.textContent = translateText("Ukaz za popoln izbris pošiljam napravi …");
   try {
-    const { database, ref, set } = firebaseDatabase;
-    await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
-      action: "delete_history",
-      requested_at: Math.floor(Date.now() / 1000),
-    });
+    await sendCloudControlCommand("delete_history");
     // Ukaz bo zgodovino trajno izbrisal; za varnost ne uporabljaj več že prenesenih
     // zapisov te naprave, tudi če naprava ukaz zaključi z zamikom.
     clearCloudHistorySessionCacheForDevice(cloudDevicePath);
-    elements.historyManagementStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
+    elements.historyManagementStatus.textContent = translateText("Ukaz je poslan napravi.");
   } catch (error) {
     console.error(error);
     elements.historyManagementStatus.textContent = translateText("Pošiljanje ukaza za brisanje ni uspelo.");
@@ -3786,12 +3814,8 @@ async function clearCloudWifiCredentials() {
   elements.clearCloudWifiCredentials.disabled = true;
   elements.cloudWifiResetStatus.textContent = translateText("Ukaz za izbris Wi-Fi poverilnic pošiljam napravi …");
   try {
-    const { database, ref, set } = firebaseDatabase;
-    await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
-      action: "clear_wifi_credentials",
-      requested_at: Math.floor(Date.now() / 1000),
-    });
-    elements.cloudWifiResetStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
+    await sendCloudControlCommand("clear_wifi_credentials");
+    elements.cloudWifiResetStatus.textContent = translateText("Ukaz je poslan napravi.");
   } catch (error) {
     console.error(error);
     elements.cloudWifiResetStatus.textContent = translateText("Pošiljanje ukaza za izbris Wi-Fi poverilnic ni uspelo.");
@@ -3979,12 +4003,8 @@ async function resetCloudHistorySynchronization() {
       if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
         throw new Error("Za ponovno sinhronizacijo mora biti izbrani panj online.");
       }
-      const { database, ref, set } = firebaseDatabase;
-      await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
-        action: "sync_history",
-        requested_at: Math.floor(Date.now() / 1000),
-      });
-      elements.cloudSyncStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
+      await sendCloudControlCommand("sync_history");
+      elements.cloudSyncStatus.textContent = translateText("Ukaz je poslan napravi.");
     }
   } catch (error) {
     elements.cloudSyncStatus.textContent = error.message;
@@ -4048,11 +4068,7 @@ async function requestLoadCellTare() {
       if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
         throw new Error("Za tariranje mora biti izbrana naprava online");
       }
-      const { database, ref, set } = firebaseDatabase;
-      await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
-        action: "tare_load_cell",
-        requested_at: Math.floor(Date.now() / 1000),
-      });
+      await sendCloudControlCommand("tare_load_cell");
     }
     renderLoadCellTareStatus({ state: "queued" });
   } catch (error) {
@@ -4107,12 +4123,9 @@ async function saveBme680Calibration(event) {
       if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
         throw new Error("Za kalibracijo mora biti izbrana naprava online");
       }
-      const { database, ref, set } = firebaseDatabase;
-      await set(ref(database, `${cloudDevicePath}/commands/firmware_update`), {
-        action: "set_bme680_calibration",
+      await sendCloudControlCommand("set_bme680_calibration", {
         temperature_offset_c: Number(temperatureOffset.toFixed(1)),
         humidity_offset_percent: Number(humidityOffset.toFixed(1)),
-        requested_at: bme680CalibrationRequestedAt,
       });
     }
     renderBme680CalibrationStatus({
@@ -4151,10 +4164,8 @@ async function sendDeviceTimeCommand(action, timestamp) {
   if (!cloudDevicePath || !firebaseDatabase || !currentCloudUser || !isDeviceOnline(latestDeviceStatus)) {
     throw new Error("Za nastavitev časa mora biti izbrana naprava online");
   }
-  const { database, ref, set } = firebaseDatabase;
-  const command = { action, requested_at: Math.floor(Date.now() / 1000) };
-  if (timestamp !== undefined) command.timestamp = timestamp;
-  await set(ref(database, `${cloudDevicePath}/commands/time`), command);
+  const fields = timestamp !== undefined ? { timestamp } : {};
+  await sendCloudControlCommand(action, fields);
 }
 
 async function setDeviceTime(event) {
@@ -4175,7 +4186,7 @@ async function setDeviceTime(event) {
     await sendDeviceTimeCommand("set", timestamp);
     elements.deviceTimeStatus.textContent = translateText(isLocalDashboard
       ? "Nastavitev je sprejeta. Naprava bo posodobila sistemsko uro in DS3231."
-      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.");
+      : "Ukaz je poslan napravi.");
   } catch (error) {
     elements.deviceTimeStatus.textContent = translateText(error.message);
     renderTimeStatus(latestTimeStatus);
@@ -4190,7 +4201,7 @@ async function synchronizeDeviceTime() {
     await sendDeviceTimeCommand("sync_ntp");
     elements.deviceTimeStatus.textContent = translateText(isLocalDashboard
       ? "NTP sinhronizacija je uvrščena."
-      : "Ukaz je poslan. Naprava ga prevzame v največ 15 sekundah.");
+      : "Ukaz je poslan napravi.");
   } catch (error) {
     elements.deviceTimeStatus.textContent = translateText(error.message);
     renderTimeStatus(latestTimeStatus);
@@ -4399,13 +4410,10 @@ async function requestFirmwareUpdate() {
   renderOtaProgress(0);
   elements.otaDeviceStatus.textContent = translateText("OTA ukaz pošiljam napravi …");
   try {
-    const { ref, set } = firebaseDatabase;
-    await set(ref(firebaseDatabase.database, `${cloudDevicePath}/commands/firmware_update`), {
-      action: "install",
+    await sendCloudControlCommand("install", {
       target_version: availableOtaRelease.version,
-      requested_at: Math.floor(Date.now() / 1000),
     });
-    elements.otaDeviceStatus.textContent = translateText("Ukaz je poslan. Naprava ga preveri v največ 30 sekundah.");
+    elements.otaDeviceStatus.textContent = translateText("Ukaz je poslan napravi.");
   } catch (error) {
     console.error(error);
     elements.otaDeviceStatus.textContent = translateText("Pošiljanje OTA ukaza ni uspelo.");
@@ -6876,6 +6884,7 @@ async function useFirebaseDataSource() {
     query,
     ref,
     remove,
+    runTransaction,
     set,
     startAt,
     update,
@@ -6885,7 +6894,7 @@ async function useFirebaseDataSource() {
   firebaseAuth = authModule.getAuth(firebaseApp);
   firebaseAuthModule = authModule;
   firebaseDatabaseUrl = String(configModule.firebaseConfig.databaseURL || "");
-  firebaseDatabase = { database, endAt, get, onValue, orderByKey, query, ref, remove, set, startAt, update };
+  firebaseDatabase = { database, endAt, get, onValue, orderByKey, query, ref, remove, runTransaction, set, startAt, update };
   elements.otaSection.hidden = true;
   elements.provisioningSection.hidden = true;
   initializeAuthControls();

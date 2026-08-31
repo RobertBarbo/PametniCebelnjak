@@ -8,10 +8,16 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 - Androidov začetni hamburger meni pod ukazoma **O aplikaciji** in **Izhod iz aplikacije** prikaže manjši gumb trenutno izbrane teme z enako SVG ikono kot mobilna nadzorna plošča in brez puščice. Dotik odpre lebdeči prevedeni izbor vseh štirih tem, ki ne poveča glavnega menija. Stran **O aplikaciji** prikaže različico paketa, avtorja Roberta Barbiriča, e-poštni naslov in avtorske pravice, ukaz za izhod pa varno zapre aplikacijo. Android paket je `0.1.0-rc.72` (`versionCode 17`).
 
+### Changed
+
+- ESP32 namesto treh periodičnih Firebase branj uporablja en stalni realtime tok `/devices/{device_id}/control`. Trajne nastavitve so v `control/settings`, vsi enkratni ukazi pa v `control/command`; cloud nadzorna plošča in Firebase pravila uporabljajo isti kanal. Firmware je povišan na `0.1.0-rc.70`.
+
 ### Fixed
 
-- Periodično branje `measurement_settings` ne prestavi več 30-sekundnega časovnika, kadar je edini Firebase async kanal zaseden. Zapadla zahteva ima prednost pred pošiljanjem nove meritve `latest`, zato naprava brez blokiranja zanesljivo prevzame tudi interval zapisa SD zgodovine. Firmware je povišan na `0.1.0-rc.65`.
-
+- Enkratni cloud ukaz najprej trajno shrani `request_id` kot čakajočega (`pending_request`), kot izvedenega (`last_request`) pa ga označi šele neposredno pred dejansko izvedbo. Reboot med prejemom in izvedbo zato ukaza ne izgubi, že izveden ukaz po reconnectu pa se še vedno ne ponovi. Cloud ukaz z atomsko transakcijo ustvari samo v praznem `control/command`, zato starejše brisanje ne more pobrisati novejšega ukaza.
+- ESP32 ukaz zdaj potrdi z atomsko posodobitvijo `control/command = null` in `control/ack/request_id`. Firebase pravila dovolijo brisanje samo, kadar se potrjeni `request_id` ujema s trenutno shranjenim ukazom; ponovljen odgovor starega ukaza zato ne more odstraniti novejšega.
+- Atomski ESP ACK ima dovoljenje neposredno na `control` in ne več prek nezdružljivih ločenih pravil otrok `command` ter `ack`. Neuspešen oziroma zavrnjen ACK se znova poskusi šele po 30 sekundah, zato napačna pravila ali začasna zavrnitev ne morejo ustvariti več zahtev na sekundo.
+- Časovnik ponovnega ACK-a se ob novem `request_id` ponastavi, zato naslednji ukaz dobi takojšen prvi poskus; pri istem ID-ju po napaki ali reconnectu ostane 30-sekundna zaščita.
 - Androidov sistemski zagonski zaslon pred lokalno animacijo znaka ne uporablja več ikone aplikacije z ločenim ozadjem. Prikaže samo enotno temno ozadje najkrajši čas, ki ga za zagon WebViewa določi Android.
 
 ## [0.1.0-rc.63] - 2026-08-25

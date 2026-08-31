@@ -49,9 +49,6 @@ constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med objavami 
 constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60 * 1000;  // Čas med ponovnimi poskusi nedosegljivega senzorja ali SD kartice.
 constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;  // Zaporedne napake pred opozorilnim stanjem komponente.
 constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;  // Zaporedne napake pred stanjem napake komponente.
-constexpr uint32_t FIRMWARE_COMMAND_INTERVAL_MS = 30 * 1000;  // Čas med preverjanji Firebase ukazov za OTA, tariranje ali izbris.
-constexpr uint32_t TIME_COMMAND_INTERVAL_MS = 15 * 1000;  // Čas med preverjanji cloud ukaza za nastavitev ure DS3231.
-constexpr uint32_t MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS = 30 * 1000;  // Čas med branji nastavitev meritev v Firebase za posamezen panj.
 constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;  // Čas med osvežitvami aktivacijske kode v zasebni Firebase poti.
 
 // === Firebase in sinhronizacija SD zgodovine ==================================
@@ -63,6 +60,7 @@ constexpr uint8_t DAILY_RAW_SYNC_VERSION = 4;  // Različica formata oznake dnev
 constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3 * 1000;  // Čas za asinhroni Firebase rezultat, preden zahtevo obravnavamo kot izgubljeno.
 constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;  // Najdaljše čakanje na posamezno Firebase zahtevo.
 constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor pred novim Firebase poskusom po omrežni napaki.
+constexpr uint32_t CONTROL_COMMAND_ACK_RETRY_INTERVAL_MS = 30 * 1000;  // Najkrajši premor po zavrnjenem ali neuspelem Firebase ACK-u ukaza; prepreči tesno zanko zahtev.
 constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;  // Perioda obdelave FirebaseClient; 50 ms pomeni največ 20 klicev na sekundo.
 constexpr uint32_t FIREBASE_TASK_TIMEOUT_MS = 12 * 1000;  // Najdaljše dovoljeno trajanje Firebase opravila.
 constexpr size_t MAX_FIREBASE_ASYNC_TASKS = 1;  // Največ hkratnih Firebase opravil; 1 preprečuje zasičenje RAM-a in TCP-ja.
@@ -182,6 +180,11 @@ constexpr char CLOUD_AGGREGATE_SCHEMA_KEY[] = "agg_schema";  // NVS ključ razli
 constexpr char MEASUREMENT_INTERVAL_KEY[] = "measure_int";  // NVS ključ intervala meritev v sekundah, pridobljenega iz cloud nastavitev panja.
 constexpr char SD_ARCHIVE_INTERVAL_KEY[] = "sd_archive";  // NVS ključ intervala zapisa zgodovine na SD v minutah.
 constexpr char WEIGHT_DISPLAY_DECIMALS_KEY[] = "weight_dec";  // NVS ključ števila prikazanih decimalk teže.
+constexpr char CONTROL_REQUEST_NAMESPACE[] = "control";  // NVS prostor enkratnih cloud ukazov za varno nadaljevanje po ponovnem zagonu.
+constexpr char CONTROL_LAST_REQUEST_ID_KEY[] = "last_request";  // NVS ključ identifikatorja ukaza, ki je že prešel v izvedbo.
+constexpr char CONTROL_PENDING_REQUEST_ID_KEY[] = "pending_request";  // NVS ključ ukaza, ki čaka na izvedbo in se po rebootu znova prevzame iz realtime toka.
+constexpr size_t CONTROL_REQUEST_ID_LENGTH = 72;  // Največja dolžina identifikatorja enkratnega ukaza skupaj z ničelnim znakom.
+constexpr size_t CONTROL_COMMAND_ACK_RESULT_ID_LENGTH = 56;  // Največja dolžina interne oznake asinhrone potrditve cloud ukaza.
 constexpr char HX711_OFFSET_KEY[] = "hx_offset";  // NVS ključ tare (odmika) HX711 tehtnice.
 constexpr char BME680_TEMPERATURE_OFFSET_KEY[] = "bme_temp_off";  // NVS ključ ročnega temperaturnega odmika BME680.
 constexpr char BME680_HUMIDITY_OFFSET_KEY[] = "bme_hum_off";  // NVS ključ ročnega odmika vlage BME680.
@@ -405,11 +408,30 @@ struct SdCardUploadContext {
   bool failed = false;
 };
 
+// Delni SSE dogodki lahko posodobijo posamezno polje ukaza. Posnetek jih združi,
+// dokler ukaz nima vseh parametrov, potrebnih za varno čakalno vrsto v glavni zanki.
+struct ControlCommandSnapshot {
+  char action[32]{};
+  char requestId[CONTROL_REQUEST_ID_LENGTH]{};
+  char targetVersion[FIRMWARE_VERSION_LENGTH]{};
+  time_t timestamp = 0;
+  float temperatureOffsetC = 0.0F;
+  float humidityOffsetPercent = 0.0F;
+  bool hasAction = false;
+  bool hasRequestId = false;
+  bool hasTargetVersion = false;
+  bool hasTimestamp = false;
+  bool hasTemperatureOffset = false;
+  bool hasHumidityOffset = false;
+};
+
 WiFiClientSecure sslClient;
+WiFiClientSecure controlStreamSslClient;
 WiFiClientSecure otaClient;
 WiFiClientSecure otaDownloadClient;
 using AsyncClient = AsyncClientClass;
 AsyncClient asyncClient(sslClient);
+AsyncClient controlStreamClient(controlStreamSslClient);
 SPIClass sdSpi(FSPI);
 AsyncWebServer localServer(80);
 Preferences preferences;
@@ -425,9 +447,6 @@ uint32_t lastSDMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
 uint32_t lastComponentRecoveryMillis = 0;
-uint32_t lastFirmwareCommandCheckMillis = 0;
-uint32_t lastTimeCommandCheckMillis = 0;
-uint32_t lastMeasurementSettingsRefreshMillis = 0;
 uint32_t lastActivationSecretAttemptMillis = 0;
 uint32_t lastFirebaseAppLoopMillis = 0;
 uint32_t firebaseTaskStartedMillis = 0;
@@ -437,6 +456,7 @@ uint32_t cloudSyncRequestStartedMillis = 0;
 uint32_t cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
 uint32_t lastCloudAggregateRefreshMillis = 0;
 uint32_t firebaseRequestsPausedUntilMillis = 0;
+uint32_t lastControlCommandClearAttemptMillis = 0;
 volatile uint32_t localAssetsHavePriorityUntilMillis = 0;
 volatile uint32_t localHistoryHavePriorityUntilMillis = 0;
 uint32_t accessPointShutdownMillis = 0;
@@ -456,11 +476,11 @@ bool sdCardReady = false;
 uint8_t sdInitializationFailures = 0;
 bool sdErrorReported = false;
 bool firmwareVersionReported = false;
-bool firmwareCommandPending = false;
 bool firmwareCommandQueued = false;
-bool timeCommandPending = false;
 bool timeCommandQueued = false;
-bool measurementSettingsRequestPending = false;
+bool controlStreamStarted = false;
+bool controlCommandDispatchPending = false;
+bool controlCommandClearPending = false;
 bool timeCommandFromCloud = false;
 volatile bool ntpSynchronizationCompleted = false;
 bool ntpSynchronizationPending = false;
@@ -594,14 +614,20 @@ char firmwareStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char otaStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char loadCellStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char bme680StatusDatabasePath[DATABASE_PATH_LENGTH]{};
-char otaCommandDatabasePath[DATABASE_PATH_LENGTH]{};
-char timeCommandDatabasePath[DATABASE_PATH_LENGTH]{};
+char controlDatabasePath[DATABASE_PATH_LENGTH]{};
+char controlCommandDatabasePath[DATABASE_PATH_LENGTH]{};
 char historyStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char networkResetStatusDatabasePath[DATABASE_PATH_LENGTH]{};
 char activationSecretDatabasePath[DATABASE_PATH_LENGTH]{};
-char measurementSettingsDatabasePath[DATABASE_PATH_LENGTH]{};
 char queuedFirmwareCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char queuedTimeCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
+char pendingControlCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
+char lastProcessedControlRequestId[CONTROL_REQUEST_ID_LENGTH]{};
+char pendingControlRequestId[CONTROL_REQUEST_ID_LENGTH]{};
+char pendingTimeControlRequestId[CONTROL_REQUEST_ID_LENGTH]{};
+char controlCommandClearRequestId[CONTROL_REQUEST_ID_LENGTH]{};
+char controlCommandClearResultId[CONTROL_COMMAND_ACK_RESULT_ID_LENGTH]{};
+ControlCommandSnapshot controlCommandSnapshot{};
 char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
 uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
 FirmwareManifest otaManifest{};
@@ -696,10 +722,18 @@ uint32_t sdMeasurementIntervalMs = DEFAULT_SD_MEASUREMENT_INTERVAL_MS;
 uint8_t weightDisplayDecimals = DEFAULT_WEIGHT_DISPLAY_DECIMALS;
 
 void processFirmwareUpdateCommand(const String &payload);
-void queueFirmwareUpdateCommand(const String &payload);
+bool queueFirmwareUpdateCommand(const String &payload);
 void processQueuedFirmwareUpdateCommand();
 void processQueuedTimeCommand();
 void processPendingTimeCommand();
+void processPendingControlCommand();
+void processControlStreamData(AsyncResult &result);
+void maintainControlStream();
+void enqueueControlCommand(const String &payload);
+bool controlRequestWasProcessed(const String &requestId);
+bool controlRequestIsPending(const String &requestId);
+bool rememberPendingControlRequest(const String &requestId);
+bool markControlRequestProcessed(const String &requestId);
 void queueHistoryDeleteAction();
 void processPendingHistoryDeletion();
 void queueWiFiCredentialResetAction();
@@ -728,7 +762,6 @@ void completeCloudHistoryReconciliationRequest(CloudSyncRequestType requestType)
 bool processCloudHistoryReconciliationIndex(const String &payload);
 void appendJsonEscaped(String &json, const String &value);
 bool extractJsonUnsignedValue(const String &json, const char *key, uint32_t &value);
-bool requestMeasurementSettings();
 void processMeasurementSettings(const String &payload);
 
 bool isCloudSyncRequest(const String &requestId)
@@ -833,8 +866,6 @@ void cancelPendingFirebaseTasks(const char *reason)
     latestMeasurementUploadPending = true;
     latestMeasurementUploadInFlight = false;
   }
-  firmwareCommandPending = false;
-  timeCommandPending = false;
   activationSecretPublishPending = false;
   historyDeletionRequestPending = false;
   wifiCredentialResetRequestPending = false;
@@ -1144,17 +1175,11 @@ void processData(AsyncResult &result)
     if (result.uid() == "updateBme680CalibrationStatus") {
       bme680CalibrationStatusReported = false;
     }
-    if (result.uid() == "readFirmwareUpdateCommand") {
-      firmwareCommandPending = false;
-    }
-    if (result.uid() == "readTimeCommand") {
-      timeCommandPending = false;
-    }
-    if (result.uid() == "readMeasurementSettings") {
-      measurementSettingsRequestPending = false;
-    }
     if (result.uid() == "publishActivationSecret") {
       activationSecretPublishPending = false;
+    }
+    if (result.uid() == "clearControlCommand") {
+      controlCommandClearPending = true;
     }
     if (isCloudSyncRequest(result.uid())) {
       const CloudSyncRequestType failedRequestType = cloudSyncRequestType;
@@ -1181,33 +1206,6 @@ void processData(AsyncResult &result)
     clearFirebaseNetworkErrorBackoff();
     if (result.uid() == "updateLatestMeasurement") {
       latestMeasurementUploadInFlight = false;
-    }
-    if (result.uid() == "readFirmwareUpdateCommand") {
-      firmwareCommandPending = false;
-      const String payload = result.payload();
-      if (payload != "null" && payload.length() > 0) {
-        queueFirmwareUpdateCommand(payload);
-      }
-      return;
-    }
-    if (result.uid() == "readTimeCommand") {
-      timeCommandPending = false;
-      const String payload = result.payload();
-      if (payload != "null" && payload.length() > 0) {
-        if (payload.length() >= sizeof(queuedTimeCommandPayload)) {
-          queuedTimeCommandPayload[0] = '\0';
-          timeCommandQueued = true;
-        } else {
-          payload.toCharArray(queuedTimeCommandPayload, sizeof(queuedTimeCommandPayload));
-          timeCommandQueued = true;
-        }
-      }
-      return;
-    }
-    if (result.uid() == "readMeasurementSettings") {
-      measurementSettingsRequestPending = false;
-      processMeasurementSettings(result.payload());
-      return;
     }
     if (result.uid() == "publishActivationSecret") {
       activationSecretPublishPending = false;
@@ -1933,6 +1931,24 @@ void createDeviceIdentity()
   }
   preferences.end();
 
+  // Stanje cloud ukaza je ločeno od nastavitev naprave. Pending ukaz po rebootu
+  // znova prispe prek SSE, dokončno izveden pa se ne sme izvesti drugič.
+  if (preferences.begin(CONTROL_REQUEST_NAMESPACE, true)) {
+    const String storedControlRequestId = preferences.getString(CONTROL_LAST_REQUEST_ID_KEY, "");
+    if (storedControlRequestId.length() > 0 &&
+        storedControlRequestId.length() < sizeof(lastProcessedControlRequestId)) {
+      storedControlRequestId.toCharArray(lastProcessedControlRequestId,
+                                         sizeof(lastProcessedControlRequestId));
+    }
+    const String storedPendingControlRequestId = preferences.getString(CONTROL_PENDING_REQUEST_ID_KEY, "");
+    if (storedPendingControlRequestId.length() > 0 &&
+        storedPendingControlRequestId.length() < sizeof(pendingControlRequestId)) {
+      storedPendingControlRequestId.toCharArray(pendingControlRequestId,
+                                                sizeof(pendingControlRequestId));
+    }
+    preferences.end();
+  }
+
   loadMeasurementSettings();
 
   // Raziskovalec SD do prve spremembe uporabi aktivacijsko kodo, nato pa svoje
@@ -1973,11 +1989,10 @@ void initializeDeviceDatabasePaths()
   snprintf(otaStatusDatabasePath, sizeof(otaStatusDatabasePath), "%s/status/ota", deviceDatabasePath);
   snprintf(loadCellStatusDatabasePath, sizeof(loadCellStatusDatabasePath), "%s/status/load_cell", deviceDatabasePath);
   snprintf(bme680StatusDatabasePath, sizeof(bme680StatusDatabasePath), "%s/status/bme680", deviceDatabasePath);
-  snprintf(otaCommandDatabasePath, sizeof(otaCommandDatabasePath), "%s/commands/firmware_update", deviceDatabasePath);
-  snprintf(timeCommandDatabasePath, sizeof(timeCommandDatabasePath), "%s/commands/time", deviceDatabasePath);
+  snprintf(controlDatabasePath, sizeof(controlDatabasePath), "%s/control", deviceDatabasePath);
+  snprintf(controlCommandDatabasePath, sizeof(controlCommandDatabasePath), "%s/control/command", deviceDatabasePath);
   snprintf(historyStatusDatabasePath, sizeof(historyStatusDatabasePath), "%s/status/history", deviceDatabasePath);
   snprintf(networkResetStatusDatabasePath, sizeof(networkResetStatusDatabasePath), "%s/status/network_reset", deviceDatabasePath);
-  snprintf(measurementSettingsDatabasePath, sizeof(measurementSettingsDatabasePath), "%s/measurement_settings", deviceDatabasePath);
   snprintf(activationSecretDatabasePath, sizeof(activationSecretDatabasePath), "/device_secrets/%s", deviceId);
 }
 
@@ -2852,9 +2867,32 @@ void reportOtaStatus(const char *state, const char *targetVersion, const char *m
   database.set(asyncClient, otaStatusDatabasePath, otaStatus, processData, "updateOtaStatus");
 }
 
-void clearFirmwareUpdateCommand()
+void clearControlCommand(const String &requestId, const char *resultId = "clearControlCommand")
 {
-  database.remove(asyncClient, otaCommandDatabasePath, processData, "clearFirmwareUpdateCommand");
+  if (requestId.length() == 0 || requestId.length() >= sizeof(controlCommandClearRequestId)) {
+    Serial.println("Control command acknowledgement skipped: request ID is missing or too long.");
+    return;
+  }
+
+  // Nov ukaz ne sme dedovati časovnika neuspešnega ACK-a prejšnjega ukaza.
+  // Pri istem ID-ju časovnik ostane, da prepreči tesno zanko ponovnih poskusov.
+  if (strcmp(controlCommandClearRequestId, requestId.c_str()) != 0) {
+    lastControlCommandClearAttemptMillis = 0;
+  }
+  requestId.toCharArray(controlCommandClearRequestId, sizeof(controlCommandClearRequestId));
+  strlcpy(controlCommandClearResultId, resultId, sizeof(controlCommandClearResultId));
+  controlCommandClearPending = true;
+}
+
+void clearControlCommand(const char *resultId = "clearControlCommand")
+{
+  // Veljaven ukaz se pred izvedbo shrani kot processed. Tako se potrjuje vedno
+  // točno isti request_id in nikoli trenutno poljuben zapis na Firebase poti.
+  if (lastProcessedControlRequestId[0] == '\0') {
+    Serial.println("Control command acknowledgement skipped: no processed request ID is available.");
+    return;
+  }
+  clearControlCommand(String(lastProcessedControlRequestId), resultId);
 }
 
 uint8_t scaleOtaProgress(size_t completedBytes, size_t totalBytes, uint8_t startPercent, uint8_t endPercent)
@@ -2933,16 +2971,16 @@ void failOtaUpdate(const String &errorMessage)
   otaUpdateState = OtaUpdateState::Idle;
   firmwareUpdateInProgress = false;
   reportOtaStatus("error", otaTargetVersion, errorMessage.c_str(), progressPercent);
-  clearFirmwareUpdateCommand();
+  clearControlCommand();
   otaTargetVersion[0] = '\0';
 }
 
 // Firebase povratni klic ostane kratek; počasno OTA omrežno delo se izvede pozneje v glavni zanki.
-void queueFirmwareUpdateCommand(const String &payload)
+bool queueFirmwareUpdateCommand(const String &payload)
 {
   if (firmwareUpdateInProgress || firmwareCommandQueued) {
-    Serial.println("OTA command ignored: an update is already queued or in progress.");
-    return;
+    Serial.println("Cloud command postponed: an update is already queued or in progress.");
+    return false;
   }
 
   queuedFirmwareCommandInvalid = payload.length() >= sizeof(queuedFirmwareCommandPayload);
@@ -2954,6 +2992,7 @@ void queueFirmwareUpdateCommand(const String &payload)
     Serial.println("Cloud command queued.");
   }
   firmwareCommandQueued = true;
+  return true;
 }
 
 bool loadFirmwareManifest(FirmwareManifest &manifest, String &errorMessage)
@@ -3453,7 +3492,7 @@ void processFirmwareUpdateCommand(const String &payload)
     // Ista Firebase pot sprejema tudi ukaze za tehtnico, zgodovino in kalibracijo.
     // Neveljaven zapis zato ne sme prepisati zadnjega veljavnega OTA rezultata.
     Serial.println("Cloud command ignored: action is missing.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
@@ -3476,7 +3515,7 @@ void processFirmwareUpdateCommand(const String &payload)
     } else {
       Serial.println("Cloud history reconciliation command failed: SD history is unavailable.");
     }
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
@@ -3486,7 +3525,7 @@ void processFirmwareUpdateCommand(const String &payload)
     if (!queueLoadCellTare(false)) {
       Serial.println("Load cell tare command ignored: taring is already in progress.");
     }
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
@@ -3499,48 +3538,48 @@ void processFirmwareUpdateCommand(const String &payload)
     } else if (!queueBme680Calibration(temperatureOffsetC, humidityOffsetPercent, true)) {
       Serial.println("BME680 calibration command ignored: calibration is already active or out of range.");
     }
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
   if (action != "install" && action != "ignore") {
     Serial.println("OTA command ignored: unsupported action.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
   if (!extractJsonString(payload, "target_version", targetVersion)) {
     Serial.println("OTA error: update command has no target version.");
     reportOtaStatus("error", "", "OTA ukaz nima ciljne različice.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
   if (action == "ignore") {
     Serial.println("OTA: update command ignored.");
     reportOtaStatus("ignored", targetVersion.c_str(), "Posodobitev je bila prezrta.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
   if (targetVersion == FIRMWARE_VERSION) {
     Serial.println("OTA: requested firmware is already installed.");
     reportOtaStatus("installed", targetVersion.c_str(), "Firmware je že nameščen.", 100);
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
   if (!isNewerFirmwareVersion(targetVersion.c_str(), FIRMWARE_VERSION)) {
     Serial.println("OTA: requested firmware is not newer.");
     reportOtaStatus("ignored", targetVersion.c_str(), "Zahtevana različica ni novejša.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
   if (targetVersion.length() >= sizeof(otaTargetVersion)) {
     Serial.println("OTA error: requested firmware version is too long.");
     reportOtaStatus("error", "", "Različica OTA ukaza je predolga.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
     return;
   }
 
@@ -3560,14 +3599,23 @@ void processQueuedFirmwareUpdateCommand()
     return;
   }
 
-  firmwareCommandQueued = false;
   if (queuedFirmwareCommandInvalid) {
+    firmwareCommandQueued = false;
     queuedFirmwareCommandInvalid = false;
     Serial.println("OTA error: update command payload is too large.");
     reportOtaStatus("error", "", "OTA ukaz je predolg.");
-    clearFirmwareUpdateCommand();
+    clearControlCommand();
   } else {
     const String payload(queuedFirmwareCommandPayload);
+    String requestId;
+    if (!extractJsonString(payload, "request_id", requestId) ||
+        !markControlRequestProcessed(requestId)) {
+      // Pending zapis ostane nedotaknjen; po rebootu oziroma ob naslednji zanki
+      // zato ukaz še vedno lahko varno doseže dejansko izvedbo.
+      Serial.println("Cloud command postponed: request ID is not yet safely persisted as processed.");
+      return;
+    }
+    firmwareCommandQueued = false;
     queuedFirmwareCommandPayload[0] = '\0';
     processFirmwareUpdateCommand(payload);
   }
@@ -3671,17 +3719,6 @@ void processOtaUpdate()
   }
 }
 
-void requestFirmwareUpdateCommand()
-{
-  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) {
-    Serial.println("Firebase request queue is full; OTA command check postponed.");
-    return;
-  }
-
-  firmwareCommandPending = true;
-  database.get(asyncClient, otaCommandDatabasePath, processData, false, "readFirmwareUpdateCommand");
-}
-
 void processMeasurementSettings(const String &payload)
 {
   // Ob manjkajoči nastavitvi naprava obdrži varne lokalno shranjene privzete vrednosti.
@@ -3713,14 +3750,6 @@ void processMeasurementSettings(const String &payload)
   }
 }
 
-bool requestMeasurementSettings()
-{
-  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) return false;
-  measurementSettingsRequestPending = true;
-  database.get(asyncClient, measurementSettingsDatabasePath, processData, false, "readMeasurementSettings");
-  return true;
-}
-
 bool queueTimeCommand(TimeCommandType type, time_t timestamp, bool fromCloud)
 {
   bool queued = false;
@@ -3735,22 +3764,17 @@ bool queueTimeCommand(TimeCommandType type, time_t timestamp, bool fromCloud)
   return queued;
 }
 
-void clearTimeCommand()
-{
-  database.remove(asyncClient, timeCommandDatabasePath, processData, "clearTimeCommand");
-}
-
 void processQueuedTimeCommand()
 {
   if (!timeCommandQueued || firmwareUpdateInProgress || Update.isRunning()) return;
 
-  timeCommandQueued = false;
   const String payload(queuedTimeCommandPayload);
-  queuedTimeCommandPayload[0] = '\0';
   String action;
   if (!extractJsonString(payload, "action", action)) {
     Serial.println("Time command ignored: invalid payload.");
-    clearTimeCommand();
+    timeCommandQueued = false;
+    queuedTimeCommandPayload[0] = '\0';
+    clearControlCommand();
     return;
   }
 
@@ -3759,7 +3783,9 @@ void processQueuedTimeCommand()
   if (action == "set") {
     if (!extractJsonTimestamp(payload, "timestamp", timestamp)) {
       Serial.println("Time command ignored: invalid timestamp.");
-      clearTimeCommand();
+      timeCommandQueued = false;
+      queuedTimeCommandPayload[0] = '\0';
+      clearControlCommand();
       return;
     }
     commandType = TimeCommandType::SetManual;
@@ -3767,7 +3793,9 @@ void processQueuedTimeCommand()
     commandType = TimeCommandType::SynchronizeNtp;
   } else {
     Serial.println("Time command ignored: unsupported action.");
-    clearTimeCommand();
+    timeCommandQueued = false;
+    queuedTimeCommandPayload[0] = '\0';
+    clearControlCommand();
     return;
   }
 
@@ -3775,8 +3803,392 @@ void processQueuedTimeCommand()
     Serial.println("Time command postponed: another time operation is active.");
     return;
   }
-  clearTimeCommand();
+  String requestId;
+  if (!extractJsonString(payload, "request_id", requestId) ||
+      requestId.length() >= sizeof(pendingTimeControlRequestId)) {
+    // Ukaz še ni označen kot izveden. Neveljaven ID zato varno vrnemo iz
+    // notranje čakalne vrste, Firebase ukaz pa ostane za naslednji stream dogodek.
+    portENTER_CRITICAL(&timeCommandMux);
+    pendingTimeCommandType = TimeCommandType::None;
+    pendingTimeCommandTimestamp = 0;
+    timeCommandFromCloud = false;
+    portEXIT_CRITICAL(&timeCommandMux);
+    Serial.println("Cloud time command postponed: request ID is invalid.");
+    return;
+  }
+  requestId.toCharArray(pendingTimeControlRequestId, sizeof(pendingTimeControlRequestId));
+  timeCommandQueued = false;
+  queuedTimeCommandPayload[0] = '\0';
   Serial.println("Cloud time command queued.");
+}
+
+// --- Firebase control stream ------------------------------------------------
+
+bool controlRequestWasProcessed(const String &requestId)
+{
+  return requestId.length() > 0 && strcmp(lastProcessedControlRequestId, requestId.c_str()) == 0;
+}
+
+bool controlRequestIsPending(const String &requestId)
+{
+  return requestId.length() > 0 && strcmp(pendingControlRequestId, requestId.c_str()) == 0;
+}
+
+bool rememberPendingControlRequest(const String &requestId)
+{
+  if (requestId.length() == 0 || requestId.length() >= sizeof(pendingControlRequestId)) {
+    return false;
+  }
+
+  if (!preferences.begin(CONTROL_REQUEST_NAMESPACE, false)) {
+    Serial.println("Pending control command could not be persisted to NVS.");
+    return false;
+  }
+  const size_t storedLength = preferences.putString(CONTROL_PENDING_REQUEST_ID_KEY, requestId);
+  preferences.end();
+  if (storedLength != requestId.length()) {
+    Serial.println("Pending control command request ID could not be saved to NVS.");
+    return false;
+  }
+
+  requestId.toCharArray(pendingControlRequestId, sizeof(pendingControlRequestId));
+  return true;
+}
+
+bool markControlRequestProcessed(const String &requestId)
+{
+  if (requestId.length() == 0 || requestId.length() >= sizeof(lastProcessedControlRequestId)) {
+    return false;
+  }
+
+  if (!preferences.begin(CONTROL_REQUEST_NAMESPACE, false)) {
+    Serial.println("Processed control command could not be persisted to NVS.");
+    return false;
+  }
+  const size_t storedLength = preferences.putString(CONTROL_LAST_REQUEST_ID_KEY, requestId);
+  const bool pendingRemoved = !controlRequestIsPending(requestId) ||
+                              preferences.remove(CONTROL_PENDING_REQUEST_ID_KEY);
+  preferences.end();
+  if (storedLength != requestId.length()) {
+    Serial.println("Processed control command request ID could not be saved to NVS.");
+    return false;
+  }
+  if (!pendingRemoved) {
+    Serial.println("Processed control command left a stale pending request ID in NVS.");
+  }
+
+  requestId.toCharArray(lastProcessedControlRequestId, sizeof(lastProcessedControlRequestId));
+  if (controlRequestIsPending(requestId)) pendingControlRequestId[0] = '\0';
+  return true;
+}
+
+void resetControlCommandSnapshot()
+{
+  controlCommandSnapshot = ControlCommandSnapshot{};
+}
+
+bool controlCommandSnapshotIsComplete()
+{
+  if (!controlCommandSnapshot.hasAction || !controlCommandSnapshot.hasRequestId) return false;
+
+  const String action(controlCommandSnapshot.action);
+  if (action == "install" || action == "ignore") return controlCommandSnapshot.hasTargetVersion;
+  if (action == "set") return controlCommandSnapshot.hasTimestamp;
+  if (action == "set_bme680_calibration") {
+    return controlCommandSnapshot.hasTemperatureOffset && controlCommandSnapshot.hasHumidityOffset;
+  }
+  return true;
+}
+
+bool createControlSnapshotPayload(String &payload)
+{
+  if (!controlCommandSnapshotIsComplete()) return false;
+
+  char serialized[OTA_COMMAND_PAYLOAD_LENGTH];
+  const int written = snprintf(
+      serialized, sizeof(serialized),
+      "{\"action\":\"%s\",\"request_id\":\"%s\",\"target_version\":\"%s\",\"timestamp\":%lu,\"temperature_offset_c\":%.3f,\"humidity_offset_percent\":%.3f}",
+      controlCommandSnapshot.action, controlCommandSnapshot.requestId,
+      controlCommandSnapshot.hasTargetVersion ? controlCommandSnapshot.targetVersion : "",
+      static_cast<unsigned long>(controlCommandSnapshot.timestamp), controlCommandSnapshot.temperatureOffsetC,
+      controlCommandSnapshot.humidityOffsetPercent);
+  if (written < 0 || static_cast<size_t>(written) >= sizeof(serialized)) return false;
+  payload = serialized;
+  return true;
+}
+
+bool parseControlStreamString(const String &payload, String &value)
+{
+  value = payload;
+  value.trim();
+  if (value.length() < 2 || value[0] != '"' || value[value.length() - 1] != '"') return false;
+  value = value.substring(1, value.length() - 1);
+  return true;
+}
+
+bool parseControlStreamUnsigned(const String &payload, uint32_t &value)
+{
+  String normalized = payload;
+  normalized.trim();
+  if (normalized.length() == 0) return false;
+  char *end = nullptr;
+  const unsigned long parsed = strtoul(normalized.c_str(), &end, 10);
+  if (end == normalized.c_str() || *end != '\0') return false;
+  value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+bool parseControlStreamFloat(const String &payload, float &value)
+{
+  String normalized = payload;
+  normalized.trim();
+  if (normalized.length() == 0) return false;
+  char *end = nullptr;
+  const float parsed = strtof(normalized.c_str(), &end);
+  if (end == normalized.c_str() || *end != '\0' || !isfinite(parsed)) return false;
+  value = parsed;
+  return true;
+}
+
+void processControlSettingsLeaf(const String &path, const String &payload)
+{
+  uint32_t measurementIntervalSeconds = measurementIntervalMs / 1000U;
+  uint32_t sdArchiveIntervalMinutes = sdMeasurementIntervalMs / (60U * 1000U);
+  uint32_t displayDecimals = weightDisplayDecimals;
+  uint32_t parsedValue = 0;
+  if (!parseControlStreamUnsigned(payload, parsedValue)) {
+    Serial.println("Control settings ignored: changed value is invalid.");
+    return;
+  }
+
+  if (path == "/settings/measurement_interval_seconds") {
+    measurementIntervalSeconds = parsedValue;
+  } else if (path == "/settings/sd_archive_interval_minutes") {
+    sdArchiveIntervalMinutes = parsedValue;
+  } else if (path == "/settings/weight_display_decimals") {
+    displayDecimals = parsedValue;
+  } else {
+    return;
+  }
+
+  if (!areMeasurementSettingsValid(measurementIntervalSeconds, sdArchiveIntervalMinutes, displayDecimals)) {
+    Serial.println("Control settings ignored: changed value is outside the allowed range.");
+    return;
+  }
+  processMeasurementSettings(String("{\"measurement_interval_seconds\":") + measurementIntervalSeconds +
+                             ",\"sd_archive_interval_minutes\":" + sdArchiveIntervalMinutes +
+                             ",\"weight_display_decimals\":" + displayDecimals + "}");
+}
+
+void processControlCommandLeaf(const String &path, const String &payload)
+{
+  if (payload == "null") {
+    // Brisanje kateregakoli polja pomeni konec trenutnega delnega ukaza.
+    // Tako se parametri starega ukaza ne morejo združiti z naslednjim SSE dogodkom.
+    if (path == "/command" || path.startsWith("/command/")) resetControlCommandSnapshot();
+    return;
+  }
+
+  String value;
+  if (path == "/command/action") {
+    if (parseControlStreamString(payload, value) && value.length() < sizeof(controlCommandSnapshot.action)) {
+      value.toCharArray(controlCommandSnapshot.action, sizeof(controlCommandSnapshot.action));
+      controlCommandSnapshot.hasAction = true;
+    }
+  } else if (path == "/command/request_id") {
+    if (parseControlStreamString(payload, value) && value.length() < sizeof(controlCommandSnapshot.requestId)) {
+      value.toCharArray(controlCommandSnapshot.requestId, sizeof(controlCommandSnapshot.requestId));
+      controlCommandSnapshot.hasRequestId = true;
+    }
+  } else if (path == "/command/target_version") {
+    if (parseControlStreamString(payload, value) && value.length() < sizeof(controlCommandSnapshot.targetVersion)) {
+      value.toCharArray(controlCommandSnapshot.targetVersion, sizeof(controlCommandSnapshot.targetVersion));
+      controlCommandSnapshot.hasTargetVersion = true;
+    }
+  } else if (path == "/command/timestamp") {
+    uint32_t timestamp = 0;
+    if (parseControlStreamUnsigned(payload, timestamp)) {
+      controlCommandSnapshot.timestamp = static_cast<time_t>(timestamp);
+      controlCommandSnapshot.hasTimestamp = true;
+    }
+  } else if (path == "/command/temperature_offset_c") {
+    if (parseControlStreamFloat(payload, controlCommandSnapshot.temperatureOffsetC)) {
+      controlCommandSnapshot.hasTemperatureOffset = true;
+    }
+  } else if (path == "/command/humidity_offset_percent") {
+    if (parseControlStreamFloat(payload, controlCommandSnapshot.humidityOffsetPercent)) {
+      controlCommandSnapshot.hasHumidityOffset = true;
+    }
+  } else {
+    return;
+  }
+
+  String completePayload;
+  if (createControlSnapshotPayload(completePayload)) enqueueControlCommand(completePayload);
+}
+
+void enqueueControlCommand(const String &payload)
+{
+  String action;
+  String requestId;
+  if (!extractJsonString(payload, "action", action) || !extractJsonString(payload, "request_id", requestId)) {
+    return;
+  }
+  if (requestId.length() == 0 || requestId.length() >= sizeof(lastProcessedControlRequestId)) {
+    Serial.println("Control command ignored: request_id is missing or too long.");
+    return;
+  }
+  if (controlRequestWasProcessed(requestId)) {
+    Serial.println("Control command ignored: request_id was already processed.");
+    // Po reconnectu Firebase ponovno pošlje trenutno stanje strežnika. Če je
+    // prejšnje brisanje ukaza izgubilo povezavo, ga zdaj varno zaključimo,
+    // ne da bi enkratno dejanje izvedli še drugič.
+    clearControlCommand(requestId);
+    return;
+  }
+
+  if (controlRequestIsPending(requestId) &&
+      (controlCommandDispatchPending || firmwareCommandQueued || timeCommandQueued)) {
+    // Isti SSE dogodek se lahko ponovi pred izvedbo; pending ukaz je že v RAM
+    // čakalni vrsti. Po rebootu so te zastavice prazne in se isti ukaz prevzame.
+    return;
+  }
+
+  if (controlCommandDispatchPending) {
+    String pendingRequestId;
+    if (extractJsonString(String(pendingControlCommandPayload), "request_id", pendingRequestId) &&
+        pendingRequestId == requestId) {
+      return;
+    }
+    Serial.println("Control command postponed: another command is waiting for the main loop.");
+    return;
+  }
+  if (payload.length() >= sizeof(pendingControlCommandPayload)) {
+    Serial.println("Control command ignored: payload is too large.");
+    clearControlCommand();
+    return;
+  }
+
+  payload.toCharArray(pendingControlCommandPayload, sizeof(pendingControlCommandPayload));
+  controlCommandDispatchPending = true;
+  Serial.printf("Control command received: %s.\n", action.c_str());
+}
+
+void processPendingControlCommand()
+{
+  if (controlCommandDispatchPending) {
+    const String payload(pendingControlCommandPayload);
+    String action;
+    String requestId;
+    if (!extractJsonString(payload, "action", action) || !extractJsonString(payload, "request_id", requestId)) {
+      controlCommandDispatchPending = false;
+      pendingControlCommandPayload[0] = '\0';
+      clearControlCommand();
+      return;
+    }
+
+    // Pending ID se shrani pred predajo v čakalno vrsto. Reboot v tem obdobju
+    // zato ne izgubi ukaza: stream ga bo znova poslal, vendar še ni processed.
+    if (!controlRequestIsPending(requestId) && !rememberPendingControlRequest(requestId)) {
+      Serial.println("Control command postponed: request ID could not be saved as pending.");
+      return;
+    }
+
+    bool queued = false;
+    if (action == "set" || action == "sync_ntp") {
+      if (!timeCommandQueued && payload.length() < sizeof(queuedTimeCommandPayload)) {
+        payload.toCharArray(queuedTimeCommandPayload, sizeof(queuedTimeCommandPayload));
+        timeCommandQueued = true;
+        queued = true;
+      }
+    } else {
+      queued = queueFirmwareUpdateCommand(payload);
+    }
+
+    if (queued) {
+      controlCommandDispatchPending = false;
+      pendingControlCommandPayload[0] = '\0';
+    }
+    return;
+  }
+
+  if (controlCommandClearPending && isFirebaseTransportReady() &&
+      (lastControlCommandClearAttemptMillis == 0 ||
+       millis() - lastControlCommandClearAttemptMillis >= CONTROL_COMMAND_ACK_RETRY_INTERVAL_MS)) {
+    char acknowledgementPayload[256];
+    snprintf(acknowledgementPayload, sizeof(acknowledgementPayload),
+             "{\"command\":null,\"ack\":{\"request_id\":\"%s\",\"acknowledged_at\":%lu}}",
+             controlCommandClearRequestId, static_cast<unsigned long>(time(nullptr)));
+    object_t controlAcknowledgement(acknowledgementPayload);
+    controlCommandClearPending = false;
+    if (isHistoryDeletionRequest(controlCommandClearResultId)) {
+      historyDeletionRequestPending = true;
+    }
+    if (isWiFiCredentialResetRequest(controlCommandClearResultId)) {
+      wifiCredentialResetRequestPending = true;
+    }
+    // Atomarna posodobitev hkrati odstrani ukaz in zapiše request_id potrditve.
+    // Pravila dovolijo ta poseg samo, če je ID trenutnega ukaza enak potrditvi.
+    lastControlCommandClearAttemptMillis = millis();
+    database.update(asyncClient, controlDatabasePath, controlAcknowledgement, processData,
+                    controlCommandClearResultId);
+  }
+}
+
+void processControlStreamData(AsyncResult &result)
+{
+  if (!result.isResult()) return;
+
+  if (result.isError()) {
+    Serial.printf("Firebase control stream error: %s (%d).\n", result.error().message().c_str(),
+                  result.error().code());
+    return;
+  }
+  if (!result.available()) return;
+
+  RealtimeDatabaseResult &stream = result.to<RealtimeDatabaseResult>();
+  if (!stream.isStream()) return;
+
+  const String event = stream.event();
+  if (event != "put" && event != "patch") return;
+
+  const String path = stream.dataPath();
+  const String payload = stream.to<const char *>();
+  // Za začetni korenski dogodek objekt vsebuje oba podkanala. Iz njega obdelamo
+  // samo tisti del, ki je dejansko prisoten, da se ukaz ne razlaga kot nastavitev.
+  if ((path == "/" && payload.indexOf("\"measurement_interval_seconds\"") >= 0) || path == "/settings") {
+    processMeasurementSettings(payload);
+  } else if (path.startsWith("/settings/")) {
+    processControlSettingsLeaf(path, payload);
+  }
+
+  if ((path == "/" && payload.indexOf("\"request_id\"") >= 0) || path == "/command") {
+    if (payload == "null") {
+      resetControlCommandSnapshot();
+    } else {
+      enqueueControlCommand(payload);
+    }
+  } else if (path.startsWith("/command/")) {
+    processControlCommandLeaf(path, payload);
+  }
+}
+
+void maintainControlStream()
+{
+  if (!cloudNetworkReady()) {
+    if (controlStreamStarted) {
+      controlStreamClient.stopAsync(true);
+      controlStreamSslClient.stop();
+      controlStreamStarted = false;
+    }
+    return;
+  }
+  if (controlStreamStarted || !app.ready()) return;
+
+  controlStreamClient.setSSEFilters("get,put,patch,keep-alive,cancel,auth_revoked");
+  database.get(controlStreamClient, controlDatabasePath, processControlStreamData, true, "controlStream");
+  controlStreamStarted = true;
+  Serial.println("Firebase control stream started.");
 }
 
 void processPendingTimeCommand()
@@ -3796,11 +4208,27 @@ void processPendingTimeCommand()
   // kalibracija ne tekmuje z meritvijo ali statusnim zapisom v isti asinhroni vrsti.
   if (asyncClient.taskCount() > 0) return;
 
+  if (fromCloud) {
+    const String requestId(pendingTimeControlRequestId);
+    // `last_request` nastane šele tik pred dejanskim posegom v sistemski čas.
+    // Če se naprava prej znova zažene, control/command ostane v Firebase in ga
+    // stream lahko znova varno postavi v čakalno vrsto.
+    if (!markControlRequestProcessed(requestId)) {
+      Serial.println("Cloud time command postponed: request ID is not yet safely persisted as processed.");
+      return;
+    }
+  }
+
   portENTER_CRITICAL(&timeCommandMux);
   pendingTimeCommandType = TimeCommandType::None;
   pendingTimeCommandTimestamp = 0;
   timeCommandFromCloud = false;
   portEXIT_CRITICAL(&timeCommandMux);
+
+  if (fromCloud) {
+    pendingTimeControlRequestId[0] = '\0';
+    clearControlCommand();
+  }
 
   if (commandType == TimeCommandType::SynchronizeNtp) {
     if (!startNtpSynchronization()) {
@@ -3825,13 +4253,6 @@ void processPendingTimeCommand()
   lastDeviceStatusMillis = 0;
   Serial.printf("Time set manually from %s: %lu UTC.\n", fromCloud ? "cloud" : "local dashboard",
                 static_cast<unsigned long>(timestamp));
-}
-
-void requestTimeCommand()
-{
-  if (asyncClient.taskCount() >= MAX_FIREBASE_ASYNC_TASKS) return;
-  timeCommandPending = true;
-  database.get(asyncClient, timeCommandDatabasePath, processData, false, "readTimeCommand");
 }
 
 void reportHistoryDeletionStatus(const char *state, const char *message, const char *requestId)
@@ -4239,9 +4660,7 @@ void processPendingHistoryDeletion()
 
     case HistoryDeletionStep::ClearCommand:
       if (isFirebaseTransportReady()) {
-        historyDeletionRequestPending = true;
-        database.remove(asyncClient, otaCommandDatabasePath, processData,
-                        "historyDeletionClearCommand");
+        clearControlCommand("historyDeletionClearCommand");
       }
       return;
 
@@ -4254,9 +4673,7 @@ void processPendingHistoryDeletion()
 
     case HistoryDeletionStep::ClearCommandAfterError:
       if (isFirebaseTransportReady()) {
-        historyDeletionRequestPending = true;
-        database.remove(asyncClient, otaCommandDatabasePath, processData,
-                        "historyDeletionClearCommandAfterError");
+        clearControlCommand("historyDeletionClearCommandAfterError");
       }
       return;
 
@@ -4332,8 +4749,7 @@ void processPendingWiFiCredentialReset()
 
     case WiFiCredentialResetStep::ClearCommand:
       if (isFirebaseTransportReady()) {
-        wifiCredentialResetRequestPending = true;
-        database.remove(asyncClient, otaCommandDatabasePath, processData, "wifiCredentialResetClearCommand");
+        clearControlCommand("wifiCredentialResetClearCommand");
       }
       return;
 
@@ -6995,6 +7411,9 @@ void setup()
   sslClient.setInsecure();
   sslClient.setConnectionTimeout(4000);
   sslClient.setHandshakeTimeout(5);
+  controlStreamSslClient.setInsecure();
+  controlStreamSslClient.setConnectionTimeout(4000);
+  controlStreamSslClient.setHandshakeTimeout(5);
   otaClient.setInsecure();
   otaDownloadClient.setInsecure();
 
@@ -7016,11 +7435,13 @@ void loop()
   initializeTime();
   processTimeSynchronization();
   maintainFirebaseClient();
+  maintainControlStream();
   maintainArduinoOta();
   ElegantOTA.loop();
   maintainElegantOtaSession();
 
   processOtaUpdate();
+  processPendingControlCommand();
   processQueuedFirmwareUpdateCommand();
   processQueuedTimeCommand();
   processPendingTimeCommand();
@@ -7055,14 +7476,6 @@ void loop()
     // Nastavitve intervalov imajo prednost pred novo meritvijo `latest`. Če je en sam
     // Firebase kanal prost, jih naprava tako prevzame tudi pri pogostem pošiljanju meritev.
     // Ob zasedenem kanalu časovnika ne premaknemo in zahtevo neblokirno ponovimo v naslednji zanki.
-    if (isFirebaseReady() && !measurementSettingsRequestPending &&
-        (lastMeasurementSettingsRefreshMillis == 0 ||
-         currentMillis - lastMeasurementSettingsRefreshMillis >= MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS)) {
-      if (requestMeasurementSettings()) {
-        lastMeasurementSettingsRefreshMillis = currentMillis;
-      }
-    }
-
     // Trenutna meritev ima prednost pred periodiÄnimi statusi. Tako en sam
     // Firebase kanal ne more preskoÄiti najnovejÅ¡e meritve nastavljenega cikla.
     if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= measurementIntervalMs) {
@@ -7110,20 +7523,6 @@ void loop()
         (lastDeviceStatusMillis == 0 || currentMillis - lastDeviceStatusMillis >= DEVICE_STATUS_INTERVAL_MS)) {
       lastDeviceStatusMillis = currentMillis;
       updateDeviceStatus();
-    }
-
-    if (isFirebaseReady() && validTimeAvailable && !firmwareCommandPending && !firmwareCommandQueued &&
-        (lastFirmwareCommandCheckMillis == 0 ||
-         currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
-      lastFirmwareCommandCheckMillis = currentMillis;
-      requestFirmwareUpdateCommand();
-    }
-
-    if (isFirebaseReady() && !timeCommandPending && !timeCommandQueued &&
-        (lastTimeCommandCheckMillis == 0 ||
-         currentMillis - lastTimeCommandCheckMillis >= TIME_COMMAND_INTERVAL_MS)) {
-      lastTimeCommandCheckMillis = currentMillis;
-      requestTimeCommand();
     }
 
     synchronizeSDMeasurements(currentMillis);

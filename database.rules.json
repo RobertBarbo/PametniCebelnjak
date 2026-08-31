@@ -166,21 +166,64 @@
             ".validate": false
           }
         },
-        "measurement_settings": {
-          ".read": "auth == null || (auth != null && auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72')",
-          ".write": "auth != null && auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72'",
-          ".validate": "newData.hasChildren(['measurement_interval_seconds', 'sd_archive_interval_minutes', 'weight_display_decimals', 'updated_at']) && newData.child('measurement_interval_seconds').isNumber() && newData.child('measurement_interval_seconds').val() >= 5 && newData.child('measurement_interval_seconds').val() <= 120 && newData.child('sd_archive_interval_minutes').isNumber() && newData.child('sd_archive_interval_minutes').val() >= 1 && newData.child('sd_archive_interval_minutes').val() <= 30 && newData.child('sd_archive_interval_minutes').val() * 60 >= newData.child('measurement_interval_seconds').val() && newData.child('weight_display_decimals').val() >= 1 && newData.child('weight_display_decimals').val() <= 2 && newData.child('updated_at').isNumber()",
-          "measurement_interval_seconds": {
-            ".validate": "newData.isNumber()"
+        "control": {
+          ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
+          ".write": "auth == null && data.child('command').child('request_id').isString() && !newData.child('command').exists() && newData.child('ack').hasChildren(['request_id', 'acknowledged_at']) && newData.child('ack').child('request_id').isString() && newData.child('ack').child('request_id').val() === data.child('command').child('request_id').val() && newData.child('ack').child('acknowledged_at').isNumber() && newData.child('settings').child('measurement_interval_seconds').val() === data.child('settings').child('measurement_interval_seconds').val() && newData.child('settings').child('sd_archive_interval_minutes').val() === data.child('settings').child('sd_archive_interval_minutes').val() && newData.child('settings').child('weight_display_decimals').val() === data.child('settings').child('weight_display_decimals').val()",
+          "settings": {
+            ".write": "auth != null && auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72'",
+            ".validate": "newData.hasChildren(['measurement_interval_seconds', 'sd_archive_interval_minutes', 'weight_display_decimals']) && newData.child('measurement_interval_seconds').isNumber() && newData.child('measurement_interval_seconds').val() >= 5 && newData.child('measurement_interval_seconds').val() <= 120 && newData.child('sd_archive_interval_minutes').isNumber() && newData.child('sd_archive_interval_minutes').val() >= 1 && newData.child('sd_archive_interval_minutes').val() <= 30 && newData.child('sd_archive_interval_minutes').val() * 60 >= newData.child('measurement_interval_seconds').val() && (newData.child('weight_display_decimals').val() === 1 || newData.child('weight_display_decimals').val() === 2)",
+            "measurement_interval_seconds": {
+              ".validate": "newData.isNumber()"
+            },
+            "sd_archive_interval_minutes": {
+              ".validate": "newData.isNumber()"
+            },
+            "weight_display_decimals": {
+              ".validate": "newData.val() === 1 || newData.val() === 2"
+            },
+            "$other": {
+              ".validate": false
+            }
           },
-          "sd_archive_interval_minutes": {
-            ".validate": "newData.isNumber()"
+          "command": {
+            ".write": "auth != null && !data.exists() && newData.exists() && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || (root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid && newData.child('action').val() !== 'clear_wifi_credentials'))",
+            ".validate": "!newData.exists() || (newData.hasChildren(['action', 'request_id', 'requested_at']) && newData.child('action').isString() && newData.child('request_id').isString() && newData.child('request_id').val().length > 0 && newData.child('request_id').val().length <= 72 && newData.child('requested_at').isNumber() && ((newData.child('action').val() === 'install' || newData.child('action').val() === 'ignore') && newData.child('target_version').isString() && newData.child('target_version').val().length > 0 && newData.child('target_version').val().length <= 64 || (newData.child('action').val() === 'set' && newData.child('timestamp').isNumber() && newData.child('timestamp').val() >= 1700000000 && newData.child('timestamp').val() <= 4102444799) || newData.child('action').val() === 'sync_ntp' || newData.child('action').val() === 'delete_history' || newData.child('action').val() === 'sync_history' || newData.child('action').val() === 'clear_wifi_credentials' || newData.child('action').val() === 'tare_load_cell' || (newData.child('action').val() === 'set_bme680_calibration' && newData.child('temperature_offset_c').isNumber() && newData.child('temperature_offset_c').val() >= -10 && newData.child('temperature_offset_c').val() <= 10 && newData.child('humidity_offset_percent').isNumber() && newData.child('humidity_offset_percent').val() >= -30 && newData.child('humidity_offset_percent').val() <= 30)))",
+            "action": {
+              ".validate": "newData.isString()"
+            },
+            "request_id": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 72"
+            },
+            "requested_at": {
+              ".validate": "newData.isNumber()"
+            },
+            "target_version": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
+            },
+            "timestamp": {
+              ".validate": "newData.isNumber() && newData.val() >= 1700000000 && newData.val() <= 4102444799"
+            },
+            "temperature_offset_c": {
+              ".validate": "newData.isNumber() && newData.val() >= -10 && newData.val() <= 10"
+            },
+            "humidity_offset_percent": {
+              ".validate": "newData.isNumber() && newData.val() >= -30 && newData.val() <= 30"
+            },
+            "$other": {
+              ".validate": false
+            }
           },
-          "weight_display_decimals": {
-            ".validate": "newData.val() === 1 || newData.val() === 2"
-          },
-          "updated_at": {
-            ".validate": "newData.isNumber()"
+          "ack": {
+            ".validate": "newData.hasChildren(['request_id', 'acknowledged_at']) && newData.child('request_id').isString() && newData.child('request_id').val().length > 0 && newData.child('request_id').val().length <= 72 && newData.child('acknowledged_at').isNumber()",
+            "request_id": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 72"
+            },
+            "acknowledged_at": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
           },
           "$other": {
             ".validate": false
@@ -237,17 +280,6 @@
           },
           "network_reset": {
             ".write": "auth == null"
-          }
-        },
-        "commands": {
-          "firmware_update": {
-            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
-            ".write": "(auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || (root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid && newData.child('action').val() !== 'clear_wifi_credentials' && data.child('action').val() !== 'clear_wifi_credentials'))) || (auth == null && !newData.exists())"
-          },
-          "time": {
-            ".read": "auth == null || (auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid))",
-            ".write": "(auth != null && (auth.uid === 'Uv2bGWlFt8h9YTsAFoxsNlNsRK72' || root.child('devices').child($deviceId).child('owner_uid').val() === auth.uid)) || (auth == null && !newData.exists())",
-            ".validate": "!newData.exists() || (newData.hasChildren(['action', 'requested_at']) && newData.child('action').isString() && (newData.child('action').val() === 'sync_ntp' || (newData.child('action').val() === 'set' && newData.child('timestamp').isNumber() && newData.child('timestamp').val() >= 1700000000 && newData.child('timestamp').val() <= 4102444799)) && newData.child('requested_at').isNumber())"
           }
         }
       }

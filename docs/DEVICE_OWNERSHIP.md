@@ -16,7 +16,7 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
   aggregates/hourly/{hour_start_timestamp}
   aggregates/daily/{day_start_timestamp}
   status
-  commands
+  control/{settings,command}
 ```
 
 `database.rules.json` dovoli celoten ogled naprave samo takrat, ko je `owner_uid` enak prijavljenemu Firebase UID-ju. Uporabnik lahko registrira več panjev in med njimi preklaplja z izbirnikom na cloud strani. Deljeni uporabnik dobi ločeno vlogo `viewer`, ki omogoča samo branje meritev in agregatov.
@@ -25,7 +25,7 @@ Firebase Authentication prepozna uporabnika z e-pošto/geslom ali Google računo
 
 Lastnik v cloud pogledu vnese e-poštni naslov prejemnika. Spletna stran ustvari naključno osemmestno kodo pod `/share_invites/{code}`; povabilo je vezano na izbrani panj, lastnika, e-poštni naslov in poteče po 24 urah. Prejemnik mora biti prijavljen prav s tem Firebase e-poštnim naslovom.
 
-Po vnosu kode se z eno atomsko posodobitvijo ustvarita dostop `/device_access/{deviceId}/{viewerUid}` in uporabnikov izbirnik `/users/{viewerUid}/shared_devices/{deviceId}`, uporabljeno povabilo pa se izbriše. Firebase pravila gledalcu dovolijo branje samo poti `latest`, `measurements`, `aggregates/hourly` in `aggregates/daily`. Poti `status`, `commands`, lastništvo in aktivacijska koda ostanejo nedostopne, zato skriti upravljalni gumbi niso edina zaščita.
+Po vnosu kode se z eno atomsko posodobitvijo ustvarita dostop `/device_access/{deviceId}/{viewerUid}` in uporabnikov izbirnik `/users/{viewerUid}/shared_devices/{deviceId}`, uporabljeno povabilo pa se izbriše. Firebase pravila gledalcu dovolijo branje samo poti `latest`, `measurements`, `aggregates/hourly` in `aggregates/daily`. Poti `status`, `control`, lastništvo in aktivacijska koda ostanejo nedostopne, zato skriti upravljalni gumbi niso edina zaščita.
 
 Lastnik lahko vidi seznam gledalcev in posamezen dostop prekliče. Gledalec lahko deljeni panj odstrani iz svojega računa; atomsko se izbrišeta samo njegov zapis `/device_access/{deviceId}/{viewerUid}` in povezava `/users/{viewerUid}/shared_devices/{deviceId}`, lastništvo ter meritve pa ostanejo nespremenjeni. Ob odregistraciji panja lastnik ali skrbnik z istim atomskim zapisom odstrani tudi vse zapise `device_access` ter pripadajoče uporabniške povezave.
 

@@ -10,6 +10,9 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Changed
 
+- Firmware `0.1.0-rc.73` uporablja centralni sprožilec celotnega statusnega posnetka. Sprememba komponent, RTC/NTP ali sinhronizacije zgodovine med aktivnim asinkronim zapisom ostane označena in po uspehu starega posnetka sproži še nov posnetek. Cloud online prag je 120 sekund, zato en neuspešen minutni heartbeat z 30-sekundnim retryjem ne povzroči kratkega lažnega offline stanja.
+- Firmware `0.1.0-rc.72` za cloud online stanje potrdi minutni heartbeat in celoten statusni posnetek šele po uspešnem asinhronem Firebase odgovoru. Neuspešen zapis se ponovno poskusi najprej čez 30 sekund, zato se ob zasedenem ali nedosegljivem kanalu ne ustvarja tesna zanka zahtev. Sprememba intervala meritev ali odmikov BME680 ne sproži več nepotrebnega celotnega statusnega posnetka. Deljeni uporabnik za indikator stanja bere samo `status/device/last_seen_server_ms`; za stare firmware različice ostane omejen fallback na čas `latest` meritve.
+- Firmware `0.1.0-rc.71` za cloud stanje naprave vsakih 60 sekund pošlje le majhen Firebase `PATCH` z `last_seen_server_ms` (strežniški timestamp) in `wifi_rssi_dbm`. Celoten `status/device` posnetek se objavi ob prvi oziroma ponovno vzpostavljeni Firebase povezavi, ob obstoječih pomembnih spremembah stanja in kot šesturni varnostni posnetek. Cloud indikator online/offline uporablja Firebase `/.info/serverTimeOffset`, zato ni odvisen od sistemske ure ESP32. Uptime in prikazana ura naprave uporabljata strežniško opazovana anchora ter med posnetki tečeta lokalno v brskalniku.
 - ESP32 namesto treh periodičnih Firebase branj uporablja en stalni realtime tok `/devices/{device_id}/control`. Trajne nastavitve so v `control/settings`, vsi enkratni ukazi pa v `control/command`; cloud nadzorna plošča in Firebase pravila uporabljajo isti kanal. Firmware je povišan na `0.1.0-rc.70`.
 
 ### Fixed

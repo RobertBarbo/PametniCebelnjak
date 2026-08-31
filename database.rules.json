@@ -258,7 +258,23 @@
         },
         "status": {
           "device": {
-            ".write": "auth == null"
+            ".write": "auth == null",
+            "last_seen_server_ms": {
+              ".read": "auth != null && root.child('device_access').child($deviceId).child(auth.uid).child('role').val() === 'viewer' && root.child('device_access').child($deviceId).child(auth.uid).child('owner_uid').val() === root.child('devices').child($deviceId).child('owner_uid').val()",
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+            "uptime_anchor_seconds": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "uptime_anchor_server_ms": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+            "device_time_anchor_s": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "device_time_anchor_server_ms": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            }
           },
           "sd_card": {
             ".write": "auth == null"

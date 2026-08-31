@@ -44,8 +44,11 @@ constexpr uint16_t MEASUREMENT_INTERVAL_MAX_SECONDS = 120;  // Najdaljši dovolj
 constexpr uint8_t SD_ARCHIVE_INTERVAL_MIN_MINUTES = 1;  // Najkrajši dovoljeni interval zapisa zgodovine na SD kartico.
 constexpr uint8_t SD_ARCHIVE_INTERVAL_MAX_MINUTES = 30;  // Najdaljši dovoljeni interval zapisa zgodovine na SD kartico.
 constexpr uint8_t DEFAULT_WEIGHT_DISPLAY_DECIMALS = 2;  // Privzeto število prikazanih decimalk teže na lokalnem in cloud pogledu.
-constexpr uint32_t SD_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med preverjanjem in objavo stanja SD kartice.
-constexpr uint32_t DEVICE_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med objavami IP-ja, RSSI-ja, uptime-a in online stanja.
+constexpr uint32_t SD_STATUS_INTERVAL_MS = 60 * 1000;  // Čas med fizičnim preverjanjem in recoveryjem SD kartice.
+constexpr uint32_t SD_STATUS_CLOUD_RETRY_INTERVAL_MS = 30 * 1000;  // Najkrajši premor pred ponovnim cloud zapisom neuspešnega SD statusa.
+constexpr uint32_t DEVICE_HEARTBEAT_INTERVAL_MS = 60 * 1000;  // Čas med majhnimi cloud heartbeat zapisi RSSI-ja in odziva naprave.
+constexpr uint32_t DEVICE_STATUS_SNAPSHOT_INTERVAL_MS = 6UL * 60UL * 60UL * 1000UL;  // Varnostni interval celotnega cloud posnetka stanja naprave.
+constexpr uint32_t DEVICE_STATUS_RETRY_INTERVAL_MS = 30 * 1000;  // Najkrajši premor pred ponovnim poskusom neuspelega heartbeat-a ali celotnega statusnega posnetka.
 constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60 * 1000;  // Čas med ponovnimi poskusi nedosegljivega senzorja ali SD kartice.
 constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;  // Zaporedne napake pred opozorilnim stanjem komponente.
 constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;  // Zaporedne napake pred stanjem napake komponente.
@@ -445,7 +448,11 @@ RealtimeDatabase database;
 uint32_t lastMeasurementMillis = 0;
 uint32_t lastSDMeasurementMillis = 0;
 uint32_t lastSDStatusMillis = 0;
+uint32_t lastSDStatusCloudAttemptMillis = 0;
+uint32_t lastDeviceHeartbeatMillis = 0;
 uint32_t lastDeviceStatusMillis = 0;
+uint32_t lastDeviceHeartbeatAttemptMillis = 0;
+uint32_t lastDeviceStatusAttemptMillis = 0;
 uint32_t lastComponentRecoveryMillis = 0;
 uint32_t lastActivationSecretAttemptMillis = 0;
 uint32_t lastFirebaseAppLoopMillis = 0;
@@ -475,7 +482,23 @@ uint8_t firebaseConsecutiveNetworkFailures = 0;
 bool sdCardReady = false;
 uint8_t sdInitializationFailures = 0;
 bool sdErrorReported = false;
+bool sdCardStatusCloudPublished = false;
+bool sdCardStatusCloudPublishedPresent = false;
+uint8_t sdCardStatusCloudPublishedInitializationFailures = 0;
+bool sdCardStatusCloudPublishedError = false;
+bool sdCardStatusCloudInFlight = false;
+bool sdCardStatusCloudPending = false;
+bool sdCardStatusCloudDirtyDuringFlight = false;
+bool sdCardStatusCloudInFlightPresent = false;
+uint8_t sdCardStatusCloudInFlightInitializationFailures = 0;
+bool sdCardStatusCloudInFlightError = false;
 bool firmwareVersionReported = false;
+bool firebaseConnectionWasReady = false;
+bool deviceHeartbeatPending = false;
+bool deviceHeartbeatInFlight = false;
+bool deviceStatusPending = false;
+bool deviceStatusInFlight = false;
+bool deviceStatusDirtyDuringFlight = false;
 bool firmwareCommandQueued = false;
 bool timeCommandQueued = false;
 bool controlStreamStarted = false;
@@ -633,6 +656,42 @@ uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
 FirmwareManifest otaManifest{};
 WiFiClient *otaDownloadStream = nullptr;
 
+// Enotni sprožilec celotnega cloud posnetka. Sprememba med asinhronim zapisom
+// ostane označena, zato je uspešen odgovor starega posnetka ne more izgubiti.
+void requestDeviceStatusUpdate()
+{
+  if (deviceStatusInFlight) {
+    deviceStatusDirtyDuringFlight = true;
+    return;
+  }
+  deviceStatusPending = true;
+}
+
+void setRtcTimeValid(bool valid)
+{
+  if (rtcTimeValid == valid) return;
+  rtcTimeValid = valid;
+  requestDeviceStatusUpdate();
+}
+
+void setNtpSynchronizationPending(bool pending)
+{
+  if (ntpSynchronizationPending == pending) return;
+  ntpSynchronizationPending = pending;
+  requestDeviceStatusUpdate();
+}
+
+// Ločen sprožilec za /status/sd_card. Fizični pregled SD kartice ostaja periodičen,
+// cloud posnetek pa pošiljamo le ob spremembi, reconnectu ali neuspelem prejšnjem zapisu.
+void requestSDCardStatusUpdate()
+{
+  if (sdCardStatusCloudInFlight) {
+    sdCardStatusCloudDirtyDuringFlight = true;
+    return;
+  }
+  sdCardStatusCloudPending = true;
+}
+
 ComponentHealth componentHealth(const ComponentStatus &status)
 {
   if (!status.verified) return ComponentHealth::Checking;
@@ -663,7 +722,7 @@ void reportComponentSuccess(ComponentStatus &status, const char *componentName)
   status.consecutiveFailures = 0;
   if (previousHealth != ComponentHealth::Ok) {
     Serial.printf("[KOMPONENTA] %s: deluje normalno.\n", componentName);
-    lastDeviceStatusMillis = 0;
+    requestDeviceStatusUpdate();
   }
 }
 
@@ -680,7 +739,7 @@ void reportComponentFailure(ComponentStatus &status, const char *componentName, 
                   componentName, reason, status.consecutiveFailures, componentHealthName(status));
   }
   if (previousHealth != currentHealth || status.consecutiveFailures == 1) {
-    lastDeviceStatusMillis = 0;
+    requestDeviceStatusUpdate();
   }
 }
 File otaLittlefsStageFile;
@@ -780,6 +839,13 @@ bool cloudHistoryReconciliationIsActive()
          cloudReconciliationState == CloudReconciliationState::ReconcilingDays;
 }
 
+void markCloudHistoryReconciliationError()
+{
+  if (cloudReconciliationState == CloudReconciliationState::Error) return;
+  cloudReconciliationState = CloudReconciliationState::Error;
+  requestDeviceStatusUpdate();
+}
+
 const char *cloudReconciliationStateName()
 {
   switch (cloudReconciliationState) {
@@ -870,6 +936,20 @@ void cancelPendingFirebaseTasks(const char *reason)
   historyDeletionRequestPending = false;
   wifiCredentialResetRequestPending = false;
   firmwareVersionReported = false;
+  if (deviceHeartbeatInFlight) {
+    deviceHeartbeatInFlight = false;
+    deviceHeartbeatPending = true;
+  }
+  if (deviceStatusInFlight) {
+    deviceStatusInFlight = false;
+    deviceStatusDirtyDuringFlight = false;
+    requestDeviceStatusUpdate();
+  }
+  if (sdCardStatusCloudInFlight) {
+    sdCardStatusCloudInFlight = false;
+    sdCardStatusCloudDirtyDuringFlight = false;
+    requestSDCardStatusUpdate();
+  }
   cloudSyncPending = false;
   cloudSyncRequestStartedMillis = 0;
   cloudSyncRequestType = CloudSyncRequestType::None;
@@ -882,7 +962,11 @@ void maintainFirebaseClient()
     cancelPendingFirebaseTasks("Wi-Fi association or IP address lost");
   }
 
-  if (!cloudNetworkReady()) return;
+  if (!cloudNetworkReady()) {
+    // Ob naslednji uspešni Firebase povezavi objavimo celoten posnetek, ne le heartbeat-a.
+    firebaseConnectionWasReady = false;
+    return;
+  }
 
   // app.loop() mora teči tudi med premorom za nove zahteve, da FirebaseClient zaključi ali odstrani
   // že obstoječe opravilo. Premor zato prepreči le dodajanje novih zahtev.
@@ -890,6 +974,20 @@ void maintainFirebaseClient()
       currentMillis - lastFirebaseAppLoopMillis >= FIREBASE_APP_LOOP_INTERVAL_MS) {
     lastFirebaseAppLoopMillis = currentMillis;
     app.loop();
+  }
+
+  if (app.ready()) {
+    if (!firebaseConnectionWasReady) {
+      firebaseConnectionWasReady = true;
+      // Ob prvi oziroma znova vzpostavljeni seji zahtevamo aktualen celoten posnetek.
+      lastDeviceStatusAttemptMillis = 0;
+      requestDeviceStatusUpdate();
+      requestSDCardStatusUpdate();
+    }
+  } else {
+    // Wi-Fi je lahko še povezan, Firebase seja pa se je že prekinila. Naslednja uspešna seja
+    // potrebuje nov celoten posnetek, ne samo minutnega heartbeat-a.
+    firebaseConnectionWasReady = false;
   }
 
   const size_t taskCount = asyncClient.taskCount();
@@ -1169,6 +1267,22 @@ void processData(AsyncResult &result)
       latestMeasurementUploadInFlight = false;
       latestMeasurementUploadPending = true;
     }
+    if (result.uid() == "updateDeviceHeartbeat") {
+      deviceHeartbeatInFlight = false;
+      deviceHeartbeatPending = true;
+    }
+    if (result.uid() == "updateDeviceStatus") {
+      deviceStatusInFlight = false;
+      deviceStatusPending = true;
+      // Ob napaki mora ponovitev istega posnetka vključiti tudi morebitne vmesne spremembe.
+      deviceStatusDirtyDuringFlight = false;
+    }
+    if (result.uid() == "updateSDCardStatus") {
+      // Potrjenega posnetka ne spreminjamo; isto trenutno stanje ostane pending za omejen retry.
+      sdCardStatusCloudInFlight = false;
+      sdCardStatusCloudPending = true;
+      sdCardStatusCloudDirtyDuringFlight = false;
+    }
     if (result.uid() == "updateLoadCellTareStatus") {
       loadCellTareStatusReported = false;
     }
@@ -1189,7 +1303,7 @@ void processData(AsyncResult &result)
            failedRequestType == CloudSyncRequestType::ReconciliationMeasurement ||
            failedRequestType == CloudSyncRequestType::ReconciliationHourlyAggregate ||
            failedRequestType == CloudSyncRequestType::ReconciliationDailyAggregate)) {
-        cloudReconciliationState = CloudReconciliationState::Error;
+        markCloudHistoryReconciliationError();
         Serial.println("Cloud history reconciliation stopped: Firebase access was denied.");
       }
     }
@@ -1206,6 +1320,41 @@ void processData(AsyncResult &result)
     clearFirebaseNetworkErrorBackoff();
     if (result.uid() == "updateLatestMeasurement") {
       latestMeasurementUploadInFlight = false;
+    }
+    if (result.uid() == "updateDeviceHeartbeat") {
+      deviceHeartbeatInFlight = false;
+      deviceHeartbeatPending = false;
+      lastDeviceHeartbeatMillis = millis();
+    }
+    if (result.uid() == "updateDeviceStatus") {
+      const bool currentStateNeedsNewSnapshot = deviceStatusDirtyDuringFlight;
+      deviceStatusInFlight = false;
+      deviceStatusDirtyDuringFlight = false;
+      deviceStatusPending = currentStateNeedsNewSnapshot;
+      lastDeviceStatusMillis = millis();
+      // Po uspehu je naslednja dejansko nova sprememba lahko poslana takoj; 30 s velja le za retry po napaki.
+      lastDeviceStatusAttemptMillis = 0;
+      // Celotni posnetek vključuje tudi strežniški heartbeat in zato potrdi oba časovnika.
+      lastDeviceHeartbeatMillis = lastDeviceStatusMillis;
+      deviceHeartbeatPending = false;
+    }
+    if (result.uid() == "updateSDCardStatus") {
+      const bool currentError = sdInitializationFailures >= MAX_SD_INITIALIZATION_FAILURES;
+      const bool currentStateNeedsNewSnapshot = sdCardStatusCloudDirtyDuringFlight ||
+                                                sdCardReady != sdCardStatusCloudInFlightPresent ||
+                                                sdInitializationFailures !=
+                                                    sdCardStatusCloudInFlightInitializationFailures ||
+                                                currentError != sdCardStatusCloudInFlightError;
+      sdCardStatusCloudPublished = true;
+      sdCardStatusCloudPublishedPresent = sdCardStatusCloudInFlightPresent;
+      sdCardStatusCloudPublishedInitializationFailures =
+          sdCardStatusCloudInFlightInitializationFailures;
+      sdCardStatusCloudPublishedError = sdCardStatusCloudInFlightError;
+      sdCardStatusCloudInFlight = false;
+      sdCardStatusCloudDirtyDuringFlight = false;
+      sdCardStatusCloudPending = currentStateNeedsNewSnapshot;
+      // Uspešen zapis omogoči takojšnjo objavo novega snapshot-a; 30 s velja le po napaki.
+      lastSDStatusCloudAttemptMillis = 0;
     }
     if (result.uid() == "publishActivationSecret") {
       activationSecretPublishPending = false;
@@ -1228,20 +1377,30 @@ void processData(AsyncResult &result)
             failedRequestType == CloudSyncRequestType::ReconciliationMeasurement ||
             failedRequestType == CloudSyncRequestType::ReconciliationHourlyAggregate ||
             failedRequestType == CloudSyncRequestType::ReconciliationDailyAggregate) {
-          cloudReconciliationState = CloudReconciliationState::Error;
+          markCloudHistoryReconciliationError();
           Serial.println("Cloud history reconciliation stopped: Firebase rejected the request.");
         }
         return;
       }
 
       const CloudSyncRequestType completedRequestType = cloudSyncRequestType;
+      const bool staleReconciliationResult =
+          (completedRequestType == CloudSyncRequestType::DailyReconciliationIndex &&
+           cloudReconciliationState != CloudReconciliationState::ReadingCloudIndex) ||
+          ((completedRequestType == CloudSyncRequestType::ReconciliationMeasurement ||
+            completedRequestType == CloudSyncRequestType::ReconciliationHourlyAggregate ||
+            completedRequestType == CloudSyncRequestType::ReconciliationDailyAggregate) &&
+           cloudReconciliationState != CloudReconciliationState::ReconcilingDays);
       cloudSyncPending = false;
       cloudSyncRequestStartedMillis = 0;
       cloudSyncRequestType = CloudSyncRequestType::None;
       cloudSyncRetryIntervalMs = CLOUD_SYNC_INTERVAL_MS;
+      // Reconciliation se je med asinhronim GET/PATCH-om lahko že varno zaključil z napako.
+      // Tak pozni odgovor samo zaključi opravilo odjemalca in ne sme obuditi state machine-a.
+      if (staleReconciliationResult) return;
       if (completedRequestType == CloudSyncRequestType::DailyReconciliationIndex) {
         if (!processCloudHistoryReconciliationIndex(responsePayload)) {
-          cloudReconciliationState = CloudReconciliationState::Error;
+          markCloudHistoryReconciliationError();
         }
       } else if (completedRequestType == CloudSyncRequestType::Measurement) {
         recordSynchronizedMeasurement();
@@ -1414,7 +1573,7 @@ bool writeDs3231Timestamp(time_t timestamp)
   if (!readDs3231Registers(DS3231_STATUS_REGISTER, &status, 1)) return false;
   status &= static_cast<uint8_t>(~DS3231_OSCILLATOR_STOP_FLAG);
   if (!writeDs3231Registers(DS3231_STATUS_REGISTER, &status, 1)) return false;
-  rtcTimeValid = true;
+  setRtcTimeValid(true);
   return true;
 }
 
@@ -1449,7 +1608,7 @@ bool initializeRtc()
   Wire.beginTransmission(DS3231_ADDRESS);
   if (Wire.endTransmission() != 0) {
     rtcReady = false;
-    rtcTimeValid = false;
+    setRtcTimeValid(false);
     reportComponentFailure(rtcStatus, "DS3231", "ni zaznan na I2C naslovu 0x68");
     Serial.println("DS3231 was not detected on I2C address 0x68.");
     return false;
@@ -1458,13 +1617,13 @@ bool initializeRtc()
   rtcReady = true;
   reportComponentSuccess(rtcStatus, "DS3231");
   time_t rtcTimestamp = 0;
-  rtcTimeValid = readDs3231Timestamp(rtcTimestamp);
+  setRtcTimeValid(readDs3231Timestamp(rtcTimestamp));
   if (!rtcTimeValid) {
     Serial.println("DS3231 detected, but its time is invalid or the backup oscillator stopped.");
     return true;
   }
   if (!setSystemTimestamp(rtcTimestamp)) {
-    rtcTimeValid = false;
+    setRtcTimeValid(false);
     Serial.println("DS3231 time could not be applied to the ESP32 system clock.");
     return true;
   }
@@ -1480,14 +1639,14 @@ bool verifyDs3231Connection()
   uint8_t status = 0;
   if (!readDs3231Registers(DS3231_STATUS_REGISTER, &status, 1)) {
     rtcReady = false;
-    rtcTimeValid = false;
+    setRtcTimeValid(false);
     reportComponentFailure(rtcStatus, "DS3231", "ni dosegljiv na I2C vodilu");
     return false;
   }
 
   rtcReady = true;
   time_t timestamp = 0;
-  rtcTimeValid = readDs3231Timestamp(timestamp);
+  setRtcTimeValid(readDs3231Timestamp(timestamp));
   reportComponentSuccess(rtcStatus, "DS3231");
   return true;
 }
@@ -1614,7 +1773,6 @@ bool applyMeasurementSettings(uint32_t measurementIntervalSeconds, uint32_t sdAr
   weightDisplayDecimals = static_cast<uint8_t>(displayDecimals);
   lastMeasurementMillis = 0;
   lastSDMeasurementMillis = 0;
-  lastDeviceStatusMillis = 0;
   return true;
 }
 
@@ -2545,7 +2703,7 @@ bool startNtpSynchronization()
   configTzTime(TIMEZONE, NTP_SERVER_1, NTP_SERVER_2);
   timeSynchronizationInitialized = true;
   timeSynchronizationStartedMillis = millis();
-  ntpSynchronizationPending = true;
+  setNtpSynchronizationPending(true);
   Serial.println("Synchronizing time with NTP...");
   return true;
 }
@@ -2559,7 +2717,7 @@ void processTimeSynchronization()
 {
   if (ntpSynchronizationCompleted) {
     ntpSynchronizationCompleted = false;
-    ntpSynchronizationPending = false;
+    setNtpSynchronizationPending(false);
     const time_t synchronizedTimestamp = time(nullptr);
     if (synchronizedTimestamp < MIN_VALID_UNIX_TIMESTAMP) {
       Serial.println("NTP synchronization callback returned an invalid time.");
@@ -2569,12 +2727,12 @@ void processTimeSynchronization()
     currentTimeSource = TimeSource::Ntp;
     lastTimeSynchronizationTimestamp = synchronizedTimestamp;
     if (rtcReady && !writeDs3231Timestamp(synchronizedTimestamp)) {
-      rtcTimeValid = false;
+      setRtcTimeValid(false);
       Serial.println("NTP time is valid, but DS3231 could not be updated.");
     } else if (rtcReady) {
       Serial.println("DS3231 was synchronized with NTP.");
     }
-    lastDeviceStatusMillis = 0;
+    requestDeviceStatusUpdate();
     Serial.printf("NTP synchronization completed: %lu UTC.\n",
                   static_cast<unsigned long>(synchronizedTimestamp));
     return;
@@ -2582,7 +2740,7 @@ void processTimeSynchronization()
 
   if (ntpSynchronizationPending &&
       millis() - timeSynchronizationStartedMillis >= NTP_SYNC_TIMEOUT_MS) {
-    ntpSynchronizationPending = false;
+    setNtpSynchronizationPending(false);
     Serial.println("NTP synchronization timed out; the current RTC/system time remains active.");
   }
 }
@@ -3511,7 +3669,6 @@ void processFirmwareUpdateCommand(const String &payload)
       Serial.println("Cloud history reconciliation command ignored: synchronization is already active.");
     } else if (startCloudHistoryReconciliation()) {
       Serial.println("Cloud requested history reconciliation.");
-      lastDeviceStatusMillis = 0;
     } else {
       Serial.println("Cloud history reconciliation command failed: SD history is unavailable.");
     }
@@ -4247,10 +4404,10 @@ void processPendingTimeCommand()
   currentTimeSource = fromCloud ? TimeSource::ManualCloud : TimeSource::ManualLocal;
   lastTimeSynchronizationTimestamp = timestamp;
   if (rtcReady && !writeDs3231Timestamp(timestamp)) {
-    rtcTimeValid = false;
+    setRtcTimeValid(false);
     Serial.println("System time was set, but DS3231 could not be updated.");
   }
-  lastDeviceStatusMillis = 0;
+  requestDeviceStatusUpdate();
   Serial.printf("Time set manually from %s: %lu UTC.\n", fromCloud ? "cloud" : "local dashboard",
                 static_cast<unsigned long>(timestamp));
 }
@@ -4447,7 +4604,6 @@ void processPendingBme680Calibration()
   bme680CalibrationState = Bme680CalibrationState::Completed;
   bme680CalibrationStatusReported = false;
   lastMeasurementMillis = 0;
-  lastDeviceStatusMillis = 0;
   Serial.printf("BME680 calibration saved from %s: temperature %+.1f C, humidity %+.1f %%\n",
                 fromCloud ? "cloud" : "local dashboard", bme680TemperatureOffsetC,
                 bme680HumidityOffsetPercent);
@@ -4817,6 +4973,8 @@ void markSDCardUnavailable()
 {
   if (sdCardReady) {
     Serial.println("SD card is unavailable.");
+    // Stanje se je dejansko spremenilo; cloud objavo prepustimo obstoječi pending vrsti.
+    requestSDCardStatusUpdate();
   }
 
   sdCardReady = false;
@@ -6609,6 +6767,7 @@ bool startCloudHistoryReconciliation()
   logFile.close();
   cloudReconciliationState = CloudReconciliationState::BuildingLocalIndex;
   cloudSyncCaughtUp = false;
+  requestDeviceStatusUpdate();
   Serial.printf("Cloud history reconciliation: building a local index from %lu bytes.\n",
                 static_cast<unsigned long>(dailyReconciliationSnapshotFileSize));
   return true;
@@ -6937,7 +7096,7 @@ void processCloudHistoryReconciliation()
 
   if (!sdCardReady) {
     if (dailyReconciliationLogFile) dailyReconciliationLogFile.close();
-    cloudReconciliationState = CloudReconciliationState::Error;
+    markCloudHistoryReconciliationError();
     Serial.println("Cloud history reconciliation stopped because the SD card is unavailable.");
     return;
   }
@@ -6946,7 +7105,7 @@ void processCloudHistoryReconciliation()
     if (!dailyReconciliationLogFile) {
       dailyReconciliationLogFile = SD.open(SD_LOG_PATH, FILE_READ);
       if (!dailyReconciliationLogFile) {
-        cloudReconciliationState = CloudReconciliationState::Error;
+        markCloudHistoryReconciliationError();
         Serial.println("Cloud history reconciliation: SD log could not be opened.");
         return;
       }
@@ -6967,7 +7126,7 @@ void processCloudHistoryReconciliation()
       if (parseMeasurementCsvLine(line, measurement)) {
         if (!addDailyReconciliationMeasurement(measurement, lineOffset, lineEndOffset)) {
           dailyReconciliationLogFile.close();
-          cloudReconciliationState = CloudReconciliationState::Error;
+          markCloudHistoryReconciliationError();
           return;
         }
         dailyReconciliationSnapshotLastTimestamp = measurement.timestamp;
@@ -7065,7 +7224,7 @@ void processCloudHistoryReconciliation()
     uint32_t nextFileOffset = dailyReconciliationFileOffset;
     bool dayFinished = false;
     if (!readNextReconciliationMeasurementBatch(manifest, nextFileOffset, dayFinished)) {
-      cloudReconciliationState = CloudReconciliationState::Error;
+      markCloudHistoryReconciliationError();
       return;
     }
     if (reconciliationPendingMeasurementCount == 0) {
@@ -7091,7 +7250,7 @@ void processCloudHistoryReconciliation()
     cloudSyncFileOffset = previousCloudSyncFileOffset;
     cloudSyncPendingFileOffset = previousCloudSyncFileOffset;
     lastCloudSyncedTimestamp = previousCloudSyncedTimestamp;
-    cloudReconciliationState = CloudReconciliationState::Error;
+    markCloudHistoryReconciliationError();
     Serial.println("Cloud history reconciliation: verified sync position could not be saved.");
     return;
   }
@@ -7105,7 +7264,7 @@ void processCloudHistoryReconciliation()
   lastDailyReconciliationTimestamp = time(nullptr);
   cloudSyncCaughtUp = !newMeasurementsWereAdded;
   lastCloudSyncAttemptMillis = 0;
-  lastDeviceStatusMillis = 0;
+  requestDeviceStatusUpdate();
   Serial.printf("Cloud history reconciliation completed: checked %u days, recovered %u days%s.\n",
                 dailyReconciliationDaysCompleted, dailyReconciliationDaysToTransfer,
                 newMeasurementsWereAdded ? "; new SD records remain for normal sync" : "");
@@ -7221,6 +7380,30 @@ void publishActivationSecret()
                "publishActivationSecret");
 }
 
+bool queueSDCardStatusUpdate()
+{
+  if (sdCardStatusCloudInFlight || !isFirebaseReady()) return false;
+
+  const bool hasError = sdInitializationFailures >= MAX_SD_INITIALIZATION_FAILURES;
+  char jsonPayload[96];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"present\":%s,\"initialization_failures\":%u,\"error\":%s}",
+           sdCardReady ? "true" : "false", sdInitializationFailures,
+           hasError ? "true" : "false");
+  object_t sdStatus(jsonPayload);
+
+  // Snapshot shranimo pred pošiljanjem; kot objavljen ostane označen šele v uspešnem callbacku.
+  sdCardStatusCloudInFlightPresent = sdCardReady;
+  sdCardStatusCloudInFlightInitializationFailures = sdInitializationFailures;
+  sdCardStatusCloudInFlightError = hasError;
+  database.set(asyncClient, sdStatusDatabasePath, sdStatus, processData, "updateSDCardStatus");
+  sdCardStatusCloudInFlight = true;
+  sdCardStatusCloudPending = false;
+  sdCardStatusCloudDirtyDuringFlight = false;
+  lastSDStatusCloudAttemptMillis = millis();
+  return true;
+}
+
 void updateSDCardStatus()
 {
   if (sdCardReady && SD.cardType() == CARD_NONE) {
@@ -7248,14 +7431,12 @@ void updateSDCardStatus()
     sdErrorReported = true;
   }
 
-  char jsonPayload[96];
-  snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"present\":%s,\"initialization_failures\":%u,\"error\":%s}",
-           sdCardReady ? "true" : "false", sdInitializationFailures,
-           hasError ? "true" : "false");
-  object_t sdStatus(jsonPayload);
-  if (isFirebaseReady()) {
-    database.set(asyncClient, sdStatusDatabasePath, sdStatus, processData, "updateSDCardStatus");
+  const bool statusChanged = !sdCardStatusCloudPublished ||
+                             sdCardStatusCloudPublishedPresent != sdCardReady ||
+                             sdCardStatusCloudPublishedInitializationFailures != sdInitializationFailures ||
+                             sdCardStatusCloudPublishedError != hasError;
+  if (statusChanged) {
+    requestSDCardStatusUpdate();
   }
 }
 
@@ -7271,24 +7452,44 @@ void sendFirmwareVersion()
 
 // --- Nadzor naprave ---------------------------------------------------------
 
-void updateDeviceStatus()
+bool updateDeviceHeartbeat()
 {
+  if (deviceHeartbeatInFlight || !isFirebaseReady()) return false;
+
+  // Firebase strežniški čas je neodvisen od RTC/NTP in je zato edina avtoriteta za cloud online stanje.
+  char jsonPayload[160];
+  snprintf(jsonPayload, sizeof(jsonPayload),
+           "{\"last_seen_server_ms\":{\".sv\":\"timestamp\"},\"wifi_rssi_dbm\":%d}",
+           WiFi.RSSI());
+  object_t heartbeat(jsonPayload);
+  database.update(asyncClient, deviceStatusDatabasePath, heartbeat, processData,
+                  "updateDeviceHeartbeat");
+  deviceHeartbeatInFlight = true;
+  lastDeviceHeartbeatAttemptMillis = millis();
+  return true;
+}
+
+bool updateDeviceStatus()
+{
+  if (deviceStatusInFlight || !isFirebaseReady()) return false;
+
   // esp_timer uporablja 64-bitni števec mikrosekund in se ne prelije kot millis().
-  const Uptime uptime = getUptime();
+  const uint64_t uptimeAnchorSeconds = static_cast<uint64_t>(esp_timer_get_time()) / 1000000ULL;
   const String ipAddress = WiFi.localIP().toString();
   String escapedStationSsid;
   appendJsonEscaped(escapedStationSsid, WiFi.SSID());
 
-  const time_t lastSeenTimestamp = time(nullptr);
+  const time_t currentDeviceTimestamp = time(nullptr);
+  const time_t deviceTimeAnchor = currentDeviceTimestamp >= MIN_VALID_UNIX_TIMESTAMP
+                                     ? currentDeviceTimestamp
+                                     : 0;
   const bool reconciliationActive = cloudHistoryReconciliationIsActive();
   char jsonPayload[1400];
   snprintf(jsonPayload, sizeof(jsonPayload),
-           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_days\":%llu,\"uptime_hours\":%llu,\"uptime_minutes\":%llu,\"uptime_total_minutes\":%llu,\"last_seen_timestamp\":%lu,\"current_time_timestamp\":%lu,\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}},\"measurement_settings\":{\"measurement_interval_seconds\":%lu,\"sd_archive_interval_minutes\":%lu,\"weight_display_decimals\":%u},\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
+           "{\"device_id\":\"%s\",\"station_ssid\":\"%s\",\"ip_address\":\"%s\",\"wifi_rssi_dbm\":%d,\"uptime_anchor_seconds\":%llu,\"uptime_anchor_server_ms\":{\".sv\":\"timestamp\"},\"last_seen_server_ms\":{\".sv\":\"timestamp\"},\"device_time_anchor_s\":%lu,\"device_time_anchor_server_ms\":{\".sv\":\"timestamp\"},\"time_source\":\"%s\",\"rtc_present\":%s,\"rtc_valid\":%s,\"ntp_sync_pending\":%s,\"last_time_sync_timestamp\":%lu,\"components\":{\"bme680\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"hx711\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s},\"ds3231\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s,\"time_valid\":%s},\"sd_card\":{\"state\":\"%s\",\"failures\":%u,\"ready\":%s}},\"history_sync\":{\"pending\":%s,\"caught_up\":%s,\"last_synced_timestamp\":%lu,\"retry_seconds\":%lu,\"reconciliation\":{\"state\":\"%s\",\"local_days\":%u,\"days_to_transfer\":%u,\"days_completed\":%u,\"measurements_to_transfer\":%lu,\"measurements_uploaded\":%lu,\"last_completed_timestamp\":%lu}}}",
            deviceId, escapedStationSsid.c_str(), ipAddress.c_str(), WiFi.RSSI(),
-           static_cast<unsigned long long>(uptime.days),
-           static_cast<unsigned long long>(uptime.hours), static_cast<unsigned long long>(uptime.minutes),
-           static_cast<unsigned long long>(uptime.totalMinutes),
-           static_cast<unsigned long>(lastSeenTimestamp), static_cast<unsigned long>(lastSeenTimestamp),
+           static_cast<unsigned long long>(uptimeAnchorSeconds),
+           static_cast<unsigned long>(deviceTimeAnchor),
            timeSourceName(), rtcReady ? "true" : "false", rtcTimeValid ? "true" : "false",
            ntpSynchronizationPending ? "true" : "false",
            static_cast<unsigned long>(lastTimeSynchronizationTimestamp),
@@ -7297,8 +7498,6 @@ void updateDeviceStatus()
            componentHealthName(rtcStatus), rtcStatus.consecutiveFailures, rtcReady ? "true" : "false",
            rtcTimeValid ? "true" : "false", componentHealthName(sdCardStatus),
            sdCardStatus.consecutiveFailures, sdCardReady ? "true" : "false",
-           static_cast<unsigned long>(measurementIntervalMs / 1000U),
-           static_cast<unsigned long>(sdMeasurementIntervalMs / (60U * 1000U)), weightDisplayDecimals,
            (cloudSyncPending || reconciliationActive) ? "true" : "false",
            (cloudSyncCaughtUp && !cloudSyncPending && !hourlyAggregateReady && !dailyAggregateReady &&
             !reconciliationActive) ? "true" : "false",
@@ -7313,6 +7512,11 @@ void updateDeviceStatus()
 
   database.set(asyncClient, deviceStatusDatabasePath, deviceStatus, processData,
                "updateDeviceStatus");
+  deviceStatusInFlight = true;
+  deviceStatusPending = false;
+  deviceStatusDirtyDuringFlight = false;
+  lastDeviceStatusAttemptMillis = millis();
+  return true;
 }
 
 void sendMeasurements(uint32_t measurementCycleMillis)
@@ -7513,16 +7717,38 @@ void loop()
       reportBme680CalibrationStatus("Nastavi odmika temperature in vlage po referencnem merilniku.");
     }
 
-    if (currentMillis - lastSDStatusMillis >= SD_STATUS_INTERVAL_MS) {
+    if (lastSDStatusMillis == 0 || currentMillis - lastSDStatusMillis >= SD_STATUS_INTERVAL_MS) {
       lastSDStatusMillis = currentMillis;
       updateSDCardStatus();
     }
 
-    // Prvi odziv po NTP sinhronizaciji pošljemo takoj, nato pa enkrat na minuto.
-    if (isFirebaseReady() && validTimeAvailable &&
-        (lastDeviceStatusMillis == 0 || currentMillis - lastDeviceStatusMillis >= DEVICE_STATUS_INTERVAL_MS)) {
-      lastDeviceStatusMillis = currentMillis;
+    // Fizični SD pregled zgoraj ostaja minutni. Cloud objava čaka le na spremembo, reconnect
+    // ali neuspešen zapis in pri zasedenem asinhronem kanalu ne premika retry časovnika.
+    const bool sdStatusRetryReady = lastSDStatusCloudAttemptMillis == 0 ||
+                                    currentMillis - lastSDStatusCloudAttemptMillis >=
+                                        SD_STATUS_CLOUD_RETRY_INTERVAL_MS;
+    if (sdCardStatusCloudPending && !sdCardStatusCloudInFlight && sdStatusRetryReady) {
+      queueSDCardStatusUpdate();
+    }
+
+    // Polni posnetek odstranjuje tudi morebitna stara polja iz prejšnje sheme (set() prepiše
+    // celoten status/device). Časovnika pomenita zadnji potrjen zapis, ne zgolj oddane zahteve.
+    const bool fullStatusDue = deviceStatusPending ||
+                               currentMillis - lastDeviceStatusMillis >= DEVICE_STATUS_SNAPSHOT_INTERVAL_MS;
+    const bool fullStatusRetryReady = !deviceStatusPending || lastDeviceStatusAttemptMillis == 0 ||
+                                      currentMillis - lastDeviceStatusAttemptMillis >= DEVICE_STATUS_RETRY_INTERVAL_MS;
+    if (fullStatusDue && !deviceStatusInFlight && fullStatusRetryReady) {
       updateDeviceStatus();
+    }
+
+    const bool heartbeatDue = deviceHeartbeatPending || lastDeviceHeartbeatMillis == 0 ||
+                              currentMillis - lastDeviceHeartbeatMillis >= DEVICE_HEARTBEAT_INTERVAL_MS;
+    const bool heartbeatRetryReady = !deviceHeartbeatPending || lastDeviceHeartbeatAttemptMillis == 0 ||
+                                     currentMillis - lastDeviceHeartbeatAttemptMillis >= DEVICE_STATUS_RETRY_INTERVAL_MS;
+    if (heartbeatDue && !deviceHeartbeatInFlight && heartbeatRetryReady) {
+      // Minutni heartbeat je majhen PATCH s Firebase strežniškim časom. Deluje tudi, če je
+      // ura ESP napačna ali še ni nastavljena, zato online stanje ne more temeljiti na RTC/NTP.
+      updateDeviceHeartbeat();
     }
 
     synchronizeSDMeasurements(currentMillis);

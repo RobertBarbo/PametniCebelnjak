@@ -1,4 +1,6 @@
-const DEVICE_ONLINE_TIMEOUT_SECONDS = 90;
+const DEVICE_ONLINE_TIMEOUT_SECONDS = 120;
+// RTDB .info/serverTimeOffset omogoča online stanje brez odvisnosti od ure brskalnika ali ESP-ja.
+const FIREBASE_SERVER_TIME_OFFSET_PATH = ".info/serverTimeOffset";
 const LOAD_CELL_TARE_TIMEOUT_SECONDS = 90;
 const BME680_CALIBRATION_TIMEOUT_SECONDS = 90;
 const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/RobertBarbo/PametniCebelnjak/releases/latest";
@@ -695,6 +697,8 @@ let draftRelativeHistoryPreset;
 let calendarMonth;
 let selectingRangeEnd = false;
 let firebaseDatabase;
+let firebaseServerTimeOffsetMs = 0;
+let stopFirebaseServerTimeOffsetListener;
 let latestFirmwareVersion = "";
 let availableOtaRelease;
 let otaCommandPending = false;
@@ -1433,9 +1437,9 @@ function renderAdminDeviceOverview(deviceIds = Object.keys(cloudDevices)) {
     state.append(dot, stateText);
 
     const detail = document.createElement("small");
-    const lastSeenTimestamp = Number(status?.last_seen_timestamp);
-    detail.textContent = Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
-      ? formatTranslatedText("Zadnji odziv: {time}", { time: formatDashboardDateTime(new Date(lastSeenTimestamp * 1000)) })
+    const lastSeenMs = getDeviceLastSeenMs(status);
+    detail.textContent = Number.isFinite(lastSeenMs) && lastSeenMs > 0
+      ? formatTranslatedText("Zadnji odziv: {time}", { time: formatDashboardDateTime(new Date(lastSeenMs)) })
       : translateText("Naprava še ni poslala stanja.");
     selectButton.append(identity, state, detail);
     card.append(selectButton);
@@ -1546,6 +1550,9 @@ function selectCloudDevice(deviceId) {
     }
     if (isCloudAdministrator()) subscribe("control/settings", renderMeasurementSettings);
   } else {
+    // Gledalec ne sme brati celotnega statusa naprave, potrebuje pa strežniški heartbeat
+    // za točen online/offline indikator neodvisno od pogostosti meritev.
+    subscribe("status/device/last_seen_server_ms", renderSharedDeviceHeartbeat);
     subscribe("weather_public", renderSharedWeatherSettings);
     stopCloudDeviceListeners.push(onValue(ref(database, `users/${currentCloudUser.uid}/weather_preferences/${deviceId}`), (snapshot) => {
       renderSharedWeatherPreference(snapshot.val());
@@ -1569,11 +1576,44 @@ function setConnectionState(text, state = "connected") {
   elements.connectionText.textContent = translateText(text);
 }
 
+function getFirebaseServerNowMs() {
+  return Date.now() + firebaseServerTimeOffsetMs;
+}
+
+function startFirebaseServerTimeOffsetListener() {
+  stopFirebaseServerTimeOffsetListener?.();
+  stopFirebaseServerTimeOffsetListener = undefined;
+  if (!firebaseDatabase || !currentCloudUser || isLocalDashboard || cloudRealtimePaused) return;
+
+  const { database, onValue, ref } = firebaseDatabase;
+  stopFirebaseServerTimeOffsetListener = onValue(
+    ref(database, FIREBASE_SERVER_TIME_OFFSET_PATH),
+    (snapshot) => {
+      const offset = Number(snapshot.val());
+      firebaseServerTimeOffsetMs = Number.isFinite(offset) ? offset : 0;
+      if (!latestDeviceStatus) return;
+      if (isSharedCloudDeviceSelected()) renderHeaderDeviceState();
+      else renderDeviceStatus(latestDeviceStatus);
+      if (isCloudAdministrator()) renderAdminDeviceOverview();
+    },
+    showDataError,
+  );
+}
+
+function getDeviceLastSeenMs(status) {
+  const serverTimestamp = Number(status?.last_seen_server_ms);
+  if (Number.isFinite(serverTimestamp) && serverTimestamp > 0) return serverTimestamp;
+
+  // Prehodna združljivost za naprave, ki še niso poslale prvega novega celotnega statusa.
+  const legacyTimestamp = Number(status?.last_seen_timestamp);
+  return Number.isFinite(legacyTimestamp) && legacyTimestamp > 0 ? legacyTimestamp * 1000 : NaN;
+}
+
 function isDeviceOnline(status) {
-  const lastSeenTimestamp = Number(status?.last_seen_timestamp);
-  const secondsSinceLastSeen = Math.floor(Date.now() / 1000) - lastSeenTimestamp;
-  return Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
-    && secondsSinceLastSeen <= DEVICE_ONLINE_TIMEOUT_SECONDS;
+  const lastSeenMs = getDeviceLastSeenMs(status);
+  const elapsedMs = getFirebaseServerNowMs() - lastSeenMs;
+  return Number.isFinite(lastSeenMs) && lastSeenMs > 0
+    && elapsedMs <= DEVICE_ONLINE_TIMEOUT_SECONDS * 1000;
 }
 
 function renderHeaderDeviceState() {
@@ -1594,10 +1634,10 @@ function renderHeaderDeviceState() {
     return;
   }
 
-  const lastSeenTimestamp = Number(latestDeviceStatus?.last_seen_timestamp);
+  const lastSeenMs = getDeviceLastSeenMs(latestDeviceStatus);
   setConnectionState(
-    Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0 ? "Naprava offline" : "Čakam na odziv naprave …",
-    Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0 ? "error" : "connecting",
+    Number.isFinite(lastSeenMs) && lastSeenMs > 0 ? "Naprava offline" : "Čakam na odziv naprave …",
+    Number.isFinite(lastSeenMs) && lastSeenMs > 0 ? "error" : "connecting",
   );
 }
 
@@ -1932,7 +1972,22 @@ async function refreshOverviewAnalytics() {
 function renderSharedLatestMeasurement(measurement) {
   renderLatestMeasurement(measurement);
   const timestamp = Number(measurement?.timestamp);
-  latestDeviceStatus = Number.isFinite(timestamp) && timestamp > 0 ? { last_seen_timestamp: timestamp } : undefined;
+  const serverTimestamp = Number(latestDeviceStatus?.last_seen_server_ms);
+  // Za stare naprave brez novega heartbeat-a ostane združljivostni fallback na latest zapis.
+  // Ne prepiši pa že prejetega strežniškega časa z manj zanesljivim časom meritve.
+  latestDeviceStatus = Number.isFinite(serverTimestamp) && serverTimestamp > 0
+    ? latestDeviceStatus
+    : Number.isFinite(timestamp) && timestamp > 0
+      ? { ...(latestDeviceStatus || {}), last_seen_timestamp: timestamp }
+      : latestDeviceStatus;
+  renderHeaderDeviceState();
+}
+
+function renderSharedDeviceHeartbeat(lastSeenServerMs) {
+  const timestamp = Number(lastSeenServerMs);
+  if (Number.isFinite(timestamp) && timestamp > 0) {
+    latestDeviceStatus = { ...(latestDeviceStatus || {}), last_seen_server_ms: timestamp };
+  }
   renderHeaderDeviceState();
 }
 
@@ -3117,16 +3172,24 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   elements.cloudWifiSsid.textContent = status?.station_ssid || "—";
   elements.ipAddress.textContent = status?.ip_address ?? "—";
   elements.wifiSignal.textContent = Number.isFinite(Number(status?.wifi_rssi_dbm)) ? `${status.wifi_rssi_dbm} dBm` : "—";
-  const values = [status?.uptime_days, status?.uptime_hours, status?.uptime_minutes];
-  elements.uptime.textContent = values.every((value) => value !== undefined)
+  const uptimeAnchorSeconds = Number(status?.uptime_anchor_seconds);
+  const uptimeAnchorServerMs = Number(status?.uptime_anchor_server_ms);
+  const legacyUptimeValues = [status?.uptime_days, status?.uptime_hours, status?.uptime_minutes];
+  const uptimeTotalMinutes = !localDashboard && Number.isFinite(uptimeAnchorSeconds) && uptimeAnchorSeconds >= 0 &&
+    Number.isFinite(uptimeAnchorServerMs) && uptimeAnchorServerMs > 0
+    ? Math.floor((uptimeAnchorSeconds + Math.max(0, Math.floor((getFirebaseServerNowMs() - uptimeAnchorServerMs) / 1000))) / 60)
+    : legacyUptimeValues.every((value) => value !== undefined)
+      ? Number(status?.uptime_total_minutes ?? (Number(legacyUptimeValues[0]) * 24 * 60 + Number(legacyUptimeValues[1]) * 60 + Number(legacyUptimeValues[2])))
+      : NaN;
+  elements.uptime.textContent = Number.isFinite(uptimeTotalMinutes)
     ? formatTranslatedText("{days} dni {hours} h {minutes} min", {
-      days: values[0],
-      hours: String(values[1]).padStart(2, "0"),
-      minutes: String(values[2]).padStart(2, "0"),
+      days: Math.floor(uptimeTotalMinutes / (24 * 60)),
+      hours: String(Math.floor(uptimeTotalMinutes / 60) % 24).padStart(2, "0"),
+      minutes: String(uptimeTotalMinutes % 60).padStart(2, "0"),
     })
     : "—";
 
-  const lastSeenTimestamp = Number(status?.last_seen_timestamp);
+  const lastSeenMs = getDeviceLastSeenMs(status);
   const isOnline = localDashboard || isDeviceOnline(status);
   elements.deviceStateCard.classList.toggle("online", isOnline);
   elements.deviceStateCard.classList.toggle("offline", !isOnline);
@@ -3135,8 +3198,8 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
   elements.deviceOnlineStatus.textContent = translateText(isOnline ? "Online" : "Offline");
   elements.deviceLastSeen.textContent = localDashboard
     ? translateText("Dosegljiv prek lokalnega IP-ja.")
-    : Number.isFinite(lastSeenTimestamp) && lastSeenTimestamp > 0
-      ? formatTranslatedText("Zadnji odziv: {time}", { time: formatDashboardDateTime(new Date(lastSeenTimestamp * 1000)) })
+    : Number.isFinite(lastSeenMs) && lastSeenMs > 0
+      ? formatTranslatedText("Zadnji odziv: {time}", { time: formatDashboardDateTime(new Date(lastSeenMs)) })
        : translateText("Čakam na prvi odziv naprave.");
 
   renderHeaderDeviceState();
@@ -3153,7 +3216,12 @@ function renderDeviceStatus(status, localDashboard = isLocalDashboard) {
 
 function renderTimeStatus(status, network = latestNetworkStatus) {
   latestTimeStatus = status;
-  const timestamp = Number(status?.timestamp ?? status?.current_time_timestamp);
+  const deviceTimeAnchorSeconds = Number(status?.device_time_anchor_s);
+  const deviceTimeAnchorServerMs = Number(status?.device_time_anchor_server_ms);
+  const timestamp = !isLocalDashboard && Number.isFinite(deviceTimeAnchorSeconds) && deviceTimeAnchorSeconds > 0 &&
+    Number.isFinite(deviceTimeAnchorServerMs) && deviceTimeAnchorServerMs > 0
+    ? deviceTimeAnchorSeconds + Math.max(0, Math.floor((getFirebaseServerNowMs() - deviceTimeAnchorServerMs) / 1000))
+    : Number(status?.timestamp ?? status?.current_time_timestamp);
   const source = status?.source ?? status?.time_source ?? "unavailable";
   const rtcPresent = status?.rtc_present === true;
   const rtcValid = status?.rtc_valid === true;
@@ -3651,7 +3719,8 @@ function renderCloudWifiResetStatus(status) {
   const hasSelectedDevice = Boolean(cloudDevicePath && currentCloudUser && firebaseDatabase);
   const state = status?.state;
   const updatedAt = Number(status?.updated_at);
-  const lastSeenAt = Number(latestDeviceStatus?.last_seen_timestamp);
+  const lastSeenAtMs = getDeviceLastSeenMs(latestDeviceStatus);
+  const lastSeenAt = Number.isFinite(lastSeenAtMs) ? Math.floor(lastSeenAtMs / 1000) : NaN;
   // Zapis `queued` mora po izbrisu ostati v Firebase, ker se naprava nato odklopi.
   // Nov odziv naprave po poznejši Wi-Fi nastavitvi zato pomeni nov zagon povezave in ne
   // sme trajno blokirati naslednje ponastavitve.
@@ -6145,12 +6214,15 @@ function pauseCloudRealtimeForInactivity() {
   cloudRealtimePaused = true;
   clearCloudDeviceListeners();
   stopCloudDirectoryListeners();
+  stopFirebaseServerTimeOffsetListener?.();
+  stopFirebaseServerTimeOffsetListener = undefined;
   clearTimeout(weightChangeRefreshTimer);
 }
 
 function resumeCloudRealtimeAfterInactivity() {
   if (!cloudRealtimePaused || !currentCloudUser || isLocalDashboard) return;
   cloudRealtimePaused = false;
+  startFirebaseServerTimeOffsetListener();
   const selectedDeviceId = cloudDevicePath.replace("devices/", "");
   if (isCloudAdministrator()) void refreshAdminDeviceDirectory();
   else startCloudUserDirectoryListeners();
@@ -6722,6 +6794,9 @@ async function deleteDeviceAsAdministrator(deviceId, actionButtons, statusElemen
 function handleCloudAuthState(user) {
   clearCloudDeviceListeners();
   stopCloudDirectoryListeners();
+  stopFirebaseServerTimeOffsetListener?.();
+  stopFirebaseServerTimeOffsetListener = undefined;
+  firebaseServerTimeOffsetMs = 0;
   cloudDevices = {};
   ownedCloudDevices = {};
   sharedCloudDevices = {};
@@ -6755,6 +6830,7 @@ function handleCloudAuthState(user) {
   showView(DEFAULT_VIEW);
   renderHeaderDeviceState();
   startCloudInactivityTracking();
+  startFirebaseServerTimeOffsetListener();
   if (isCloudAdministrator()) {
     void refreshAdminDeviceDirectory();
     return;

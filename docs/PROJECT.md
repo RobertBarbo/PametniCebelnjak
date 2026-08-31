@@ -227,4 +227,6 @@ Cloud pogled zahteva Firebase prijavo in običajnemu uporabniku združi lastne n
 
 Glavni skrbnik ima v zavihku **Naprava** tudi ločen odsek **Ponastavitev omrežja**. Po potrditvi z besedo `WI-FI` pošlje akcijo `clear_wifi_credentials` v `commands/firmware_update`; Firebase pravila jo zavrnejo vsakemu drugemu uporabniku. ESP32 pred prekinitvijo povezave zapiše `/status/network_reset`, odstrani ukaz, izbriše poverilnice iz NVS, prekine STA povezavo in odpre provisioning AP. Ker po tem nima več domače povezave, cloud ne more poslati dodatne potrditve; uporabnik nadaljuje lokalno na `http://192.168.4.1`.
 
+Zapadlo branje `measurement_settings` ima prednost pred pošiljanjem nove `latest` meritve. Če je edini Firebase kanal zaseden, se časovnik ne premakne in firmware zahtevo neblokirno ponovi ob prvi sprostitvi kanala; tako sprememba intervala SD zgodovine ne more ostati na stari lokalni vrednosti.
+
 Če cloud status tariranja ostane `queued` ali `taring` več kot 90 sekund, nadzorna plošča ga označi kot nedokončanega in ponovno omogoči gumb. Ob vsakem zagonu ESP32 objavi začetno stanje HX711, zato se zastarelo stanje prejšnjega zagona ponastavi.

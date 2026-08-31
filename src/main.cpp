@@ -7052,6 +7052,17 @@ void loop()
   // Med OTA prenosom ohranimo odzivnost lokalnega strežnika in Firebase app.loop(),
   // druge cloud zahteve pa začasno ustavimo, da ne tekmujejo z OTA statusom.
   if (!firmwareUpdateInProgress && !Update.isRunning()) {
+    // Nastavitve intervalov imajo prednost pred novo meritvijo `latest`. Če je en sam
+    // Firebase kanal prost, jih naprava tako prevzame tudi pri pogostem pošiljanju meritev.
+    // Ob zasedenem kanalu časovnika ne premaknemo in zahtevo neblokirno ponovimo v naslednji zanki.
+    if (isFirebaseReady() && !measurementSettingsRequestPending &&
+        (lastMeasurementSettingsRefreshMillis == 0 ||
+         currentMillis - lastMeasurementSettingsRefreshMillis >= MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS)) {
+      if (requestMeasurementSettings()) {
+        lastMeasurementSettingsRefreshMillis = currentMillis;
+      }
+    }
+
     // Trenutna meritev ima prednost pred periodiÄnimi statusi. Tako en sam
     // Firebase kanal ne more preskoÄiti najnovejÅ¡e meritve nastavljenega cikla.
     if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= measurementIntervalMs) {
@@ -7106,14 +7117,6 @@ void loop()
          currentMillis - lastFirmwareCommandCheckMillis >= FIRMWARE_COMMAND_INTERVAL_MS)) {
       lastFirmwareCommandCheckMillis = currentMillis;
       requestFirmwareUpdateCommand();
-    }
-
-    if (isFirebaseReady() && !measurementSettingsRequestPending &&
-        (lastMeasurementSettingsRefreshMillis == 0 ||
-         currentMillis - lastMeasurementSettingsRefreshMillis >= MEASUREMENT_SETTINGS_REFRESH_INTERVAL_MS)) {
-      if (requestMeasurementSettings()) {
-        lastMeasurementSettingsRefreshMillis = currentMillis;
-      }
     }
 
     if (isFirebaseReady() && !timeCommandPending && !timeCommandQueued &&

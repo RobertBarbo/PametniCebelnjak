@@ -10,7 +10,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
-- Periodično branje `measurement_settings` ne prestavi več 30-sekundnega časovnika, kadar je edini Firebase async kanal zaseden. Firmware zato zahtevo brez blokiranja ponovi v naslednjih prehodih glavne zanke in nastavitev intervala meritev ne more več stradati ob sočasnem preverjanju OTA ukazov. Firmware je povišan na `0.1.0-rc.64`.
+- Periodično branje `measurement_settings` ne prestavi več 30-sekundnega časovnika, kadar je edini Firebase async kanal zaseden. Zapadla zahteva ima prednost pred pošiljanjem nove meritve `latest`, zato naprava brez blokiranja zanesljivo prevzame tudi interval zapisa SD zgodovine. Firmware je povišan na `0.1.0-rc.65`.
 
 - Androidov sistemski zagonski zaslon pred lokalno animacijo znaka ne uporablja več ikone aplikacije z ločenim ozadjem. Prikaže samo enotno temno ozadje najkrajši čas, ki ga za zagon WebViewa določi Android.
 

@@ -52,7 +52,7 @@ constexpr uint32_t DEVICE_STATUS_RETRY_INTERVAL_MS = 30 * 1000;  // Najkrajši p
 constexpr uint32_t COMPONENT_RECOVERY_INTERVAL_MS = 60 * 1000;  // Čas med ponovnimi poskusi nedosegljivega senzorja ali SD kartice.
 constexpr uint8_t COMPONENT_WARNING_FAILURES = 3;  // Zaporedne napake pred opozorilnim stanjem komponente.
 constexpr uint8_t COMPONENT_ERROR_FAILURES = 5;  // Zaporedne napake pred stanjem napake komponente.
-constexpr uint32_t ACTIVATION_SECRET_REFRESH_INTERVAL_MS = 5 * 60 * 1000;  // Čas med osvežitvami aktivacijske kode v zasebni Firebase poti.
+constexpr uint32_t ACTIVATION_SECRET_RETRY_INTERVAL_MS = 30 * 1000;  // Najkrajši premor pred ponovnim poskusom neuspešne objave aktivacijske kode.
 
 // === Firebase in sinhronizacija SD zgodovine ==================================
 constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10 * 1000;  // Najkrajši čas med običajnimi prenosi SD zgodovine v Firebase.
@@ -529,6 +529,7 @@ bool localElegantOtaRestartScheduled = false;
 bool arduinoOtaInitialized = false;
 bool littlefsUnmountedForArduinoOta = false;
 bool activationSecretPublishPending = false;
+bool activationSecretPublishInFlight = false;
 bool activationSecretRegistrationReported = false;
 bool validTimeWasAvailable = false;
 // Firebase uporablja en asinhroni kanal. Med drugimi opravili hranimo samo
@@ -932,7 +933,10 @@ void cancelPendingFirebaseTasks(const char *reason)
     latestMeasurementUploadPending = true;
     latestMeasurementUploadInFlight = false;
   }
-  activationSecretPublishPending = false;
+  if (activationSecretPublishInFlight) {
+    activationSecretPublishInFlight = false;
+    activationSecretPublishPending = true;
+  }
   historyDeletionRequestPending = false;
   wifiCredentialResetRequestPending = false;
   firmwareVersionReported = false;
@@ -983,6 +987,7 @@ void maintainFirebaseClient()
       lastDeviceStatusAttemptMillis = 0;
       requestDeviceStatusUpdate();
       requestSDCardStatusUpdate();
+      activationSecretPublishPending = true;
     }
   } else {
     // Wi-Fi je lahko še povezan, Firebase seja pa se je že prekinila. Naslednja uspešna seja
@@ -1290,7 +1295,8 @@ void processData(AsyncResult &result)
       bme680CalibrationStatusReported = false;
     }
     if (result.uid() == "publishActivationSecret") {
-      activationSecretPublishPending = false;
+      activationSecretPublishInFlight = false;
+      activationSecretPublishPending = true;
     }
     if (result.uid() == "clearControlCommand") {
       controlCommandClearPending = true;
@@ -1357,11 +1363,14 @@ void processData(AsyncResult &result)
       lastSDStatusCloudAttemptMillis = 0;
     }
     if (result.uid() == "publishActivationSecret") {
-      activationSecretPublishPending = false;
+      activationSecretPublishInFlight = false;
       const String responsePayload = result.payload();
       if (responsePayload.indexOf("error") >= 0 || responsePayload.indexOf("unauthorized") >= 0) {
+        activationSecretPublishPending = true;
         return;
       }
+      activationSecretPublishPending = false;
+      lastActivationSecretAttemptMillis = 0;
       if (!activationSecretRegistrationReported) {
         activationSecretRegistrationReported = true;
         Serial.println("Device activation secret was registered.");
@@ -7370,14 +7379,19 @@ void synchronizeSDMeasurements(uint32_t currentMillis)
 
 // --- Firebase stanja --------------------------------------------------------
 
-void publishActivationSecret()
+bool publishActivationSecret()
 {
+  if (activationSecretPublishInFlight || !isFirebaseReady()) return false;
+
   char jsonPayload[64];
   snprintf(jsonPayload, sizeof(jsonPayload), "{\"activation_code\":\"%s\"}", activationCode);
   object_t activationSecret(jsonPayload);
-  activationSecretPublishPending = true;
   database.set(asyncClient, activationSecretDatabasePath, activationSecret, processData,
                "publishActivationSecret");
+  activationSecretPublishInFlight = true;
+  activationSecretPublishPending = false;
+  lastActivationSecretAttemptMillis = millis();
+  return true;
 }
 
 bool queueSDCardStatusUpdate()
@@ -7680,18 +7694,19 @@ void loop()
     // Nastavitve intervalov imajo prednost pred novo meritvijo `latest`. Če je en sam
     // Firebase kanal prost, jih naprava tako prevzame tudi pri pogostem pošiljanju meritev.
     // Ob zasedenem kanalu časovnika ne premaknemo in zahtevo neblokirno ponovimo v naslednji zanki.
-    // Trenutna meritev ima prednost pred periodiÄnimi statusi. Tako en sam
-    // Firebase kanal ne more preskoÄiti najnovejÅ¡e meritve nastavljenega cikla.
+    // Trenutna meritev ima prednost pred periodičnimi statusi. Tako en sam
+    // Firebase kanal ne more preskočiti najnovejše meritve nastavljenega cikla.
     if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= measurementIntervalMs) {
       lastMeasurementMillis = currentMillis;
       sendMeasurements(currentMillis);
     }
     processPendingLatestMeasurement();
 
-    if (isFirebaseReady() && !activationSecretPublishPending &&
-        (lastActivationSecretAttemptMillis == 0 ||
-         currentMillis - lastActivationSecretAttemptMillis >= ACTIVATION_SECRET_REFRESH_INTERVAL_MS)) {
-      lastActivationSecretAttemptMillis = currentMillis;
+    const bool activationSecretRetryReady = lastActivationSecretAttemptMillis == 0 ||
+                                            currentMillis - lastActivationSecretAttemptMillis >=
+                                                ACTIVATION_SECRET_RETRY_INTERVAL_MS;
+    if (activationSecretPublishPending && !activationSecretPublishInFlight &&
+        activationSecretRetryReady) {
       publishActivationSecret();
     }
 

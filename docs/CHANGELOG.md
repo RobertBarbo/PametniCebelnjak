@@ -4,6 +4,11 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## [Unreleased]
 
+### Changed
+
+- Android aplikacija `0.1.0-rc.76` (`versionCode 20`) v glavi prikazuje samo ime **Pametni čebelnjak** brez podnapisa »Mobilna aplikacija«. Ikona prvega koraka nastavitve je namesto znaka okna strele čista črtasta SVG Wi-Fi ikona z isto zlato podobo kot preostali del aplikacije.
+- Android aplikacija `0.1.0-rc.75` (`versionCode 19`) ima hamburger meni v enaki obliki kot preklopnik menija na nadzorni plošči: tri zaobljene črtice, ki se ob odprtem meniju zložijo v križec. Izbirnik teme je prestavljen iz hamburger menija v glavo, levo od izbirnika jezika; zaprt pokaže samo barvno ikono trenutne teme, napisi štirih tem pa so vidni šele v odprtem izboru. Logotip čebele je bližje hamburger meniju, gumba **Nazaj** pa uporabljata izrazito polnilo in obrobo, ki sta jasno vidni v vseh štirih temah.
+
 ### Added
 
 - Androidov začetni hamburger meni pod ukazoma **O aplikaciji** in **Izhod iz aplikacije** prikaže manjši gumb trenutno izbrane teme z enako SVG ikono kot mobilna nadzorna plošča in brez puščice. Dotik odpre lebdeči prevedeni izbor vseh štirih tem, ki ne poveča glavnega menija. Stran **O aplikaciji** prikaže različico paketa, avtorja Roberta Barbiriča, e-poštni naslov in avtorske pravice, ukaz za izhod pa varno zapre aplikacijo. Android paket je `0.1.0-rc.72` (`versionCode 17`).

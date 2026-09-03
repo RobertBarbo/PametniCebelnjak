@@ -13,7 +13,7 @@ const LANGUAGE_OPTIONS = {
 };
 const TRANSLATIONS = {
   hr: {
-    'Pametni čebelnjak': 'Pametna košnica', 'Mobilna aplikacija': 'Mobilna aplikacija', 'Izberi jezik': 'Odaberi jezik', 'Tema': 'Tema', 'Izberi temo': 'Odaberi temu', 'Gozd': 'Šuma', 'Polnoč': 'Ponoć', 'Med': 'Med', 'Svetla tema': 'Svijetla tema', 'O aplikaciji': 'O aplikaciji', 'Izhod iz aplikacije': 'Izlaz iz aplikacije', 'PAMETNI ČEBELNJAK': 'PAMETNA KOŠNICA', 'Različica aplikacije': 'Verzija aplikacije', 'Avtor': 'Autor', 'E-poštni naslov': 'E-poštna adresa',
+    'Pametni čebelnjak': 'Pametna košnica', 'Izberi jezik': 'Odaberi jezik', 'Tema': 'Tema', 'Izberi temo': 'Odaberi temu', 'Gozd': 'Šuma', 'Polnoč': 'Ponoć', 'Med': 'Med', 'Svetla tema': 'Svijetla tema', 'O aplikaciji': 'O aplikaciji', 'Izhod iz aplikacije': 'Izlaz iz aplikacije', 'PAMETNI ČEBELNJAK': 'PAMETNA KOŠNICA', 'Različica aplikacije': 'Verzija aplikacije', 'Avtor': 'Autor', 'E-poštni naslov': 'E-poštna adresa',
     'DOBRODOŠLI': 'DOBRO DOŠLI', 'Tvoj panj.<br />Vedno blizu.': 'Tvoja košnica.<br />Uvijek blizu.', 'Spremljaj meritve v oblaku ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.': 'Prati mjerenja u oblaku ili u nekoliko koraka poveži novi uređaj s kućnom Wi‑Fi mrežom.',
     'NADZOR': 'NADZOR', 'Odpri nadzorno ploščo': 'Otvori nadzornu ploču', 'Prijava, meritve, grafi, opozorila in oddaljene posodobitve.': 'Prijava, mjerenja, grafovi, upozorenja i udaljena ažuriranja.',
     'PRVA NASTAVITEV': 'PRVO POSTAVLJANJE', 'Poveži novo napravo': 'Poveži novi uređaj', 'Aplikacija poišče dostopno točko <strong>Cebelnjak-…</strong> in te vodi do povezave z domačim omrežjem.': 'Aplikacija pronalazi pristupnu točku <strong>Cebelnjak-…</strong> i vodi te do povezivanja s kućnom mrežom.', 'Začni nastavitev': 'Započni postavljanje',
@@ -25,7 +25,7 @@ const TRANSLATIONS = {
     'Odpri lokalno nadzorno ploščo': 'Otvori lokalnu nadzornu ploču',
   },
   en: {
-    'Pametni čebelnjak': 'Smart Beehive', 'Mobilna aplikacija': 'Mobile app', 'Izberi jezik': 'Select language', 'Tema': 'Theme', 'Izberi temo': 'Select theme', 'Gozd': 'Forest', 'Polnoč': 'Midnight', 'Med': 'Honey', 'Svetla tema': 'Light theme', 'O aplikaciji': 'About', 'Izhod iz aplikacije': 'Exit app', 'PAMETNI ČEBELNJAK': 'SMART BEEHIVE', 'Različica aplikacije': 'App version', 'Avtor': 'Author', 'E-poštni naslov': 'Email address',
+    'Pametni čebelnjak': 'Smart Beehive', 'Izberi jezik': 'Select language', 'Tema': 'Theme', 'Izberi temo': 'Select theme', 'Gozd': 'Forest', 'Polnoč': 'Midnight', 'Med': 'Honey', 'Svetla tema': 'Light theme', 'O aplikaciji': 'About', 'Izhod iz aplikacije': 'Exit app', 'PAMETNI ČEBELNJAK': 'SMART BEEHIVE', 'Različica aplikacije': 'App version', 'Avtor': 'Author', 'E-poštni naslov': 'Email address',
     'DOBRODOŠLI': 'WELCOME', 'Tvoj panj.<br />Vedno blizu.': 'Your hive.<br />Always close.', 'Spremljaj meritve v oblaku ali v nekaj korakih poveži novo napravo z domačim Wi‑Fi omrežjem.': 'Monitor measurements in the cloud or connect a new device to your home Wi‑Fi in a few steps.',
     'NADZOR': 'DASHBOARD', 'Odpri nadzorno ploščo': 'Open dashboard', 'Prijava, meritve, grafi, opozorila in oddaljene posodobitve.': 'Sign in, measurements, charts, alerts, and remote updates.',
     'PRVA NASTAVITEV': 'FIRST SETUP', 'Poveži novo napravo': 'Connect a new device', 'Aplikacija poišče dostopno točko <strong>Cebelnjak-…</strong> in te vodi do povezave z domačim omrežjem.': 'The app finds the <strong>Cebelnjak-…</strong> access point and guides you through connecting to your home network.', 'Začni nastavitev': 'Start setup',
@@ -74,7 +74,6 @@ const elements = {
   appMenu: document.querySelector('.app-menu'),
   appThemePicker: document.querySelector('#app-theme-picker'),
   openThemePickerButton: document.querySelector('#open-theme-picker-button'),
-  activeThemeMenuLabel: document.querySelector('#active-theme-menu-label'),
   openAboutButton: document.querySelector('#open-about-button'),
   aboutBackButton: document.querySelector('#about-back-button'),
   exitAppButton: document.querySelector('#exit-app-button'),
@@ -133,11 +132,11 @@ function updateThemeMenuTrigger(theme = document.documentElement.dataset.theme) 
   const label = t(APP_THEME_LABELS[selectedTheme]);
   elements.openThemePickerButton.dataset.theme = selectedTheme;
   elements.openThemePickerButton.setAttribute('aria-label', `${t('Tema')}: ${label}`);
-  elements.activeThemeMenuLabel.textContent = label;
 }
 
+/* Izbirnik teme je details element v glavi; stanje izpostavimo z aria-expanded. */
 function setThemePickerOpen(isOpen) {
-  elements.appThemePicker.hidden = !isOpen;
+  elements.appThemePicker.open = isOpen;
   elements.openThemePickerButton.setAttribute('aria-expanded', String(isOpen));
 }
 
@@ -524,14 +523,14 @@ elements.openAboutButton.addEventListener('click', () => {
 });
 elements.aboutBackButton.addEventListener('click', () => showView('home'));
 elements.exitAppButton.addEventListener('click', () => { void exitApplication(); });
-elements.openThemePickerButton.addEventListener('click', () => {
-  setThemePickerOpen(elements.appThemePicker.hidden);
-});
 elements.appThemeChoices.forEach((button) => button.addEventListener('click', () => {
   applyAppTheme(button.dataset.appThemeChoice);
   setThemePickerOpen(false);
   elements.appMenu.open = false;
 }));
+elements.appThemePicker.addEventListener('toggle', () => {
+  elements.openThemePickerButton.setAttribute('aria-expanded', String(elements.appThemePicker.open));
+});
 elements.appMenu.addEventListener('toggle', () => {
   if (!elements.appMenu.open) setThemePickerOpen(false);
 });

@@ -52,6 +52,8 @@ Začetni zaslon ponuja dve ločeni poti:
 - **Odpri nadzorno ploščo** za že nastavljeno napravo,
 - **Nastavi novo napravo** za prvi zagon ali ponovno nastavitev.
 
+Hamburger meni v glavi je v enaki obliki kot preklopnik menija na nadzorni plošči: tri zaobljene črtice, ki se ob odprtem meniju zložijo v križec. Meni vsebuje le ukaza **O aplikaciji** in **Izhod iz aplikacije**. Izbirnik teme je v glavi levo od izbirnika jezika; zaprt pokaže samo barvno SVG ikono trenutne teme, napisi štirih tem pa so vidni šele v odprtem izboru, podobno kot pri jeziku. Glava poleg logotipa prikazuje samo ime **Pametni čebelnjak** brez podnapisa. Ikona prvega koraka nastavitve je čista črtasta SVG Wi-Fi ikona v zlati barvi aplikacije. Logotip čebele je bližje hamburger meniju, gumba **Nazaj** v nastavitvi in pogledu o aplikaciji pa imata izrazito polnilo ter obrobo, vidni v vseh štirih temah.
+
 Med provisioningom aplikacija prikaže trenutni korak, napake povezave in možnost ponovitve. Gumba za ponovno iskanje omrežij in prikaz gesla uporabljata lastni SVG ikoni, zato sta poravnana in enaka na različnih telefonih. Gumb za nadzorno ploščo takoj prikaže stanje odpiranja. Po uspehu aplikacija v istem oknu odpre cloud nadzorno ploščo, Google prijava pa ostane v aplikaciji, zato so registracija z aktivacijsko kodo in lastništvo panjev nespremenjeni.
 
 ## Gradnja in distribucija

@@ -34,33 +34,12 @@
     <div class="app-shell">
       <header class="app-header">
         <details class="app-menu">
-          <summary aria-label="Meni"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg></summary>
+          <summary aria-label="Meni"><span class="menu-bars" aria-hidden="true"><span></span><span></span><span></span></span></summary>
           <div class="app-menu-options">
             <div id="app-menu-primary" class="app-menu-primary">
               <div class="app-menu-actions">
                 <button id="open-about-button" class="app-menu-action" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.8v5.2M12 7.8h.01"/></svg><span data-i18n="O aplikaciji">O aplikaciji</span></button>
                 <button id="exit-app-button" class="app-menu-action app-menu-action--exit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 7.5V5.8A1.8 1.8 0 0 0 12.7 4H6.8A1.8 1.8 0 0 0 5 5.8v12.4A1.8 1.8 0 0 0 6.8 20h5.9a1.8 1.8 0 0 0 1.8-1.8v-1.7"/><path d="M11 12h8M16 8l4 4-4 4"/></svg><span data-i18n="Izhod iz aplikacije">Izhod iz aplikacije</span></button>
-              </div>
-              <div class="app-theme-section">
-                <button id="open-theme-picker-button" class="app-menu-action app-theme-trigger" type="button" aria-label="Tema">
-                  <span class="app-theme-trigger__current">
-                    <span class="app-theme-current-icon" aria-hidden="true">
-                      <svg class="app-theme-current-icon--forest" viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg>
-                      <svg class="app-theme-current-icon--midnight" viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg>
-                      <svg class="app-theme-current-icon--honey" viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg>
-                      <svg class="app-theme-current-icon--light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg>
-                    </span>
-                    <span id="active-theme-menu-label">Gozd</span>
-                  </span>
-                </button>
-              </div>
-            </div>
-            <div id="app-theme-picker" class="app-theme-picker" hidden>
-              <div class="app-theme-options" role="group" aria-label="Izberi temo">
-                <button type="button" data-app-theme-choice="forest"><span class="app-theme-icon app-theme-icon--forest" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg></span><span data-i18n="Gozd">Gozd</span></button>
-                <button type="button" data-app-theme-choice="midnight"><span class="app-theme-icon app-theme-icon--midnight" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg></span><span data-i18n="Polnoč">Polnoč</span></button>
-                <button type="button" data-app-theme-choice="honey"><span class="app-theme-icon app-theme-icon--honey" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg></span><span data-i18n="Med">Med</span></button>
-                <button type="button" data-app-theme-choice="light"><span class="app-theme-icon app-theme-icon--light" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg></span><span data-i18n="Svetla tema">Svetla tema</span></button>
               </div>
             </div>
           </div>
@@ -68,8 +47,26 @@
         <img class="brand-icon" src="/assets/favicon.png" alt="" />
         <div class="brand-copy">
           <p class="brand-name" data-i18n="Pametni čebelnjak">Pametni čebelnjak</p>
-          <p class="brand-subtitle" data-i18n="Mobilna aplikacija">Mobilna aplikacija</p>
         </div>
+        <details class="theme-switcher" id="app-theme-picker">
+          <summary id="open-theme-picker-button" aria-label="Tema" aria-expanded="false">
+            <span class="app-theme-current-icon" aria-hidden="true">
+              <svg class="app-theme-current-icon--forest" viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg>
+              <svg class="app-theme-current-icon--midnight" viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg>
+              <svg class="app-theme-current-icon--honey" viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg>
+              <svg class="app-theme-current-icon--light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg>
+            </span>
+          </summary>
+          <div class="theme-options-panel">
+            <p class="menu-label" data-i18n="Izberi temo">Izberi temo</p>
+            <div class="app-theme-options" role="group" aria-label="Izberi temo">
+              <button type="button" data-app-theme-choice="forest"><span class="app-theme-icon app-theme-icon--forest" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19.4 4.6C12.2 4.7 6.5 8.1 5 14.3c-.7 2.8.6 5.1 3.5 5.1 6.2 0 10.4-6.7 10.9-14.8Z"/><path d="M4.6 20.2c3.3-3.9 6.6-6.5 11.7-9.4"/></svg></span><span data-i18n="Gozd">Gozd</span></button>
+              <button type="button" data-app-theme-choice="midnight"><span class="app-theme-icon app-theme-icon--midnight" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/></svg></span><span data-i18n="Polnoč">Polnoč</span></button>
+              <button type="button" data-app-theme-choice="honey"><span class="app-theme-icon app-theme-icon--honey" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3.2 7.1 4.1v8.2L12 19.7l-7.1-4.2V7.3L12 3.2Z"/><path d="M8.5 9.2h7M8.5 14.8h7M12 5.4v12.1"/></svg></span><span data-i18n="Med">Med</span></button>
+              <button type="button" data-app-theme-choice="light"><span class="app-theme-icon app-theme-icon--light" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M18.5 5.5 17 7M7 17l-1.5 1.5"/></svg></span><span data-i18n="Svetla tema">Svetla tema</span></button>
+            </div>
+          </div>
+        </details>
         <details class="language-switcher">
           <summary aria-label="Izberi jezik"><span data-language-flag>🇸🇮</span></summary>
           <div class="language-options" role="group" aria-label="Izberi jezik">
@@ -95,20 +92,20 @@
         </section>
 
         <section id="provisioning-view" class="view" aria-labelledby="provisioning-title">
-          <button id="back-button" class="button button--primary back-button" type="button" aria-label="Nazaj">← <span data-i18n="Nazaj">Nazaj</span></button>
+          <button id="back-button" class="button back-button" type="button" aria-label="Nazaj">← <span data-i18n="Nazaj">Nazaj</span></button>
           <div class="hero hero--compact"><p class="eyebrow" data-i18n="NASTAVITEV NAPRAVE">NASTAVITEV NAPRAVE</p><h1 id="provisioning-title" data-i18n="Povezava z Wi‑Fi">Povezava z Wi‑Fi</h1><p id="provisioning-intro" class="lead" data-i18n-html="Vklopi napravo in počakaj, da se prikaže omrežje z imenom <strong>Cebelnjak-…</strong>.">Vklopi napravo in počakaj, da se prikaže omrežje z imenom <strong>Cebelnjak-…</strong>.</p></div>
           <div class="progress-steps" aria-label="Napredek nastavitve"><span class="progress-step is-current">1</span><span class="progress-line"></span><span class="progress-step">2</span><span class="progress-line"></span><span class="progress-step">3</span></div>
-          <section id="connect-step" class="setup-card is-active" aria-live="polite"><div class="setup-icon">⌁</div><p class="eyebrow" data-i18n="1. KORAK">1. KORAK</p><h2 data-i18n="Poveži se z napravo">Poveži se z napravo</h2><p data-i18n-html="Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.">Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.</p><div class="notice" data-i18n-html="<strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova."><strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova.</div><div class="notice notice--connection" data-i18n-html="<strong>Pred povezovanjem:</strong> vklopi Wi‑Fi. Če uporabljaš VPN, ga začasno izklopi, ker lahko prepreči povezavo z lokalno napravo."><strong>Pred povezovanjem:</strong> vklopi Wi‑Fi. Če uporabljaš VPN, ga začasno izklopi, ker lahko prepreči povezavo z lokalno napravo.</div><button id="open-wifi-settings-button" class="button button--quiet button--compact" type="button" data-i18n="Odpri nastavitve Wi‑Fi">Odpri nastavitve Wi‑Fi</button><button id="connect-device-button" class="button button--primary" type="button" data-i18n="Poišči napravo">Poišči napravo</button></section>
+          <section id="connect-step" class="setup-card is-active" aria-live="polite"><div class="setup-icon setup-icon--wifi" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2.9 9.1a13.5 13.5 0 0 1 18.2 0"/><path d="M6.1 12.4a9 9 0 0 1 11.8 0"/><path d="M9.3 15.7a4.5 4.5 0 0 1 5.4 0"/><circle cx="12" cy="18.8" r="1.15" fill="currentColor" stroke="none"/></svg></div><p class="eyebrow" data-i18n="1. KORAK">1. KORAK</p><h2 data-i18n="Poveži se z napravo">Poveži se z napravo</h2><p data-i18n-html="Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.">Android bo prikazal sistemsko okno. Izberi omrežje, ki se začne z <strong>Cebelnjak-</strong>, in potrdi povezavo.</p><div class="notice" data-i18n-html="<strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova."><strong>Namig:</strong> če omrežja ni na seznamu, napravo ponovno zaženi in poskusi znova.</div><div class="notice notice--connection" data-i18n-html="<strong>Pred povezovanjem:</strong> vklopi Wi‑Fi. Če uporabljaš VPN, ga začasno izklopi, ker lahko prepreči povezavo z lokalno napravo."><strong>Pred povezovanjem:</strong> vklopi Wi‑Fi. Če uporabljaš VPN, ga začasno izklopi, ker lahko prepreči povezavo z lokalno napravo.</div><button id="open-wifi-settings-button" class="button button--quiet button--compact" type="button" data-i18n="Odpri nastavitve Wi‑Fi">Odpri nastavitve Wi‑Fi</button><button id="connect-device-button" class="button button--primary" type="button" data-i18n="Poišči napravo">Poišči napravo</button></section>
           <section id="wifi-step" class="setup-card" aria-live="polite"><div class="setup-heading"><div><p class="eyebrow" data-i18n="2. KORAK">2. KORAK</p><h2 data-i18n="Izberi domače omrežje">Izberi domače omrežje</h2></div><span id="device-badge" class="device-badge" data-i18n="Naprava povezana">Naprava povezana</span></div><p data-i18n="Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.">Omrežja poišče naprava sama. Wi‑Fi geslo se pošlje neposredno napravi in se ne shrani v aplikaciji.</p><button id="open-local-dashboard-button" class="button button--quiet" type="button" data-i18n="Odpri lokalno nadzorno ploščo">Odpri lokalno nadzorno ploščo</button><label for="ssid-select" data-i18n="Wi‑Fi omrežje">Wi‑Fi omrežje</label><div class="field-row"><select id="ssid-select" disabled><option value="" data-i18n="Najprej poišči omrežja">Najprej poišči omrežja</option></select><button id="scan-button" class="icon-button" type="button" aria-label="Ponovno poišči omrežja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66" /><path d="M20 4v7h-7" /></svg></button></div><label for="wifi-password" data-i18n="Wi‑Fi geslo">Wi‑Fi geslo</label><div class="password-field"><input id="wifi-password" type="password" autocomplete="new-password" maxlength="63" placeholder="Vnesi geslo omrežja" /><button id="toggle-password-button" type="button" aria-label="Prikaži geslo" aria-pressed="false"><svg class="password-icon password-icon--show" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></svg><svg class="password-icon password-icon--hide" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18" /><path d="M10.6 6.15A10.2 10.2 0 0 1 12 6c6 0 9.5 6 9.5 6a16.3 16.3 0 0 1-2.1 2.75" /><path d="M6.4 7.4C3.9 9.1 2.5 12 2.5 12S6 18 12 18c1.2 0 2.3-.24 3.3-.63" /></svg></button></div><button id="configure-button" class="button button--primary" type="button" disabled data-i18n="Shrani in poveži">Shrani in poveži</button></section>
           <section id="success-step" class="setup-card setup-card--success" aria-live="polite"><div class="success-mark">✓</div><p class="eyebrow" data-i18n="POVEZAVA JE USPELA">POVEZAVA JE USPELA</p><h2 data-i18n="Naprava je pripravljena">Naprava je pripravljena</h2><p id="success-message" data-i18n="Naprava je povezana z domačim omrežjem.">Naprava je povezana z domačim omrežjem.</p><dl class="result-list"><div><dt data-i18n="Omrežje">Omrežje</dt><dd id="result-ssid">—</dd></div><div><dt data-i18n="Lokalni IP">Lokalni IP</dt><dd id="result-ip">—</dd></div><div><dt data-i18n="ID naprave">ID naprave</dt><dd id="result-device-id">—</dd></div><div><dt data-i18n="Aktivacijska koda">Aktivacijska koda</dt><dd id="result-activation-code">—</dd></div></dl><button id="finish-cloud-button" class="button button--gold" type="button" data-i18n="Nadaljuj v nadzorno ploščo">Nadaljuj v nadzorno ploščo</button><button id="finish-home-button" class="button button--quiet" type="button" data-i18n="Nazaj na začetek">Nazaj na začetek</button></section>
           <div id="status-message" class="status-message" role="status" aria-live="polite"></div>
         </section>
         <section id="about-view" class="view about-view" aria-labelledby="about-title">
-          <button id="about-back-button" class="button button--quiet back-button" type="button" aria-label="Nazaj">← <span data-i18n="Nazaj">Nazaj</span></button>
+          <button id="about-back-button" class="button back-button" type="button" aria-label="Nazaj">← <span data-i18n="Nazaj">Nazaj</span></button>
           <div class="hero hero--compact"><p class="eyebrow" data-i18n="PAMETNI ČEBELNJAK">PAMETNI ČEBELNJAK</p><h1 id="about-title" data-i18n="O aplikaciji">O aplikaciji</h1></div>
           <section class="about-card">
             <dl class="about-details">
-              <div><dt data-i18n="Različica aplikacije">Različica aplikacije</dt><dd data-app-version>0.1.0-rc.72</dd></div>
+              <div><dt data-i18n="Različica aplikacije">Različica aplikacije</dt><dd data-app-version>0.1.0-rc.76</dd></div>
               <div><dt data-i18n="Avtor">Avtor</dt><dd>Robert Barbirič</dd></div>
               <div><dt data-i18n="E-poštni naslov">E-poštni naslov</dt><dd><a href="mailto:robert.barbiric@gmail.com">robert.barbiric@gmail.com</a></dd></div>
             </dl>

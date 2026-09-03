@@ -273,16 +273,19 @@ button {
 }
 
 .app-menu,
-.language-switcher {
+.language-switcher,
+.theme-switcher {
   position: relative;
 }
 
-.language-switcher {
+/* Izbirnik teme drži desno skupino glave; jezik mu sledi ob robu. */
+.theme-switcher {
   margin-left: auto;
 }
 
 .app-menu summary,
-.language-switcher summary {
+.language-switcher summary,
+.theme-switcher summary {
   display: grid;
   width: 46px;
   height: 46px;
@@ -295,17 +298,41 @@ button {
   color: var(--text);
 }
 
-.app-menu summary svg {
+/* Hamburger v enaki obliki kot preklopnik menija na nadzorni plošči. */
+.app-menu summary {
+  border-radius: 14px;
+}
+
+.menu-bars {
+  display: block;
   width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-width: 2;
+}
+
+.menu-bars > span {
+  display: block;
+  width: 100%;
+  height: 2px;
+  margin: 4px 0;
+  border-radius: 99px;
+  background: var(--text);
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.app-menu[open] .menu-bars > span:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+
+.app-menu[open] .menu-bars > span:nth-child(2) {
+  opacity: 0;
+}
+
+.app-menu[open] .menu-bars > span:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
 }
 
 .app-menu summary::-webkit-details-marker,
-.language-switcher summary::-webkit-details-marker {
+.language-switcher summary::-webkit-details-marker,
+.theme-switcher summary::-webkit-details-marker {
   display: none;
 }
 
@@ -335,21 +362,18 @@ button {
   flex-direction: column;
 }
 
-.app-theme-picker {
+.theme-switcher .theme-options-panel {
   position: absolute;
-  z-index: 4;
-  top: calc(100% - 8px);
-  left: 8px;
-  width: min(190px, calc(100vw - 40px));
-  padding: 5px;
+  z-index: 3;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  min-width: 186px;
+  padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--surface-strong);
-  box-shadow: 0 12px 28px color-mix(in srgb, #000 22%, transparent);
-}
-
-.app-theme-picker[hidden] {
-  display: none;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .language-options {
@@ -432,28 +456,6 @@ button {
   stroke-width: 1.8;
 }
 
-.app-theme-section {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.app-theme-trigger {
-  width: fit-content;
-  min-width: 158px;
-  max-width: 100%;
-  justify-content: flex-start;
-  border-color: var(--border);
-  background: var(--surface-strong);
-}
-
-.app-theme-trigger__current {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 11px;
-}
-
 .app-theme-current-icon {
   display: grid;
   width: 22px;
@@ -478,10 +480,10 @@ button {
 .app-theme-current-icon--honey { color: #ffc24c; }
 .app-theme-current-icon--light { color: #e5a72f; }
 
-.app-theme-trigger[data-theme="forest"] .app-theme-current-icon--forest,
-.app-theme-trigger[data-theme="midnight"] .app-theme-current-icon--midnight,
-.app-theme-trigger[data-theme="honey"] .app-theme-current-icon--honey,
-.app-theme-trigger[data-theme="light"] .app-theme-current-icon--light {
+.theme-switcher summary[data-theme="forest"] .app-theme-current-icon--forest,
+.theme-switcher summary[data-theme="midnight"] .app-theme-current-icon--midnight,
+.theme-switcher summary[data-theme="honey"] .app-theme-current-icon--honey,
+.theme-switcher summary[data-theme="light"] .app-theme-current-icon--light {
   display: block;
 }
 
@@ -590,12 +592,12 @@ button {
 .brand-icon {
   width: 56px;
   height: 56px;
+  margin-left: -4px;
   object-fit: contain;
   filter: drop-shadow(0 8px 15px rgb(0 0 0 / 35%));
 }
 
 .brand-name,
-.brand-subtitle,
 .eyebrow,
 .lead,
 .action-card p,
@@ -607,12 +609,6 @@ footer {
 .brand-name {
   font-size: 1.02rem;
   font-weight: 800;
-}
-
-.brand-subtitle {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 0.86rem;
 }
 
 .view {
@@ -768,6 +764,12 @@ h2 {
 .back-button {
   gap: 8px;
   width: fit-content;
+  min-height: 48px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  color: var(--text);
+  background: var(--surface-strong);
 }
 
 .progress-steps {
@@ -819,6 +821,16 @@ h2 {
   background: rgb(245 190 63 / 10%);
   font-size: 2rem;
   font-weight: 900;
+}
+
+.setup-icon svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .setup-card .button {

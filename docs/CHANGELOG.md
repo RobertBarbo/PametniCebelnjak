@@ -4,6 +4,23 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ## [Unreleased]
 
+### Fixed
+
+- Firmware `0.1.0-rc.78` odpravlja F-03: prvi zapis SD zgodovine po zagonu ali tariranju počaka na prvo potrjeno maso HX711. Kratek timeout ali nejasen potrditveni odčitek ne izbriše zadnje potrjene mase, če je mlajša od dveh sekund; tudi pri stanju napake se neblokirajoče vzorčenje nadaljuje, zato se HX711 po kratki motnji pobere takoj in ne šele ob minutni ponovni inicializaciji. Daljši izpad še vedno zapiše `null`.
+- Firmware `0.1.0-rc.77` odpravlja F-02: potrditev cloud ukaza ima ločeno čakajoče, oddano in uspešno zaključeno stanje. Pozni SSE dogodek istega že potrjenega `request_id` ne more znova poslati PATCH-a na `control`; izgubljeni callback iste potrditve se še vedno ponovi, nov ukaz pa ne podeduje starega stanja.
+- Firmware `0.1.0-rc.76` odpravlja H-05: korenski Firebase SSE JSON razčleni s cJSON in v obdelavo ukaza pošlje samo `command`; stari `ack/request_id` se ne more povezati z novim dejanjem. Velikost se preverja na izločenem ukazu.
+- H-06: paket obnove zgodovine se konča pred novo UTC uro, zato ne prepiše več neposlanih urnih agregatov. `raw_sync_version = 5` ob naslednji obnovi zahteva ponoven prenos stareje označenih dnevov in obnovi njihove urne agregate.
+- H-07: zahteva za brisanje ustavi nove korake obnove, počaka na že oddano zahtevo oziroma njen timeout, zapre ročaj obnove ter nadaljuje brisanje. Preverjanje izgubljenih zahtev zdaj deluje tudi med obnovo.
+- H-08: običajno branje, potrjevanje večjih skokov in tariranje HX711 potekajo po enem pripravljenem vzorcu na prehod zanke, z omejenim časom brez novega vzorca. Nobena od teh poti ne uporablja knjižničnega neomejenega čakanja. Napaka tariranja ohrani prejšnji odmik, staro povprečje pa se ne objavi kot sveža masa.
+- H-10: prekinjen SD upload prek `onDisconnect` zapre datoteko, odstrani svoj začasni zapis in sprosti kontekst z `delete`. Enako čiščenje uporabljajo uspeh, napaka in zavrnjena zaključna avtentikacija; sočasni prenosi imajo različne začasne poti.
+- Firmware `0.1.0-rc.75` obnovi izgubljene Firebase zahteve za `latest`, heartbeat, celoten status, SD status in aktivacijsko skrivnost, če po treh sekundah ni več asinhronega opravila ali končnega callbacka. Ponovitev ohrani aktualno meritev in čakajoče spremembe statusa. Zastavice pošiljanja se nastavijo pred klicem knjižnice, da takojšnja napaka ne more pustiti trajnega `in_flight` stanja.
+
+### Added
+
+- Gostiteljski regresijski testi za H-05, H-06, H-07, H-08 in H-10: `scripts/test_firmware_regressions.py` iz firmware-a izlušči dejanske funkcije ter jih prevede in požene z nadomestnimi GPIO/SD/Firebase vmesniki. Navodila in meje preverjanja so v `test/firmware_regressions/README.md`.
+- Lokalni `/api/status` vsebuje posnetek Firebase diagnostike: vrsto, čakajoče zapise, starost zahtev, zadnje uspešne potrditve, števce obnovitev in zadnjo kodo napake, brez vsebine aktivacijske skrivnosti v diagnostiki.
+- Lokalni `POST /api/reboot` in gumb **Znova zaženi napravo** v slovenščini, hrvaščini in angleščini omogočata ponovni zagon prek Wi-Fi-ja. API zahteva glavo `X-Device-Reboot` z ID-jem trenutnega zagona; po potrditvi in kratkem neblokirajočem zamiku shrani kazalec sinhronizacije ter izvede ponovni zagon. Med OTA ali destruktivnim opravilom se zahteva zavrne oziroma prekliče. Vmesnik potrdi ponovno povezavo šele ob spremenjenem ID-ju zagona.
+
 ### Changed
 
 - Android aplikacija `0.1.0-rc.76` (`versionCode 20`) v glavi prikazuje samo ime **Pametni čebelnjak** brez podnapisa »Mobilna aplikacija«. Ikona prvega koraka nastavitve je namesto znaka okna strele čista črtasta SVG Wi-Fi ikona z isto zlato podobo kot preostali del aplikacije.

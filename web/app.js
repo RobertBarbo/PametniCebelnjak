@@ -112,6 +112,16 @@ async function sendCloudControlCommand(action, fields = {}) {
 }
 const TRANSLATIONS = {
   hr: {
+    "Ponovni zagon naprave": "Ponovno pokretanje uređaja",
+    "Naprava se znova zažene ter ohrani nastavitve in shranjene meritve.": "Uređaj se ponovno pokreće i zadržava postavke i spremljena mjerenja.",
+    "Znova zaženi napravo": "Ponovno pokreni uređaj",
+    "Želiš znova zagnati napravo? Povezava bo začasno prekinjena.": "Želiš li ponovno pokrenuti uređaj? Veza će privremeno biti prekinuta.",
+    "Čakam na ponovni zagon …": "Čekam ponovno pokretanje …",
+    "Naprava je znova zagnana in dosegljiva.": "Uređaj je ponovno pokrenut i dostupan.",
+    "Naprava je zasedena. Počakaj na zaključek posodobitve ali drugega opravila.": "Uređaj je zauzet. Pričekaj završetak ažuriranja ili drugog zadatka.",
+    "Ponovni zagon ni uspel. Preveri povezavo in poskusi znova.": "Ponovno pokretanje nije uspjelo. Provjeri vezu i pokušaj ponovno.",
+    "Ponovni zagon zahteva novejši firmware.": "Ponovno pokretanje zahtijeva noviji firmware.",
+    "Ponovna povezava še ni potrjena. Preveri lokalni naslov naprave.": "Ponovna veza još nije potvrđena. Provjeri lokalnu adresu uređaja.",
     "SD kartica": "SD kartica",
     "Še uporabljate Pametni čebelnjak?": "Još koristite Pametnu košnicu?",
     "Zaradi neaktivnosti boste čez {time} samodejno odjavljeni.": "Zbog neaktivnosti bit ćete automatski odjavljeni za {time}.",
@@ -264,6 +274,16 @@ const TRANSLATIONS = {
     "{days} dni {hours} h {minutes} min": "{days} dana {hours} h {minutes} min",
   },
   en: {
+    "Ponovni zagon naprave": "Device restart",
+    "Naprava se znova zažene ter ohrani nastavitve in shranjene meritve.": "The device restarts and retains its settings and saved measurements.",
+    "Znova zaženi napravo": "Restart device",
+    "Želiš znova zagnati napravo? Povezava bo začasno prekinjena.": "Restart the device? The connection will be interrupted briefly.",
+    "Čakam na ponovni zagon …": "Waiting for the device to restart …",
+    "Naprava je znova zagnana in dosegljiva.": "The device has restarted and is reachable.",
+    "Naprava je zasedena. Počakaj na zaključek posodobitve ali drugega opravila.": "The device is busy. Wait for the update or other operation to finish.",
+    "Ponovni zagon ni uspel. Preveri povezavo in poskusi znova.": "Restart failed. Check the connection and try again.",
+    "Ponovni zagon zahteva novejši firmware.": "Restart requires newer firmware.",
+    "Ponovna povezava še ni potrjena. Preveri lokalni naslov naprave.": "Reconnection has not been confirmed yet. Check the device's local address.",
     "SD kartica": "SD card",
     "Še uporabljate Pametni čebelnjak?": "Are you still using Smart Beehive?",
     "Zaradi neaktivnosti boste čez {time} samodejno odjavljeni.": "You will be signed out automatically in {time} due to inactivity.",
@@ -609,6 +629,8 @@ const elements = {
   otaIgnore: document.querySelector("#ota-ignore"),
   otaSafetyNotice: document.querySelector("#ota-safety-notice"),
   localManualUpdateSection: document.querySelector("#local-manual-update-section"),
+  localReboot: document.querySelector("#local-reboot"),
+  localRebootStatus: document.querySelector("#local-reboot-status"),
   localCurrentVersion: document.querySelector("#local-current-version"),
   localElegantOtaLink: document.querySelector("#local-elegantota-link"),
   localOtaWarningDialog: document.querySelector("#local-ota-warning-dialog"),
@@ -4277,7 +4299,58 @@ async function synchronizeDeviceTime() {
   }
 }
 
+async function requestLocalReboot() {
+  if (!isLocalDashboard || elements.localReboot.disabled) return;
+  if (!await confirmDashboardAction({
+    title: "Ponovni zagon naprave",
+    message: "Želiš znova zagnati napravo? Povezava bo začasno prekinjena.",
+    confirmLabel: "Znova zaženi napravo",
+  })) return;
+
+  elements.localReboot.disabled = true;
+  elements.localRebootStatus.textContent = translateText("Čakam na ponovni zagon …");
+  const busyMessage = "Naprava je zasedena. Počakaj na zaključek posodobitve ali drugega opravila.";
+  const failureMessage = "Ponovni zagon ni uspel. Preveri povezavo in poskusi znova.";
+  const readStatus = async () => {
+    const response = await fetch("/api/status", { cache: "no-store", signal: AbortSignal.timeout(4_000) });
+    if (!response.ok) throw new Error(failureMessage);
+    return response.json();
+  };
+  try {
+    const before = await readStatus();
+    if (before.reboot?.boot_id == null) throw new Error("Ponovni zagon zahteva novejši firmware.");
+    const response = await fetch("/api/reboot", {
+      method: "POST",
+      headers: { "X-Device-Reboot": String(before.reboot.boot_id) },
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (response.status === 409) throw new Error(busyMessage);
+    if (response.status !== 202) throw new Error(failureMessage);
+
+    const deadline = performance.now() + 60_000;
+    while (performance.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+      let status;
+      try { status = await readStatus(); } catch { continue; }
+      if (status.reboot?.boot_id != null && status.reboot.boot_id !== before.reboot.boot_id) {
+        elements.localRebootStatus.textContent = translateText("Naprava je znova zagnana in dosegljiva.");
+        return;
+      }
+      if (status.reboot?.state === "busy") throw new Error(busyMessage);
+      if (status.reboot?.state === "error") throw new Error(failureMessage);
+    }
+    throw new Error("Ponovna povezava še ni potrjena. Preveri lokalni naslov naprave.");
+  } catch (error) {
+    const messages = [busyMessage, failureMessage, "Ponovni zagon zahteva novejši firmware.",
+      "Ponovna povezava še ni potrjena. Preveri lokalni naslov naprave."];
+    elements.localRebootStatus.textContent = translateText(messages.includes(error.message) ? error.message : failureMessage);
+  } finally {
+    elements.localReboot.disabled = false;
+  }
+}
+
 function initializeProvisioningForm() {
+  elements.localReboot.addEventListener("click", requestLocalReboot);
   elements.wifiForm.addEventListener("submit", saveWiFiConfiguration);
   elements.wifiPasswordToggle.addEventListener("click", toggleWiFiPasswordVisibility);
   elements.wifiScan.addEventListener("click", scanWiFiNetworks);

@@ -1,6 +1,7 @@
 #define ENABLE_DATABASE
 
 #include <Arduino.h>
+#include <new>
 #include <dirent.h>
 #include <Adafruit_BME680.h>
 #include <ArduinoOTA.h>
@@ -22,11 +23,16 @@
 #include <esp_sntp.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
+#include <freertos/semphr.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
 #include <sys/stat.h>
 
 #include "project_config.h"
+#include "firebase_recovery.h"
+#include "control_ack_state.h"
+#include "load_cell_sampling.h"
+#include "control_stream_root.h"
 #include "version.h"
 
 namespace {
@@ -59,7 +65,7 @@ constexpr uint32_t CLOUD_SYNC_INTERVAL_MS = 10 * 1000;  // Najkrajši čas med o
 constexpr uint32_t CLOUD_SYNC_MAX_RETRY_INTERVAL_MS = 60 * 1000;  // Najdaljši zamik ponovnega poskusa po cloud napaki.
 constexpr uint32_t CLOUD_RECONCILIATION_INTERVAL_MS = 250;  // Premor med paketi pri ročni obnovi zgodovine.
 constexpr uint8_t RECONCILIATION_MEASUREMENTS_PER_REQUEST = 32;  // Število meritev v enem Firebase paketu ročne obnove.
-constexpr uint8_t DAILY_RAW_SYNC_VERSION = 4;  // Različica formata oznake dnevne sinhronizacije; spremeni ob spremembi modela.
+constexpr uint8_t DAILY_RAW_SYNC_VERSION = 5;  // Različica oznake obnove; 5 obnovi tudi urne agregate, izgubljene pri starejših paketnih prenosih.
 constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3 * 1000;  // Čas za asinhroni Firebase rezultat, preden zahtevo obravnavamo kot izgubljeno.
 constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;  // Najdaljše čakanje na posamezno Firebase zahtevo.
 constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor pred novim Firebase poskusom po omrežni napaki.
@@ -68,6 +74,7 @@ constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;  // Perioda obdelave Fire
 constexpr uint32_t FIREBASE_TASK_TIMEOUT_MS = 12 * 1000;  // Najdaljše dovoljeno trajanje Firebase opravila.
 constexpr size_t MAX_FIREBASE_ASYNC_TASKS = 1;  // Največ hkratnih Firebase opravil; 1 preprečuje zasičenje RAM-a in TCP-ja.
 constexpr uint32_t SYSTEM_DIAGNOSTIC_INTERVAL_MS = 15 * 1000;  // Čas med internimi pregledi zasedenosti RAM-a in omrežja.
+constexpr uint32_t LOCAL_REBOOT_DELAY_MS = 1500;  // Zamik v ms za dostavo HTTP potrditve pred lokalnim ponovnim zagonom.
 constexpr uint32_t CLOUD_AGGREGATE_REFRESH_INTERVAL_MS = 30 * 60 * 1000;  // Čas med obnovami urnih in dnevnih cloud agregatov.
 
 // === Prednost lokalne strani pred cloud prometom ===============================
@@ -156,8 +163,10 @@ constexpr uint8_t DS3231_OSCILLATOR_STOP_FLAG = 0x80;  // Bit, ki pove, da je DS
 constexpr int HX711_DOUT_PIN = 4;  // HX711 DOUT pin; ne spreminjaj brez spremembe ožičenja.
 constexpr int HX711_SCK_PIN = 5;  // HX711 SCK pin; ne spreminjaj brez spremembe ožičenja.
 constexpr uint8_t HX711_TARE_SAMPLES = 20;  // Število vzorcev ob tariranju prazne tehtnice.
-constexpr uint8_t HX711_READ_SAMPLES = 5;  // Število vzorcev za eno redno meritev; višje število zmanjša šum, a upočasni zanko.
-constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;  // Najdaljši čas čakanja, da HX711 pripravi nov vzorec.
+constexpr uint8_t HX711_READ_SAMPLES = 5;  // Število vzorcev na povprečje; več vzorcev zmanjša šum in podaljša osvežitev mase, ne blokira zanke.
+constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;  // Čas v ms brez novega vzorca, po katerem se običajno branje ali tariranje prekine.
+constexpr uint32_t HX711_STARTUP_TIMEOUT_MS = 1000;  // Čas v ms brez novega vzorca v prvem povprečju po inicializaciji, zaradi stabilizacije HX711.
+constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 2000;  // Največja starost v ms potrjenega povprečja mase za vključitev v meritev.
 constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;  // Večji skok teže zahteva še eno potrdilno meritev.
 constexpr float HX711_STEP_CONFIRM_TOLERANCE_KG = 1.0F;  // Največja razlika med dvema meritvama za potrditev velikega skoka.
 constexpr float HX711_CALIBRATION_FACTOR = 22845.060F;  // Faktor umerjanja HX711; spremeni ga šele po postopku kalibracije z znano utežjo.
@@ -409,6 +418,12 @@ struct SdCardUploadContext {
   int statusCode = 500;
   bool overwrite = false;
   bool failed = false;
+  bool finalized = false;
+
+  ~SdCardUploadContext() {
+    if (file) file.close();
+    if (!temporaryPath.isEmpty()) SD.remove(temporaryPath);
+  }
 };
 
 // Delni SSE dogodki lahko posodobijo posamezno polje ukaza. Posnetek jih združi,
@@ -503,7 +518,6 @@ bool firmwareCommandQueued = false;
 bool timeCommandQueued = false;
 bool controlStreamStarted = false;
 bool controlCommandDispatchPending = false;
-bool controlCommandClearPending = false;
 bool timeCommandFromCloud = false;
 volatile bool ntpSynchronizationCompleted = false;
 bool ntpSynchronizationPending = false;
@@ -536,6 +550,34 @@ bool validTimeWasAvailable = false;
 // najnovejšo trenutno meritev, da cloud po sprostitvi kanala ne zaostaja.
 bool latestMeasurementUploadPending = false;
 bool latestMeasurementUploadInFlight = false;
+enum class FirebaseWrite : uint8_t { Latest, Heartbeat, DeviceStatus, SdStatus, ActivationSecret, Count };
+constexpr size_t FIREBASE_WRITE_COUNT = static_cast<size_t>(FirebaseWrite::Count);
+const char *const FIREBASE_WRITE_NAMES[] = {"latest", "heartbeat", "device_status", "sd_status", "activation_secret"};
+struct FirebaseWriteDiagnostics {
+  uint32_t startedMillis = 0;
+  uint32_t lastSuccessTimestamp = 0;
+  uint32_t recoveries = 0;
+  bool inFlight = false;
+  bool pending = false;
+};
+struct FirebaseDiagnostics {
+  FirebaseWriteDiagnostics writes[FIREBASE_WRITE_COUNT];
+  uint32_t sampledMillis = 0;
+  uint32_t queueLength = 0;
+  int lastErrorCode = 0;
+  uint32_t lastErrorTimestamp = 0;
+  bool ready = false;
+  bool paused = false;
+  bool rebootAllowed = false;
+};
+FirebaseDiagnostics firebaseDiagnostics;
+FirebaseDiagnostics localFirebaseDiagnostics;
+portMUX_TYPE localDiagnosticsMux = portMUX_INITIALIZER_UNLOCKED;
+enum class LocalRebootState : uint8_t { Idle, Queued, Busy, Error };
+LocalRebootState localRebootState = LocalRebootState::Idle;
+uint32_t localRebootRequestedMillis = 0;
+uint32_t localBootId = 0;
+SemaphoreHandle_t localRebootMutex = nullptr;
 bool cloudSyncPending = false;
 bool cloudSyncCaughtUp = false;
 bool cloudSyncStateSavePending = false;
@@ -558,6 +600,19 @@ bool loadCellReferenceAvailable = false;
 float lastLoadCellWeightKg = 0.0F;
 bool loadCellCandidateAvailable = false;
 float loadCellCandidateWeightKg = 0.0F;
+enum class LoadCellSamplingMode { Measuring, Confirming, Taring };
+LoadCellSamplingMode loadCellSamplingMode = LoadCellSamplingMode::Measuring;
+LoadCellSampleWindow loadCellSampleWindow;
+bool loadCellAutomaticTare = false;
+bool loadCellStartupSampling = false;
+// Prvi arhivski zapis po zagonu ali tariranju počaka na prvo potrjeno maso.
+// Če HX711 ne odgovori niti v začetnem časovnem oknu, se okoljski podatki nato še vedno beležijo.
+bool loadCellArchiveAwaitingFirstSample = false;
+bool loadCellCachedWeightValid = false;
+float loadCellCachedWeightKg = 0.0F;
+uint32_t loadCellCachedWeightMillis = 0;
+portMUX_TYPE loadCellReadMux = portMUX_INITIALIZER_UNLOCKED;
+const char *loadCellTareStatusMessage = "S ploščadi odstrani vse in nato tariraj tehtnico.";
 bool rtcReady = false;
 bool rtcTimeValid = false;
 ComponentStatus bme680Status;
@@ -649,8 +704,8 @@ char pendingControlCommandPayload[OTA_COMMAND_PAYLOAD_LENGTH]{};
 char lastProcessedControlRequestId[CONTROL_REQUEST_ID_LENGTH]{};
 char pendingControlRequestId[CONTROL_REQUEST_ID_LENGTH]{};
 char pendingTimeControlRequestId[CONTROL_REQUEST_ID_LENGTH]{};
-char controlCommandClearRequestId[CONTROL_REQUEST_ID_LENGTH]{};
-char controlCommandClearResultId[CONTROL_COMMAND_ACK_RESULT_ID_LENGTH]{};
+ControlAcknowledgementState<CONTROL_REQUEST_ID_LENGTH, CONTROL_COMMAND_ACK_RESULT_ID_LENGTH>
+    controlCommandAcknowledgement;
 ControlCommandSnapshot controlCommandSnapshot{};
 char otaTargetVersion[FIRMWARE_VERSION_LENGTH]{};
 uint8_t otaDownloadBuffer[OTA_DOWNLOAD_BUFFER_SIZE]{};
@@ -805,6 +860,7 @@ bool isWiFiCredentialResetRequest(const String &requestId);
 void completeWiFiCredentialResetRequest();
 bool queueLoadCellTare(bool publishCloudStatus = true);
 void processPendingLoadCellTare();
+void reportLoadCellTareStatus(const char *message);
 bool queueBme680Calibration(float temperatureOffsetC, float humidityOffsetPercent, bool fromCloud);
 void processPendingBme680Calibration();
 void processOtaUpdate();
@@ -959,6 +1015,47 @@ void cancelPendingFirebaseTasks(const char *reason)
   cloudSyncRequestType = CloudSyncRequestType::None;
 }
 
+void recoverMissingFirebaseWrite(FirebaseWrite write, bool &inFlight, bool &pending,
+                                uint32_t currentMillis)
+{
+  auto &diagnostic = firebaseDiagnostics.writes[static_cast<size_t>(write)];
+  if (!firebaseWriteNeedsRecovery(inFlight, diagnostic.startedMillis, currentMillis,
+                                 true, CLOUD_SYNC_REQUEST_MISSING_GRACE_MS)) return;
+
+  // Ne spreminjamo potrjenega posnetka ali dirty zastavice. Ponovitev uporabi aktualno stanje.
+  inFlight = false;
+  pending = true;
+  ++diagnostic.recoveries;
+  Serial.printf("Firebase: obnovitev izgubljene zahteve %s.\n", FIREBASE_WRITE_NAMES[static_cast<size_t>(write)]);
+}
+
+void recoverMissingFirebaseWrites(uint32_t currentMillis)
+{
+  if (asyncClient.taskCount() != 0) return;
+  recoverMissingFirebaseWrite(FirebaseWrite::Latest, latestMeasurementUploadInFlight,
+                             latestMeasurementUploadPending, currentMillis);
+  recoverMissingFirebaseWrite(FirebaseWrite::Heartbeat, deviceHeartbeatInFlight,
+                             deviceHeartbeatPending, currentMillis);
+  recoverMissingFirebaseWrite(FirebaseWrite::DeviceStatus, deviceStatusInFlight,
+                             deviceStatusPending, currentMillis);
+  recoverMissingFirebaseWrite(FirebaseWrite::SdStatus, sdCardStatusCloudInFlight,
+                             sdCardStatusCloudPending, currentMillis);
+  recoverMissingFirebaseWrite(FirebaseWrite::ActivationSecret, activationSecretPublishInFlight,
+                             activationSecretPublishPending, currentMillis);
+}
+
+void recordFirebaseWriteStart(FirebaseWrite write)
+{
+  firebaseDiagnostics.writes[static_cast<size_t>(write)].startedMillis = millis();
+}
+
+void recordFirebaseWriteSuccess(FirebaseWrite write)
+{
+  const time_t now = time(nullptr);
+  firebaseDiagnostics.writes[static_cast<size_t>(write)].lastSuccessTimestamp =
+      now >= MIN_VALID_UNIX_TIMESTAMP ? static_cast<uint32_t>(now) : 0;
+}
+
 void maintainFirebaseClient()
 {
   const uint32_t currentMillis = millis();
@@ -997,6 +1094,7 @@ void maintainFirebaseClient()
 
   const size_t taskCount = asyncClient.taskCount();
   if (taskCount == 0) {
+    recoverMissingFirebaseWrites(currentMillis);
     firebaseTaskStartedMillis = 0;
     return;
   }
@@ -1253,6 +1351,8 @@ void processData(AsyncResult &result)
   }
 
   if (result.isError()) {
+    firebaseDiagnostics.lastErrorCode = result.error().code();
+    firebaseDiagnostics.lastErrorTimestamp = static_cast<uint32_t>(time(nullptr));
     // Formatirani izpis v Firebase povratnem klicu lahko preseže stack loopTask.
     Serial.print("Firebase error (");
     Serial.print(result.uid());
@@ -1298,9 +1398,7 @@ void processData(AsyncResult &result)
       activationSecretPublishInFlight = false;
       activationSecretPublishPending = true;
     }
-    if (result.uid() == "clearControlCommand") {
-      controlCommandClearPending = true;
-    }
+    controlCommandAcknowledgement.fail(result.uid().c_str());
     if (isCloudSyncRequest(result.uid())) {
       const CloudSyncRequestType failedRequestType = cloudSyncRequestType;
       markCloudSyncFailure();
@@ -1324,15 +1422,20 @@ void processData(AsyncResult &result)
 
   if (result.available()) {
     clearFirebaseNetworkErrorBackoff();
+    controlCommandAcknowledgement.complete(result.uid().c_str());
     if (result.uid() == "updateLatestMeasurement") {
+      recordFirebaseWriteSuccess(FirebaseWrite::Latest);
       latestMeasurementUploadInFlight = false;
     }
     if (result.uid() == "updateDeviceHeartbeat") {
+      recordFirebaseWriteSuccess(FirebaseWrite::Heartbeat);
       deviceHeartbeatInFlight = false;
       deviceHeartbeatPending = false;
       lastDeviceHeartbeatMillis = millis();
     }
     if (result.uid() == "updateDeviceStatus") {
+      recordFirebaseWriteSuccess(FirebaseWrite::DeviceStatus);
+      recordFirebaseWriteSuccess(FirebaseWrite::Heartbeat);
       const bool currentStateNeedsNewSnapshot = deviceStatusDirtyDuringFlight;
       deviceStatusInFlight = false;
       deviceStatusDirtyDuringFlight = false;
@@ -1345,6 +1448,7 @@ void processData(AsyncResult &result)
       deviceHeartbeatPending = false;
     }
     if (result.uid() == "updateSDCardStatus") {
+      recordFirebaseWriteSuccess(FirebaseWrite::SdStatus);
       const bool currentError = sdInitializationFailures >= MAX_SD_INITIALIZATION_FAILURES;
       const bool currentStateNeedsNewSnapshot = sdCardStatusCloudDirtyDuringFlight ||
                                                 sdCardReady != sdCardStatusCloudInFlightPresent ||
@@ -1370,6 +1474,7 @@ void processData(AsyncResult &result)
         return;
       }
       activationSecretPublishPending = false;
+      recordFirebaseWriteSuccess(FirebaseWrite::ActivationSecret);
       lastActivationSecretAttemptMillis = 0;
       if (!activationSecretRegistrationReported) {
         activationSecretRegistrationReported = true;
@@ -1814,32 +1919,30 @@ bool initializeLoadCell()
 {
   resetLoadCellWeightFilter();
   loadCell.begin(HX711_DOUT_PIN, HX711_SCK_PIN);
+  digitalWrite(HX711_SCK_PIN, LOW);
   // Vgrajen pull-up prepreči lebdeče DOUT stanje, kadar je HX711 brez napajanja.
   pinMode(HX711_DOUT_PIN, INPUT_PULLUP);
-  if (!loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
-    reportComponentFailure(loadCellStatus, "HX711", "ni pripravljen; preveri napajanje, DOUT in SCK");
-    Serial.println("HX711 is not ready. Check power, DOUT and SCK wiring.");
-    return false;
-  }
-
   loadCell.set_scale(HX711_CALIBRATION_FACTOR);
-  reportComponentSuccess(loadCellStatus, "HX711");
+  loadCellCachedWeightValid = false;
+  loadCellCachedWeightMillis = 0;
+  loadCellStartupSampling = true;
+  loadCellArchiveAwaitingFirstSample = true;
   long offset = 0;
   if (loadStoredLoadCellOffset(offset)) {
     loadCell.set_offset(offset);
+    loadCellSamplingMode = LoadCellSamplingMode::Measuring;
+    loadCellAutomaticTare = false;
+    loadCellSampleWindow.begin(millis(), HX711_READ_SAMPLES);
     Serial.printf("HX711 initialized with saved tare offset %ld.\n", offset);
     return true;
   }
 
-  // Prvo tariranje se izvede samo brez shranjenega odmika. Ploščad mora biti takrat prazna.
+  // Tudi začetno tariranje poteka po enem vzorcu v loop(); ploščad mora biti prazna.
   Serial.println("HX711 has no saved tare offset; taring with an empty platform.");
-  loadCell.tare(HX711_TARE_SAMPLES);
-  offset = loadCell.get_offset();
-  if (!storeLoadCellOffset(offset)) {
-    Serial.println("HX711 tare offset could not be saved to NVS.");
-  }
-  Serial.printf("HX711 initialized. Tare offset: %ld, calibration factor: %.2f.\n", offset,
-                HX711_CALIBRATION_FACTOR);
+  loadCellSamplingMode = LoadCellSamplingMode::Taring;
+  loadCellAutomaticTare = true;
+  loadCellTareState = LoadCellTareState::Taring;
+  loadCellSampleWindow.begin(millis(), HX711_TARE_SAMPLES);
   return true;
 }
 
@@ -1865,8 +1968,7 @@ bool acceptLoadCellWeight(float measuredWeightKg, float &acceptedWeightKg)
     return true;
   }
 
-  // Kandidat iz prejšnjega nejasnega cikla je rezervni mehanizem. Običajen
-  // velik skok se spodaj vedno poskusi potrditi takoj z dodatnim branjem.
+  // Kandidat iz prejšnjega nejasnega povprečja je rezervni mehanizem.
   if (loadCellCandidateAvailable &&
       fabsf(measuredWeightKg - loadCellCandidateWeightKg) <= HX711_STEP_CONFIRM_TOLERANCE_KG) {
     acceptedWeightKg = (loadCellCandidateWeightKg + measuredWeightKg) * 0.5F;
@@ -1887,21 +1989,13 @@ bool acceptLoadCellWeight(float measuredWeightKg, float &acceptedWeightKg)
   Serial.printf("HX711 large weight change detected: old=%.1f kg, first=%.1f kg\n",
                 lastLoadCellWeightKg, measuredWeightKg);
 
-  if (!loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
-    reportComponentFailure(loadCellStatus, "HX711",
-                           "potrditvena meritev ni mogoča, ker pretvornik ni dosegljiv");
-    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
-    return false;
-  }
+  loadCellSamplingMode = LoadCellSamplingMode::Confirming;
+  return false;
+}
 
-  float confirmationWeightKg = loadCell.get_units(HX711_READ_SAMPLES);
-  if (!isfinite(confirmationWeightKg)) {
-    reportComponentFailure(loadCellStatus, "HX711", "potrditvena meritev je vrnila neveljavno maso");
-    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
-    return false;
-  }
-
-  reportComponentSuccess(loadCellStatus, "HX711");
+bool acceptLoadCellConfirmation(float confirmationWeightKg, float &acceptedWeightKg)
+{
+  const float measuredWeightKg = loadCellCandidateWeightKg;
   if (fabsf(confirmationWeightKg) < 0.02F) confirmationWeightKg = 0.0F;
   Serial.printf("HX711 confirmation read: %.1f kg\n", confirmationWeightKg);
 
@@ -1966,23 +2060,106 @@ bool readBme680(float &temperatureC, float &humidityPercent)
 
 bool readLoadCell(float &weightKg)
 {
-  if (!loadCellReady || !loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
-    reportComponentFailure(loadCellStatus, "HX711", "meritev ni mogoča, ker pretvornik ni dosegljiv");
-    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
+  if (!loadCellReady || !loadCellCachedWeightValid || loadCellTareQueued ||
+      loadCellSamplingMode == LoadCellSamplingMode::Taring ||
+      millis() - loadCellCachedWeightMillis > HX711_CACHE_MAX_AGE_MS) return false;
+  weightKg = loadCellCachedWeightKg;
+  return true;
+}
+
+bool tryReadLoadCellRaw(int32_t &sample)
+{
+  // Knjižnični read() vsebuje neomejen wait_ready(), tudi če prej preverimo DOUT.
+  // Tu ni čakalne zanke: preverimo DOUT in izvedemo le fiksnih 24 + 1 impulzov
+  // (kanal A, ojačenje 128). Kratek kritični odsek prepreči PD_SCK HIGH > 60 us.
+  portENTER_CRITICAL(&loadCellReadMux);
+  if (digitalRead(HX711_DOUT_PIN) != LOW) {
+    portEXIT_CRITICAL(&loadCellReadMux);
     return false;
   }
+  uint32_t bits = 0;
+  for (uint8_t bit = 0; bit < 24; ++bit) {
+    digitalWrite(HX711_SCK_PIN, HIGH);
+    delayMicroseconds(1);
+    bits = (bits << 1) | (digitalRead(HX711_DOUT_PIN) == HIGH ? 1U : 0U);
+    digitalWrite(HX711_SCK_PIN, LOW);
+    delayMicroseconds(1);
+  }
+  digitalWrite(HX711_SCK_PIN, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(HX711_SCK_PIN, LOW);
+  delayMicroseconds(1);
+  portEXIT_CRITICAL(&loadCellReadMux);
+  sample = (bits & 0x800000U) ? static_cast<int32_t>(bits) - 0x1000000 : static_cast<int32_t>(bits);
+  return true;
+}
 
-  float measuredWeightKg = loadCell.get_units(HX711_READ_SAMPLES);
-  if (!isfinite(measuredWeightKg)) {
-    reportComponentFailure(loadCellStatus, "HX711", "vrnil je neveljavno maso");
-    if (componentHealth(loadCellStatus) == ComponentHealth::Error) loadCellReady = false;
-    return false;
+void processLoadCellSampling()
+{
+  if (!loadCellReady || firmwareUpdateInProgress || Update.isRunning()) return;
+  int32_t average = 0;
+  const uint32_t now = millis();
+  const SampleProgress progress = loadCellSampleWindow.poll(now,
+      loadCellStartupSampling ? HX711_STARTUP_TIMEOUT_MS : HX711_READY_TIMEOUT_MS,
+      tryReadLoadCellRaw, average);
+  if (progress == SampleProgress::Pending) return;
+  loadCellStartupSampling = false;
+
+  if (progress == SampleProgress::Timeout) {
+    // Kratek izpad ne zavrže zadnje potrjene mase. readLoadCell() jo uporabi le,
+    // dokler je mlajša od HX711_CACHE_MAX_AGE_MS; daljši izpad zato ostane null.
+    loadCellArchiveAwaitingFirstSample = false;
+    reportComponentFailure(loadCellStatus, "HX711", "čas za naslednji ADC vzorec je potekel");
+    if (loadCellSamplingMode == LoadCellSamplingMode::Taring) {
+      loadCellTareState = LoadCellTareState::Error;
+      reportLoadCellTareStatus("Tariranje ni uspelo: HX711 ni dosegljiv.");
+      // Brez prvega veljavnega tare odmika mase ne smemo uporabljati.
+      if (loadCellAutomaticTare) loadCellReady = false;
+    }
+    // Običajno vzorčenje nadaljuje tudi v stanju napake. Tako se HX711 po kratki
+    // motnji pobere z naslednjim pripravljenim vzorcem in ne čaka minuto na recovery.
+    loadCellSamplingMode = LoadCellSamplingMode::Measuring;
+    loadCellSampleWindow.begin(now, HX711_READ_SAMPLES);
+    return;
   }
 
-  // Veljavna ADC vrednost potrjuje delovanje HX711 ne glede na rezultat filtra mase.
-  reportComponentSuccess(loadCellStatus, "HX711");
-  if (fabsf(measuredWeightKg) < 0.02F) measuredWeightKg = 0.0F;
-  return acceptLoadCellWeight(measuredWeightKg, weightKg);
+  if (loadCellSamplingMode == LoadCellSamplingMode::Taring) {
+    reportComponentSuccess(loadCellStatus, "HX711");
+    if (storeLoadCellOffset(average)) {
+      loadCell.set_offset(average);
+      loadCellTareState = LoadCellTareState::Completed;
+      resetLoadCellWeightFilter();
+      lastMeasurementMillis = 0;
+      reportLoadCellTareStatus("Tariranje je uspešno; nova ničla je shranjena.");
+    } else {
+      loadCellTareState = LoadCellTareState::Error;
+      reportLoadCellTareStatus("Tariranje ni uspelo: odmika ni bilo mogoče shraniti.");
+      if (loadCellAutomaticTare) loadCellReady = false;
+    }
+    loadCellAutomaticTare = false;
+    loadCellSamplingMode = LoadCellSamplingMode::Measuring;
+  } else {
+    float measuredWeightKg = (static_cast<double>(average) - loadCell.get_offset()) / loadCell.get_scale();
+    const bool confirming = loadCellSamplingMode == LoadCellSamplingMode::Confirming;
+    loadCellSamplingMode = LoadCellSamplingMode::Measuring;
+    if (isfinite(measuredWeightKg)) {
+      reportComponentSuccess(loadCellStatus, "HX711");
+      if (fabsf(measuredWeightKg) < 0.02F) measuredWeightKg = 0.0F;
+      const bool accepted = confirming
+          ? acceptLoadCellConfirmation(measuredWeightKg, loadCellCachedWeightKg)
+          : acceptLoadCellWeight(measuredWeightKg, loadCellCachedWeightKg);
+      if (accepted) {
+        loadCellCachedWeightValid = true;
+        loadCellArchiveAwaitingFirstSample = false;
+        if (loadCellCachedWeightMillis == 0) lastMeasurementMillis = 0;
+        loadCellCachedWeightMillis = now;
+      }
+    } else {
+      reportComponentFailure(loadCellStatus, "HX711", "izračunana masa ni veljavna");
+      // Enako kot pri timeoutu naslednje neblokirajoče vzorčenje ostane aktivno.
+    }
+  }
+  loadCellSampleWindow.begin(now, HX711_READ_SAMPLES);
 }
 
 void maintainComponentRecovery(uint32_t currentMillis)
@@ -3036,19 +3213,16 @@ void reportOtaStatus(const char *state, const char *targetVersion, const char *m
 
 void clearControlCommand(const String &requestId, const char *resultId = "clearControlCommand")
 {
-  if (requestId.length() == 0 || requestId.length() >= sizeof(controlCommandClearRequestId)) {
+  if (requestId.length() == 0 || requestId.length() >= CONTROL_REQUEST_ID_LENGTH) {
     Serial.println("Control command acknowledgement skipped: request ID is missing or too long.");
     return;
   }
-
-  // Nov ukaz ne sme dedovati časovnika neuspešnega ACK-a prejšnjega ukaza.
-  // Pri istem ID-ju časovnik ostane, da prepreči tesno zanko ponovnih poskusov.
-  if (strcmp(controlCommandClearRequestId, requestId.c_str()) != 0) {
-    lastControlCommandClearAttemptMillis = 0;
+  if (!controlCommandAcknowledgement.schedule(requestId.c_str(), resultId)) {
+    Serial.println("Control command acknowledgement skipped: result ID is invalid.");
+    return;
   }
-  requestId.toCharArray(controlCommandClearRequestId, sizeof(controlCommandClearRequestId));
-  strlcpy(controlCommandClearResultId, resultId, sizeof(controlCommandClearResultId));
-  controlCommandClearPending = true;
+  // Nov ID dobi takojšen prvi poskus, isti pa obdrži obstoječi retry interval.
+  if (!controlCommandAcknowledgement.hasInFlight()) lastControlCommandClearAttemptMillis = 0;
 }
 
 void clearControlCommand(const char *resultId = "clearControlCommand")
@@ -4209,7 +4383,9 @@ void enqueueControlCommand(const String &payload)
     // Po reconnectu Firebase ponovno pošlje trenutno stanje strežnika. Če je
     // prejšnje brisanje ukaza izgubilo povezavo, ga zdaj varno zaključimo,
     // ne da bi enkratno dejanje izvedli še drugič.
-    clearControlCommand(requestId);
+    if (!controlCommandAcknowledgement.wasCompleted(requestId.c_str())) {
+      clearControlCommand(requestId);
+    }
     return;
   }
 
@@ -4278,26 +4454,29 @@ void processPendingControlCommand()
     return;
   }
 
-  if (controlCommandClearPending && isFirebaseTransportReady() &&
+  if (controlCommandAcknowledgement.hasPending() && !controlCommandAcknowledgement.hasInFlight() &&
+      isFirebaseTransportReady() &&
       (lastControlCommandClearAttemptMillis == 0 ||
        millis() - lastControlCommandClearAttemptMillis >= CONTROL_COMMAND_ACK_RETRY_INTERVAL_MS)) {
+    char requestId[CONTROL_REQUEST_ID_LENGTH];
+    char resultId[CONTROL_COMMAND_ACK_RESULT_ID_LENGTH];
+    if (!controlCommandAcknowledgement.begin(requestId, resultId)) return;
     char acknowledgementPayload[256];
     snprintf(acknowledgementPayload, sizeof(acknowledgementPayload),
              "{\"command\":null,\"ack\":{\"request_id\":\"%s\",\"acknowledged_at\":%lu}}",
-             controlCommandClearRequestId, static_cast<unsigned long>(time(nullptr)));
+             requestId, static_cast<unsigned long>(time(nullptr)));
     object_t controlAcknowledgement(acknowledgementPayload);
-    controlCommandClearPending = false;
-    if (isHistoryDeletionRequest(controlCommandClearResultId)) {
+    if (isHistoryDeletionRequest(resultId)) {
       historyDeletionRequestPending = true;
     }
-    if (isWiFiCredentialResetRequest(controlCommandClearResultId)) {
+    if (isWiFiCredentialResetRequest(resultId)) {
       wifiCredentialResetRequestPending = true;
     }
     // Atomarna posodobitev hkrati odstrani ukaz in zapiše request_id potrditve.
     // Pravila dovolijo ta poseg samo, če je ID trenutnega ukaza enak potrditvi.
     lastControlCommandClearAttemptMillis = millis();
     database.update(asyncClient, controlDatabasePath, controlAcknowledgement, processData,
-                    controlCommandClearResultId);
+                    resultId);
   }
 }
 
@@ -4320,15 +4499,22 @@ void processControlStreamData(AsyncResult &result)
 
   const String path = stream.dataPath();
   const String payload = stream.to<const char *>();
-  // Za začetni korenski dogodek objekt vsebuje oba podkanala. Iz njega obdelamo
-  // samo tisti del, ki je dejansko prisoten, da se ukaz ne razlaga kot nastavitev.
-  if ((path == "/" && payload.indexOf("\"measurement_interval_seconds\"") >= 0) || path == "/settings") {
+  if (path == "/") {
+    if (!processControlRootEvent(payload.c_str(), event == "put",
+          [](const char *json) { processMeasurementSettings(String(json)); },
+          [](const char *json) { enqueueControlCommand(String(json)); },
+          []() { resetControlCommandSnapshot(); })) {
+      Serial.println("Neveljaven korenski JSON dogodek control streama.");
+    }
+    return;
+  }
+  if (path == "/settings") {
     processMeasurementSettings(payload);
   } else if (path.startsWith("/settings/")) {
     processControlSettingsLeaf(path, payload);
   }
 
-  if ((path == "/" && payload.indexOf("\"request_id\"") >= 0) || path == "/command") {
+  if (path == "/command") {
     if (payload == "null") {
       resetControlCommandSnapshot();
     } else {
@@ -4470,6 +4656,8 @@ const char *bme680CalibrationStateName()
 
 void reportLoadCellTareStatus(const char *message)
 {
+  loadCellTareStatusMessage = message;
+  loadCellTareStatusReported = false;
   if (!isFirebaseReady()) return;
 
   char jsonPayload[256];
@@ -4477,6 +4665,7 @@ void reportLoadCellTareStatus(const char *message)
            "{\"state\":\"%s\",\"message\":\"%s\",\"updated_at\":%lu}",
            loadCellTareStateName(), message, static_cast<unsigned long>(time(nullptr)));
   object_t tareStatus(jsonPayload);
+  loadCellTareStatusReported = true;
   database.set(asyncClient, loadCellStatusDatabasePath, tareStatus, processData, "updateLoadCellTareStatus");
 }
 
@@ -4556,27 +4745,20 @@ void processPendingLoadCellTare()
   loadCellTareState = LoadCellTareState::Taring;
   Serial.println("Load cell tare started.");
 
-  if (!loadCellReady || !loadCell.wait_ready_timeout(HX711_READY_TIMEOUT_MS)) {
+  if (!loadCellReady) {
     loadCellTareState = LoadCellTareState::Error;
     Serial.println("Load cell tare failed: HX711 is unavailable.");
     reportLoadCellTareStatus("Tariranje ni uspelo: HX711 ni dosegljiv.");
     return;
   }
 
-  loadCell.tare(HX711_TARE_SAMPLES);
-  const long offset = loadCell.get_offset();
-  if (!storeLoadCellOffset(offset)) {
-    loadCellTareState = LoadCellTareState::Error;
-    Serial.println("Load cell tare failed: offset could not be saved to NVS.");
-    reportLoadCellTareStatus("Tariranje ni uspelo: odmika ni bilo mogoče shraniti.");
-    return;
-  }
-
-  loadCellTareState = LoadCellTareState::Completed;
-  resetLoadCellWeightFilter();
-  lastMeasurementMillis = 0;
-  Serial.printf("Load cell tare completed. Saved offset: %ld.\n", offset);
-  reportLoadCellTareStatus("Tariranje je uspešno; nova ničla je shranjena.");
+  loadCellCachedWeightValid = false;
+  loadCellCachedWeightMillis = 0;
+  loadCellArchiveAwaitingFirstSample = true;
+  loadCellSamplingMode = LoadCellSamplingMode::Taring;
+  loadCellAutomaticTare = false;
+  loadCellStartupSampling = false;
+  loadCellSampleWindow.begin(millis(), HX711_TARE_SAMPLES);
 }
 
 void processPendingBme680Calibration()
@@ -4758,8 +4940,16 @@ void queueHistoryDeleteAction()
 void processPendingHistoryDeletion()
 {
   if (!historyDeletionQueued || historyDeletionRequestPending || firmwareUpdateInProgress ||
-      Update.isRunning() || cloudSyncPending || cloudHistoryReconciliationIsActive()) {
+      Update.isRunning() || cloudSyncPending) {
     return;
+  }
+
+  // Že oddano Firebase zahtevo najprej zaključimo. Šele nato ustavimo obnovo,
+  // zapremo njen SD ročaj in začnemo brisati; zastavica brisanja blokira nove pakete.
+  if (cloudHistoryReconciliationIsActive()) {
+    resetCloudHistoryReconciliation();
+    markCloudHistoryReconciliationError();
+    Serial.println("Obnova zgodovine je prekinjena zaradi zahteve za brisanje.");
   }
 
   switch (historyDeletionStep) {
@@ -5210,6 +5400,124 @@ void sendLocalJsonResponse(AsyncWebServerRequest *request, int statusCode, const
   request->send(response);
 }
 
+bool localRebootIsSafe()
+{
+  return localRebootMutex != nullptr && !firmwareUpdateInProgress && !firmwareCommandQueued && !Update.isRunning() &&
+         !localElegantOtaSessionActive && !localElegantOtaRestartScheduled &&
+         !historyDeletionQueued && !localHistoryDeletionQueued && !wifiCredentialResetQueued;
+}
+
+void publishLocalFirebaseDiagnostics()
+{
+  firebaseDiagnostics.sampledMillis = millis();
+  firebaseDiagnostics.queueLength = asyncClient.taskCount();
+  firebaseDiagnostics.ready = app.ready();
+  firebaseDiagnostics.paused = firebaseRequestsPausedUntilMillis != 0 &&
+      static_cast<int32_t>(firebaseRequestsPausedUntilMillis - millis()) > 0;
+  firebaseDiagnostics.rebootAllowed = localRebootIsSafe();
+  const bool inFlight[] = {latestMeasurementUploadInFlight, deviceHeartbeatInFlight,
+      deviceStatusInFlight, sdCardStatusCloudInFlight, activationSecretPublishInFlight};
+  const bool pending[] = {latestMeasurementUploadPending, deviceHeartbeatPending,
+      deviceStatusPending, sdCardStatusCloudPending, activationSecretPublishPending};
+  for (size_t index = 0; index < FIREBASE_WRITE_COUNT; ++index) {
+    firebaseDiagnostics.writes[index].inFlight = inFlight[index];
+    firebaseDiagnostics.writes[index].pending = pending[index];
+  }
+  // AsyncTCP čita samo kopijo POD podatkov; FirebaseClient ostane v lasti glavne zanke.
+  portENTER_CRITICAL(&localDiagnosticsMux);
+  localFirebaseDiagnostics = firebaseDiagnostics;
+  portEXIT_CRITICAL(&localDiagnosticsMux);
+}
+
+void appendLocalDiagnostics(String &payload)
+{
+  FirebaseDiagnostics snapshot;
+  LocalRebootState rebootState;
+  portENTER_CRITICAL(&localDiagnosticsMux);
+  snapshot = localFirebaseDiagnostics;
+  rebootState = localRebootState;
+  portEXIT_CRITICAL(&localDiagnosticsMux);
+
+  char buffer[320];
+  snprintf(buffer, sizeof(buffer),
+      ",\"firebase\":{\"sampled_uptime_ms\":%lu,\"queue_length\":%lu,\"ready\":%s,\"paused\":%s,\"last_error_code\":%d,\"last_error_timestamp\":%lu,\"writes\":{",
+      static_cast<unsigned long>(snapshot.sampledMillis), static_cast<unsigned long>(snapshot.queueLength),
+      snapshot.ready ? "true" : "false", snapshot.paused ? "true" : "false",
+      snapshot.lastErrorCode, static_cast<unsigned long>(snapshot.lastErrorTimestamp));
+  payload += buffer;
+  for (size_t index = 0; index < FIREBASE_WRITE_COUNT; ++index) {
+    const auto &write = snapshot.writes[index];
+    snprintf(buffer, sizeof(buffer),
+        "%s\"%s\":{\"in_flight\":%s,\"pending\":%s,\"age_ms\":%lu,\"last_success_timestamp\":%lu,\"recoveries\":%lu}",
+        index == 0 ? "" : ",", FIREBASE_WRITE_NAMES[index], write.inFlight ? "true" : "false",
+        write.pending ? "true" : "false",
+        static_cast<unsigned long>(write.inFlight ? snapshot.sampledMillis - write.startedMillis : 0),
+        static_cast<unsigned long>(write.lastSuccessTimestamp), static_cast<unsigned long>(write.recoveries));
+    payload += buffer;
+  }
+  const char *state = rebootState == LocalRebootState::Queued ? "queued" :
+                      rebootState == LocalRebootState::Busy ? "busy" :
+                      rebootState == LocalRebootState::Error ? "error" : "idle";
+  snprintf(buffer, sizeof(buffer), "}},\"reboot\":{\"state\":\"%s\",\"allowed\":%s,\"boot_id\":%lu}",
+      state, snapshot.rebootAllowed ? "true" : "false", static_cast<unsigned long>(localBootId));
+  payload += buffer;
+}
+
+void requestLocalReboot(AsyncWebServerRequest *request)
+{
+  // Nestandardna glava in ID trenutnega zagona preprečita navaden cross-origin obrazec
+  // ter ponovno izvedbo stare zahteve. To ni avtentikacija lokalnega beta dostopa.
+  if (!request->hasHeader("X-Device-Reboot") ||
+      request->getHeader("X-Device-Reboot")->value() != String(localBootId)) {
+    sendLocalJsonResponse(request, 403, "{\"error\":\"reboot_confirmation_required\"}");
+    return;
+  }
+  bool accepted = false;
+  portENTER_CRITICAL(&localDiagnosticsMux);
+  if (localFirebaseDiagnostics.rebootAllowed) {
+    if (localRebootState != LocalRebootState::Queued) {
+      localRebootRequestedMillis = millis();
+      localRebootState = LocalRebootState::Queued;
+    }
+    accepted = true;
+  }
+  portEXIT_CRITICAL(&localDiagnosticsMux);
+  sendLocalJsonResponse(request, accepted ? 202 : 409,
+      accepted ? "{\"state\":\"queued\"}" : "{\"error\":\"device_busy\"}");
+}
+
+void processPendingLocalReboot()
+{
+  portENTER_CRITICAL(&localDiagnosticsMux);
+  const bool due = localRebootState == LocalRebootState::Queued &&
+      millis() - localRebootRequestedMillis >= LOCAL_REBOOT_DELAY_MS;
+  portEXIT_CRITICAL(&localDiagnosticsMux);
+  if (!due) return;
+
+  // Isto ključavnico uporabi začetek ElegantOTA v AsyncTCP. Glavna zanka nikoli ne čaka nanjo.
+  if (xSemaphoreTake(localRebootMutex, 0) != pdTRUE) return;
+  // Stanje znova preverimo ob izvedbi: OTA se je lahko začel po sprejemu HTTP zahteve.
+  if (!localRebootIsSafe()) {
+    portENTER_CRITICAL(&localDiagnosticsMux);
+    localRebootState = LocalRebootState::Busy;
+    portEXIT_CRITICAL(&localDiagnosticsMux);
+    xSemaphoreGive(localRebootMutex);
+    return;
+  }
+  if (!persistCloudSyncState()) {
+    portENTER_CRITICAL(&localDiagnosticsMux);
+    localRebootState = LocalRebootState::Error;
+    portEXIT_CRITICAL(&localDiagnosticsMux);
+    xSemaphoreGive(localRebootMutex);
+    return;
+  }
+  if (localHistoryLogFile) localHistoryLogFile.close();
+  if (localHistoryResponseFile) localHistoryResponseFile.close();
+  if (dailyReconciliationLogFile) dailyReconciliationLogFile.close();
+  Serial.println("Lokalni API: ponovni zagon naprave.");
+  ESP.restart();
+}
+
 void initializeArduinoOta()
 {
   // mDNS/UDP inicializiramo šele po stabilizaciji STA vmesnika; lokalni ElegantOTA je na voljo tudi v AP načinu.
@@ -5274,13 +5582,16 @@ void initializeElegantOta()
 {
   ElegantOTA.setAutoReboot(false);
   ElegantOTA.onStart([]() {
+    // Če se ponovni zagon že izvaja, tu ne dovolimo novega Update.begin().
+    if (localRebootMutex != nullptr) xSemaphoreTake(localRebootMutex, portMAX_DELAY);
     LittleFS.end();
     littlefsUnmountedForLocalElegantOta = true;
-    localElegantOtaSessionActive = true;
     localElegantOtaAwaitingUpdateStart = true;
     localElegantOtaRestartScheduled = false;
     localElegantOtaStartedMillis = millis();
     localElegantOtaLastReportedBytes = 0;
+    localElegantOtaSessionActive = true;
+    if (localRebootMutex != nullptr) xSemaphoreGive(localRebootMutex);
     Serial.println("ElegantOTA: local update started.");
   });
   ElegantOTA.onProgress([](size_t currentBytes, size_t totalBytes) {
@@ -5291,15 +5602,16 @@ void initializeElegantOta()
     Serial.printf("ElegantOTA: received %u KiB.\n", static_cast<unsigned>(currentBytes / 1024));
   });
   ElegantOTA.onEnd([](bool success) {
+    if (localRebootMutex != nullptr) xSemaphoreTake(localRebootMutex, portMAX_DELAY);
     if (success) {
       Serial.println("ElegantOTA: update completed; restarting device.");
       localElegantOtaRestartScheduled = true;
       localElegantOtaRestartScheduledMillis = millis();
+      if (localRebootMutex != nullptr) xSemaphoreGive(localRebootMutex);
       return;
     }
 
     Update.printError(Serial);
-    localElegantOtaSessionActive = false;
     localElegantOtaAwaitingUpdateStart = false;
     localElegantOtaRestartScheduled = false;
     if (littlefsUnmountedForLocalElegantOta) {
@@ -5309,12 +5621,14 @@ void initializeElegantOta()
       }
     }
     Serial.println("ElegantOTA: update failed.");
+    localElegantOtaSessionActive = false;
+    if (localRebootMutex != nullptr) xSemaphoreGive(localRebootMutex);
   });
   ElegantOTA.begin(&localServer);
   Serial.println("ElegantOTA: http://<device-ip>/update");
 }
 
-void maintainElegantOtaSession()
+void maintainElegantOtaSessionState()
 {
   if (!localElegantOtaSessionActive) return;
 
@@ -5364,6 +5678,14 @@ void maintainElegantOtaSession()
   Serial.println("ElegantOTA: flash write completed without the final HTTP response; restarting device.");
   localElegantOtaRestartScheduled = true;
   localElegantOtaRestartScheduledMillis = millis();
+}
+
+void maintainElegantOtaSession()
+{
+  // Start/end callback v AsyncTCP mora dokončati spremembo stanja pred obdelavo v zanki.
+  if (localRebootMutex != nullptr && xSemaphoreTake(localRebootMutex, 0) != pdTRUE) return;
+  maintainElegantOtaSessionState();
+  if (localRebootMutex != nullptr) xSemaphoreGive(localRebootMutex);
 }
 
 const char *contentTypeForPath(const String &path)
@@ -5610,15 +5932,33 @@ void deleteSdCardFile(AsyncWebServerRequest *request)
   sendLocalJsonResponse(request, 200, "{\"state\":\"deleted\"}");
 }
 
+void cleanupSdCardUpload(AsyncWebServerRequest *request)
+{
+  auto *context = static_cast<SdCardUploadContext *>(request->_tempObject);
+  // ESPAsyncWebServer sicer uporabi free(_tempObject), ki ne pokliče C++ destruktorjev.
+  // Kazalec izpraznimo pred delete; zaključek zahteve in disconnect sta idempotentna.
+  request->_tempObject = nullptr;
+  delete context;
+}
+
 void handleSdCardUpload(AsyncWebServerRequest *request, const String &filename, size_t index,
                         uint8_t *data, size_t length, bool final)
 {
   if (index == 0) {
     if (!authenticateSdCardRequest(request) || !sdCardReady) return;
 
-    auto *context = new SdCardUploadContext();
+    // Ena zahteva sme imeti le eno datoteko; drugi multipart del ne sme izgubiti konteksta.
+    auto *previous = static_cast<SdCardUploadContext *>(request->_tempObject);
+    if (previous != nullptr) {
+      previous->failed = true;
+      previous->statusCode = 400;
+      previous->error = "Upload failed";
+      return;
+    }
+    auto *context = new (std::nothrow) SdCardUploadContext();
     if (context == nullptr) return;
     request->_tempObject = context;
+    request->onDisconnect([request]() { cleanupSdCardUpload(request); });
 
     String directory;
     if (!normalizeSdCardPath(request->arg("path"), directory, true) || !isValidSdCardFileName(filename) ||
@@ -5631,7 +5971,7 @@ void handleSdCardUpload(AsyncWebServerRequest *request, const String &filename, 
     const String targetPath = directory == "/" ? "/" + filename : directory + "/" + filename;
     context->targetPath = targetPath;
     context->overwrite = request->arg("overwrite") == "1";
-    if (targetPath.length() + 7 > SD_CARD_PATH_MAX_LENGTH) {
+    if (targetPath.length() + 16 > SD_CARD_PATH_MAX_LENGTH) {
       context->failed = true;
       context->statusCode = 400;
       context->error = "Ime datoteke je predolgo";
@@ -5643,8 +5983,20 @@ void handleSdCardUpload(AsyncWebServerRequest *request, const String &filename, 
       context->error = "Datoteka s tem imenom že obstaja";
       return;
     }
-    context->temporaryPath = targetPath + ".upload";
-    if (SD.exists(context->temporaryPath)) SD.remove(context->temporaryPath);
+    // Sočasna uploada ne smeta pisati ali čistiti iste začasne datoteke.
+    static uint32_t uploadSequence = 0;
+    for (uint8_t attempt = 0; attempt < 32; ++attempt) {
+      const String candidate = targetPath + "." + String(++uploadSequence, HEX) + ".upload";
+      if (!SD.exists(candidate)) {
+        context->temporaryPath = candidate;
+        break;
+      }
+    }
+    if (context->temporaryPath.isEmpty()) {
+      context->failed = true;
+      context->error = "Temporary file could not be created";
+      return;
+    }
     context->file = SD.open(context->temporaryPath, FILE_WRITE);
     if (!context->file) {
       context->failed = true;
@@ -5674,29 +6026,32 @@ void handleSdCardUpload(AsyncWebServerRequest *request, const String &filename, 
     context->statusCode = 500;
     context->error = "Uploaded file could not be finalized";
   }
+  if (!context->failed) {
+    context->finalized = true;
+    context->temporaryPath = "";
+  }
 }
 
 void finishSdCardUpload(AsyncWebServerRequest *request)
 {
-  if (!authenticateSdCardRequest(request)) return;
+  if (!authenticateSdCardRequest(request)) {
+    cleanupSdCardUpload(request);
+    return;
+  }
   auto *context = static_cast<SdCardUploadContext *>(request->_tempObject);
   if (context == nullptr) {
     sendSdCardError(request, sdCardReady ? 400 : 503, sdCardReady ? "Upload could not be started" : "SD card is unavailable");
     return;
   }
 
-  if (context->file) context->file.close();
-  if (context->failed) {
-    if (!context->temporaryPath.isEmpty()) SD.remove(context->temporaryPath);
+  if (context->failed || !context->finalized) {
     const String error = context->error.isEmpty() ? "Upload failed" : context->error;
     const int statusCode = context->statusCode;
-    delete context;
-    request->_tempObject = nullptr;
+    cleanupSdCardUpload(request);
     sendSdCardError(request, statusCode, error.c_str());
     return;
   }
-  delete context;
-  request->_tempObject = nullptr;
+  cleanupSdCardUpload(request);
   sendLocalJsonResponse(request, 201, "{\"state\":\"uploaded\"}");
 }
 
@@ -5984,7 +6339,11 @@ void sendLocalStatus(AsyncWebServerRequest *request)
            sdErrorReported ? "true" : "false", loadCellReady ? "true" : "false",
            loadCellTareStateName(), bme680Ready ? "true" : "false", bme680TemperatureOffsetC,
            bme680HumidityOffsetPercent, bme680CalibrationStateName(), FIRMWARE_VERSION);
-  sendLocalJsonResponse(request, 200, jsonPayload);
+  String payload(jsonPayload);
+  payload.remove(payload.length() - 1);
+  appendLocalDiagnostics(payload);
+  payload += '}';
+  sendLocalJsonResponse(request, 200, payload);
 }
 
 bool getLocalHistoryWindow(AsyncWebServerRequest *request, time_t &firstTimestamp, time_t &lastTimestamp,
@@ -6259,6 +6618,7 @@ void initializeLocalWebServer()
   }
 
   localServer.on("/api/status", HTTP_GET, sendLocalStatus);
+  localServer.on("/api/reboot", HTTP_POST, requestLocalReboot);
   localServer.on("/api/history", HTTP_GET, sendLocalHistory);
   localServer.on("/api/history", HTTP_DELETE, requestLocalHistoryDeletion);
   localServer.on("/api/sync/reset", HTTP_POST, resetCloudSynchronization);
@@ -6942,6 +7302,7 @@ bool readNextReconciliationMeasurementBatch(DailyReconciliationManifest &manifes
          processedLines < DAILY_RECONCILIATION_LINES_PER_LOOP &&
          (reconciliationPendingMeasurementCount > 0 ||
           millis() - startedMillis < DAILY_RECONCILIATION_LOOP_BUDGET_MS)) {
+    const uint32_t lineStartOffset = static_cast<uint32_t>(logFile.position());
     const size_t lineLength = logFile.readBytesUntil('\n', line, sizeof(line) - 1);
     line[lineLength] = '\0';
     const uint32_t lineEndOffset = static_cast<uint32_t>(logFile.position());
@@ -7002,6 +7363,15 @@ bool readNextReconciliationMeasurementBatch(DailyReconciliationManifest &manifes
       continue;
     }
 
+    // En potrjen paket sme zaključiti največ en urni agregat. Prve vrstice nove
+    // ure ne porabimo: naslednji paket jo ponovno prebere po potrditvi prejšnjega.
+    if (reconciliationPendingMeasurementCount > 0 &&
+        parsedMeasurement.timestamp / HOURLY_AGGREGATE_SECONDS !=
+            reconciliationPendingMeasurements[0].timestamp / HOURLY_AGGREGATE_SECONDS) {
+      nextFileOffset = lineStartOffset;
+      logFile.close();
+      return true;
+    }
     reconciliationPendingMeasurements[reconciliationPendingMeasurementCount++] = parsedMeasurement;
     nextFileOffset = lineEndOffset;
   }
@@ -7097,6 +7467,7 @@ void completeCloudHistoryReconciliationRequest(CloudSyncRequestType requestType)
 
 void processCloudHistoryReconciliation()
 {
+  if (historyDeletionQueued) return;
   if (cloudReconciliationState == CloudReconciliationState::Idle ||
       cloudReconciliationState == CloudReconciliationState::Completed ||
       cloudReconciliationState == CloudReconciliationState::Error) {
@@ -7321,11 +7692,12 @@ void prepareCurrentCloudAggregates(uint32_t currentMillis)
 
 void synchronizeSDMeasurements(uint32_t currentMillis)
 {
-  if (cloudHistoryReconciliationIsActive()) {
+  // Timeout mora teči tudi med obnovo, sicer brisanje lahko čaka na izgubljeni callback.
+  if (recoverStalledCloudSynchronization()) {
     return;
   }
 
-  if (recoverStalledCloudSynchronization()) {
+  if (cloudHistoryReconciliationIsActive()) {
     return;
   }
 
@@ -7386,11 +7758,12 @@ bool publishActivationSecret()
   char jsonPayload[64];
   snprintf(jsonPayload, sizeof(jsonPayload), "{\"activation_code\":\"%s\"}", activationCode);
   object_t activationSecret(jsonPayload);
-  database.set(asyncClient, activationSecretDatabasePath, activationSecret, processData,
-               "publishActivationSecret");
   activationSecretPublishInFlight = true;
   activationSecretPublishPending = false;
   lastActivationSecretAttemptMillis = millis();
+  recordFirebaseWriteStart(FirebaseWrite::ActivationSecret);
+  database.set(asyncClient, activationSecretDatabasePath, activationSecret, processData,
+               "publishActivationSecret");
   return true;
 }
 
@@ -7410,11 +7783,12 @@ bool queueSDCardStatusUpdate()
   sdCardStatusCloudInFlightPresent = sdCardReady;
   sdCardStatusCloudInFlightInitializationFailures = sdInitializationFailures;
   sdCardStatusCloudInFlightError = hasError;
-  database.set(asyncClient, sdStatusDatabasePath, sdStatus, processData, "updateSDCardStatus");
   sdCardStatusCloudInFlight = true;
   sdCardStatusCloudPending = false;
   sdCardStatusCloudDirtyDuringFlight = false;
   lastSDStatusCloudAttemptMillis = millis();
+  recordFirebaseWriteStart(FirebaseWrite::SdStatus);
+  database.set(asyncClient, sdStatusDatabasePath, sdStatus, processData, "updateSDCardStatus");
   return true;
 }
 
@@ -7476,10 +7850,11 @@ bool updateDeviceHeartbeat()
            "{\"last_seen_server_ms\":{\".sv\":\"timestamp\"},\"wifi_rssi_dbm\":%d}",
            WiFi.RSSI());
   object_t heartbeat(jsonPayload);
-  database.update(asyncClient, deviceStatusDatabasePath, heartbeat, processData,
-                  "updateDeviceHeartbeat");
   deviceHeartbeatInFlight = true;
   lastDeviceHeartbeatAttemptMillis = millis();
+  recordFirebaseWriteStart(FirebaseWrite::Heartbeat);
+  database.update(asyncClient, deviceStatusDatabasePath, heartbeat, processData,
+                  "updateDeviceHeartbeat");
   return true;
 }
 
@@ -7524,12 +7899,13 @@ bool updateDeviceStatus()
            static_cast<unsigned long>(lastDailyReconciliationTimestamp));
   object_t deviceStatus(jsonPayload);
 
-  database.set(asyncClient, deviceStatusDatabasePath, deviceStatus, processData,
-               "updateDeviceStatus");
   deviceStatusInFlight = true;
   deviceStatusPending = false;
   deviceStatusDirtyDuringFlight = false;
   lastDeviceStatusAttemptMillis = millis();
+  recordFirebaseWriteStart(FirebaseWrite::DeviceStatus);
+  database.set(asyncClient, deviceStatusDatabasePath, deviceStatus, processData,
+               "updateDeviceStatus");
   return true;
 }
 
@@ -7555,9 +7931,10 @@ void sendMeasurements(uint32_t measurementCycleMillis)
   serializeMeasurementJson(measurement, jsonPayload, sizeof(jsonPayload));
   object_t measurements(jsonPayload);
 
-  const bool shouldArchiveMeasurement = lastSDMeasurementMillis == 0 ||
-                                         measurementCycleMillis - lastSDMeasurementMillis >=
-                                             sdMeasurementIntervalMs;
+  const bool shouldArchiveMeasurement = !loadCellArchiveAwaitingFirstSample &&
+                                         (lastSDMeasurementMillis == 0 ||
+                                          measurementCycleMillis - lastSDMeasurementMillis >=
+                                              sdMeasurementIntervalMs);
   bool savedToSDCard = false;
   if (shouldArchiveMeasurement) {
     lastSDMeasurementMillis = measurementCycleMillis;
@@ -7600,6 +7977,7 @@ void processPendingLatestMeasurement()
   object_t measurements(jsonPayload);
   latestMeasurementUploadPending = false;
   latestMeasurementUploadInFlight = true;
+  recordFirebaseWriteStart(FirebaseWrite::Latest);
   database.set(asyncClient, latestDatabasePath, measurements, processData, "updateLatestMeasurement");
 }
 
@@ -7624,6 +8002,8 @@ void setup()
   initializeRtc();
   loadCellReady = initializeLoadCell();
   connectToWiFi();
+  localBootId = esp_random();
+  localRebootMutex = xSemaphoreCreateMutex();
   rebuildCloudAggregateState();
   initializeLocalWebServer();
   sslClient.setInsecure();
@@ -7657,6 +8037,7 @@ void loop()
   maintainArduinoOta();
   ElegantOTA.loop();
   maintainElegantOtaSession();
+  processPendingLocalReboot();
 
   processOtaUpdate();
   processPendingControlCommand();
@@ -7667,10 +8048,12 @@ void loop()
   processPendingWiFiCredentialReset();
   processPendingLocalHistoryDeletion();
   processPendingLoadCellTare();
+  processLoadCellSampling();
   processPendingBme680Calibration();
   processLocalHistory();
   processCloudHistoryReconciliation();
   printSystemDiagnostics();
+  publishLocalFirebaseDiagnostics();
 
   // Vsako opravilo uporablja svoj interval, zato meritve ne blokirajo spremljanja stanja naprave.
   const uint32_t currentMillis = millis();
@@ -7715,17 +8098,9 @@ void loop()
       sendFirmwareVersion();
     }
 
-    // Po ponovnem zagonu cloud ne sme obdržati starega stanja "taring".
-    // Zapis izvedemo le, ko je Firebase odjemalec prost.
+    // Zadnje dejansko stanje tariranja objavimo tudi po zasedenem kanalu ali napaki.
     if (isFirebaseReady() && !loadCellTareStatusReported) {
-      if (loadCellReady) {
-        loadCellTareState = LoadCellTareState::Idle;
-        reportLoadCellTareStatus("S ploščadi odstrani vse in nato tariraj tehtnico.");
-      } else {
-        loadCellTareState = LoadCellTareState::Error;
-        reportLoadCellTareStatus("HX711 ni dosegljiv; tariranje ni mogoče.");
-      }
-      loadCellTareStatusReported = true;
+      reportLoadCellTareStatus(loadCellTareStatusMessage);
     }
 
     if (isFirebaseReady() && !bme680CalibrationStatusReported) {

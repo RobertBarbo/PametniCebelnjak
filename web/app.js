@@ -36,6 +36,9 @@ const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPENSTREETMAP_REVERSE_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse";
 const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+// Lokalna zahteva se mora zaključiti ali prekiniti, preden periodični osveževalnik začne novo.
+const LOCAL_STATUS_REQUEST_TIMEOUT_MS = 8_000;
+const LOCAL_HISTORY_REQUEST_TIMEOUT_MS = 20_000;
 // Živa relativna obdobja pomaknejo konec grafa brez osveževanja celotne strani.
 const LIVE_HISTORY_REFRESH_INTERVAL_MS = 60 * 1000;
 // RAW meritve so običajno nespremenljive; petminutni rep vseeno varno pokrije
@@ -89,6 +92,16 @@ function createCloudControlCommand(action, fields = {}) {
     ...fields,
     request_id: requestId,
     requested_at: Math.floor(Date.now() / 1000),
+  };
+}
+
+function createSingleFlightTask(task) {
+  let pendingTask = null;
+  return (...args) => {
+    if (pendingTask === null) {
+      pendingTask = Promise.resolve().then(() => task(...args)).finally(() => { pendingTask = null; });
+    }
+    return pendingTask;
   };
 }
 
@@ -2132,7 +2145,10 @@ function enqueueLocalHistoryRequest(request) {
 function fetchLocalHistoryWindow(window, onPreparing) {
   return enqueueLocalHistoryRequest(async () => {
     for (let attempt = 0; attempt < 120; attempt += 1) {
-      const response = await fetch(`/api/history?from=${window.from}&to=${window.to}`, { cache: "no-store" });
+      const response = await fetch(`/api/history?from=${window.from}&to=${window.to}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(LOCAL_HISTORY_REQUEST_TIMEOUT_MS),
+      });
       if (response.status === 202) {
         onPreparing?.();
         await delay(250);
@@ -6935,7 +6951,10 @@ function initializeAuthControls() {
 }
 
 async function useLocalDataSource() {
-  const response = await fetch("/api/status", { cache: "no-store" });
+  const response = await fetch("/api/status", {
+    cache: "no-store",
+    signal: AbortSignal.timeout(LOCAL_STATUS_REQUEST_TIMEOUT_MS),
+  });
   if (!response.ok) throw new Error("Lokalni API ni dosegljiv");
   const initialStatus = await response.json();
   isLocalDashboard = true;
@@ -6969,11 +6988,14 @@ async function useLocalDataSource() {
     setConnectionState("Lokalna povezava");
   }
 
-  async function refreshStatus() {
-    const statusResponse = await fetch("/api/status", { cache: "no-store" });
+  const refreshStatus = createSingleFlightTask(async () => {
+    const statusResponse = await fetch("/api/status", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(LOCAL_STATUS_REQUEST_TIMEOUT_MS),
+    });
     if (!statusResponse.ok) throw new Error("Lokalno stanje ni dosegljivo");
     renderLocalStatus(await statusResponse.json());
-  }
+  });
 
   refreshHistory = async () => {
     const from = Math.floor(appliedRange.from.getTime() / 1000);

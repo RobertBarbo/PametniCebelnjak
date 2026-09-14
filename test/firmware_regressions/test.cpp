@@ -167,7 +167,7 @@ bool loadCellArchiveAwaitingFirstSample = false;
 bool loadCellStartupSampling = false, loadCellAutomaticTare = false, nvsWritable = true;
 float loadCellCachedWeightKg = 0;
 uint32_t loadCellCachedWeightMillis = 0, lastMeasurementMillis = 1;
-constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 2000, HX711_STARTUP_TIMEOUT_MS = 1000, HX711_READY_TIMEOUT_MS = 250;
+constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 15000, HX711_STARTUP_TIMEOUT_MS = 1000, HX711_READY_TIMEOUT_MS = 250;
 constexpr uint8_t HX711_READ_SAMPLES = 5, HX711_TARE_SAMPLES = 20;
 LoadCellSampleWindow loadCellSampleWindow;
 LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
@@ -276,6 +276,12 @@ void testLoadCell() {
   loadCellSampleWindow.begin(nowMillis, 1);
   feed(false, 0, HX711_READY_TIMEOUT_MS);
   assert(readLoadCell(accepted) && accepted == 10 && loadCellReady);
+  // Potrjena napaka senzorja zavrne predpomnilnik takoj, tudi znotraj daljšega
+  // časovnega okna, ki je namenjeno samo zastojem omrežnih opravil.
+  loadCellStatus.consecutiveFailures = 5;
+  assert(!readLoadCell(accepted));
+  loadCellStatus.consecutiveFailures = 0;
+  assert(readLoadCell(accepted));
   nowMillis += HX711_CACHE_MAX_AGE_MS + 1;
   assert(!readLoadCell(accepted));
   puts("H-08: izpad med vsakim vzorcem, preliv ure, ADC znak/impulzi in filter skokov: OK");

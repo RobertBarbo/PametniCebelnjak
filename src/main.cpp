@@ -166,7 +166,7 @@ constexpr uint8_t HX711_TARE_SAMPLES = 20;  // Število vzorcev ob tariranju pra
 constexpr uint8_t HX711_READ_SAMPLES = 5;  // Število vzorcev na povprečje; več vzorcev zmanjša šum in podaljša osvežitev mase, ne blokira zanke.
 constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;  // Čas v ms brez novega vzorca, po katerem se običajno branje ali tariranje prekine.
 constexpr uint32_t HX711_STARTUP_TIMEOUT_MS = 1000;  // Čas v ms brez novega vzorca v prvem povprečju po inicializaciji, zaradi stabilizacije HX711.
-constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 2000;  // Največja starost v ms potrjenega povprečja mase za vključitev v meritev.
+constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 15000;  // Največja starost v ms potrjene mase med počasnim omrežnim opravilom; stanje napake HX711 jo zavrne prej.
 constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;  // Večji skok teže zahteva še eno potrdilno meritev.
 constexpr float HX711_STEP_CONFIRM_TOLERANCE_KG = 1.0F;  // Največja razlika med dvema meritvama za potrditev velikega skoka.
 constexpr float HX711_CALIBRATION_FACTOR = 22845.060F;  // Faktor umerjanja HX711; spremeni ga šele po postopku kalibracije z znano utežjo.
@@ -2062,6 +2062,7 @@ bool readLoadCell(float &weightKg)
 {
   if (!loadCellReady || !loadCellCachedWeightValid || loadCellTareQueued ||
       loadCellSamplingMode == LoadCellSamplingMode::Taring ||
+      componentHealth(loadCellStatus) == ComponentHealth::Error ||
       millis() - loadCellCachedWeightMillis > HX711_CACHE_MAX_AGE_MS) return false;
   weightKg = loadCellCachedWeightKg;
   return true;
@@ -5901,7 +5902,14 @@ void downloadSdCardFile(AsyncWebServerRequest *request)
     return;
   }
   file.close();
-  request->send(SD, path, contentTypeForPath(path), true);
+  AsyncWebServerResponse *response = request->beginResponse(SD, path, contentTypeForPath(path), true);
+  if (response == nullptr) {
+    request->send(500, "text/plain; charset=utf-8", "File download could not be started.");
+    return;
+  }
+  response->addHeader("Cache-Control", "no-store");
+  response->addHeader("Connection", "close");
+  request->send(response);
 }
 
 void deleteSdCardFile(AsyncWebServerRequest *request)
@@ -6607,8 +6615,15 @@ void serveMeasurementLog(AsyncWebServerRequest *request)
     return;
   }
   const bool inlineView = request->url() == "/measurements";
-  request->send(SD, SD_LOG_PATH, inlineView ? "text/plain; charset=utf-8" : "text/csv; charset=utf-8",
-                !inlineView);
+  AsyncWebServerResponse *response = request->beginResponse(
+      SD, SD_LOG_PATH, inlineView ? "text/plain; charset=utf-8" : "text/csv; charset=utf-8", !inlineView);
+  if (response == nullptr) {
+    request->send(500, "text/plain; charset=utf-8", "Measurement log download could not be started.");
+    return;
+  }
+  response->addHeader("Cache-Control", "no-store");
+  response->addHeader("Connection", "close");
+  request->send(response);
 }
 
 void initializeLocalWebServer()
@@ -8026,6 +8041,9 @@ void setup()
 
 void loop()
 {
+  // HX711 dobi prvo možnost v vsakem prehodu. Počasno povezovanje Firebase tako
+  // ne odloži že pripravljenega ADC vzorca še za dodaten cel prehod zanke.
+  processLoadCellSampling();
   processQueuedWiFiConnectionAttempt();
   updateWiFiConnectionAttempt();
   maintainProvisioningAccessPoint();
@@ -8048,7 +8066,6 @@ void loop()
   processPendingWiFiCredentialReset();
   processPendingLocalHistoryDeletion();
   processPendingLoadCellTare();
-  processLoadCellSampling();
   processPendingBme680Calibration();
   processLocalHistory();
   processCloudHistoryReconciliation();

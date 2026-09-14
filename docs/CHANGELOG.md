@@ -6,6 +6,8 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Firmware `0.1.0-rc.79` prepreči kopičenje lokalnih `/api/status` zahtev: začetno in periodično branje imata omejen čas, periodični osveževalnik pa uporablja največ eno aktivno zahtevo. Enako časovno omejitev imajo posamezni koraki lokalne zgodovine. Prenosi CSV in datotek SD izrecno zaprejo HTTP povezavo po koncu.
+- HX711 vzorčenje se izvede na začetku vsakega prehoda zanke. Zadnja potrjena masa med počasnim omrežnim opravilom velja največ 15 sekund, vendar se ob potrjenem stanju napake HX711 zavrne takoj. Tako nekajsekundno povezovanje Firebase ne ustvari prazne arhivske točke, dejanski izpad tehtnice pa se ne prikrije.
 - Firmware `0.1.0-rc.78` odpravlja F-03: prvi zapis SD zgodovine po zagonu ali tariranju počaka na prvo potrjeno maso HX711. Kratek timeout ali nejasen potrditveni odčitek ne izbriše zadnje potrjene mase, če je mlajša od dveh sekund; tudi pri stanju napake se neblokirajoče vzorčenje nadaljuje, zato se HX711 po kratki motnji pobere takoj in ne šele ob minutni ponovni inicializaciji. Daljši izpad še vedno zapiše `null`.
 - Firmware `0.1.0-rc.77` odpravlja F-02: potrditev cloud ukaza ima ločeno čakajoče, oddano in uspešno zaključeno stanje. Pozni SSE dogodek istega že potrjenega `request_id` ne more znova poslati PATCH-a na `control`; izgubljeni callback iste potrditve se še vedno ponovi, nov ukaz pa ne podeduje starega stanja.
 - Firmware `0.1.0-rc.76` odpravlja H-05: korenski Firebase SSE JSON razčleni s cJSON in v obdelavo ukaza pošlje samo `command`; stari `ack/request_id` se ne more povezati z novim dejanjem. Velikost se preverja na izločenem ukazu.

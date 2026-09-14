@@ -606,11 +606,25 @@ Lokalni reboot je spremljevalna funkcionalnost tega popravka. Sedem testov v [lo
 - **Resnost:** Medium.
 - **Status:** Čaka preverjanje.
 - **Lokacija:** [src/main.cpp](../src/main.cpp), `initializeLoadCell()`, `processLoadCellSampling()` in `sendMeasurements()`.
-- **Napaka:** prvi arhivski zapis po zagonu lahko nastane pred prvim petvzročnim povprečjem HX711. Pri kasnejšem kratkem timeoutu koda izbriše še svežo potrjeno maso, po petih timeoutih pa vzorčenje ustavi do minutne ponovne inicializacije. BME680 se medtem normalno zapiše, masa pa ostane prazna.
+- **Napaka:** prvi arhivski zapis po zagonu lahko nastane pred prvim petvzročnim povprečjem HX711. Popravek `rc.78` je odpravil izgubo sveže mase ob kratkem timeoutu, vendar je bila veljavnost predpomnilnika omejena na dve sekundi, vzorčenje pa se je izvajalo šele za omrežnimi opravili. Nekajsekundni zastoj glavne zanke je zato lahko še vedno ustvaril prazno maso.
 - **Scenarij / dokaz:** dejanski `/measurements.csv` naprave `CB-608C004AEC24` vsebuje ob `19:48:32` in `19:57:45` prazno `weight_kg`, medtem ko so ob `19:42:57`, `19:53:34` in `20:02:46` temperatura, vlaga in masa veljavne. Lokalni in cloud graf pravilno ne narišeta `null`, zato je videti daljša vrzel.
-- **Popravek:** `0.1.0-rc.78` odloži prvi arhivski zapis do prve potrjene mase oziroma začetnega timeouta. Kratek timeout ali nejasen kandidat pusti zadnje potrjeno povprečje na voljo največ dve sekundi; nato `readLoadCell()` še vedno vrne `false`. Običajno vzorčenje po stanju napake nadaljuje, zato se vrnjen signal obdeluje takoj.
+- **Popravek:** `0.1.0-rc.79` ohranja popravke `rc.78`, HX711 obdela pred omrežnimi opravili in potrjeno maso med zastojem dovoli največ 15 sekund. Stanje komponente `error` predpomnilnik zavrne takoj, zato resničen izpad ni prikrit.
 - **Merilo zaprtja:** po zagonu ima prvi SD arhivski zapis veljavno maso, kadar HX711 odgovori v začetnem časovnem oknu. Ob kratki motnji masa v naslednjem 5-minutnem arhivu ne postane `null`; ob dejanskem daljšem odklopu pa ostane `null` in health stanje pokaže napako.
-- **Preverjanje popravka / datum:** gostiteljski regresijski test preveri ohranitev sveže mase pri timeoutu in zavrnitev mase, starejše od dveh sekund. Fizično preverjanje s panjem v uporabi še čaka; ne izvajaj namernega odklopa merilnih celic.
+- **Preverjanje popravka / datum:** gostiteljski regresijski test preveri ohranitev mase med časovnim oknom, takojšnjo zavrnitev pri health stanju `error` in zavrnitev po 15 sekundah. Fizično preverjanje s panjem v uporabi še čaka; ne izvajaj namernega odklopa merilnih celic.
+
+<a id="f-04"></a>
+
+## F-04 — počasne lokalne zahteve se kopičijo in izčrpajo HTTP odzivnost
+
+- **Izvor:** praktični preizkus naprave s firmware-om `0.1.0-rc.78`, 13. september 2026.
+- **Resnost:** High.
+- **Status:** Čaka preverjanje.
+- **Lokacija:** [web/app.js](../web/app.js), `useLocalDataSource()` in `fetchLocalHistoryWindow()`; [src/main.cpp](../src/main.cpp), `serveMeasurementLog()` in `downloadSdCardFile()`.
+- **Napaka:** lokalni statusni osveževalnik je vsakih pet sekund začel novo zahtevo brez timeouta ali omejitve na eno aktivno zahtevo. Tudi posamezen korak lokalne zgodovine ni imel omrežnega timeouta. Ob počasnem odgovoru so se povezave lahko kopičile; prenosa CSV in poljubne SD datoteke nista izrecno zahtevala zaprtja povezave.
+- **Scenarij / dokaz:** panj je odgovarjal na ping med 17 in 1032 ms brez izgube paketov, usmerjevalnik pa med 4 in 7 ms. TCP povezava na port 80 se je vzpostavila v 44 ms, vendar lokalni HTTP ni poslal glave v 12 sekundah, `/api/status` pa ni odgovoril niti v 25 sekundah. Cloud je ostal dosegljiv. Ponovni zagon je v prejšnjem pojavu takoj obnovil odzivnost.
+- **Popravek:** `0.1.0-rc.79` za periodični status uporablja eno skupno aktivno Promise zahtevo in osemsekundni timeout; lokalna zgodovina uporablja dvajsetsekundni timeout. Firmware pri velikih SD odgovorih nastavi `Connection: close` in preveri uspešno ustvarjanje odgovora.
+- **Merilo zaprtja:** več lokalnih osvežitev ob počasnem ali nedosegljivem API-ju ne ustvari več kot ene aktivne statusne zahteve. Po zaključenem ali prekinjenem prenosu CSV ostaneta `/api/status` in nova lokalna stran odzivna brez reboota.
+- **Preverjanje popravka / datum:** gostiteljski JavaScript test preveri združevanje sočasnih klicev in sprostitev po zaključku; fizični preizkus počasnega oziroma prekinjenega prenosa še čaka.
 
 ## Preverjanja in povzetek iz izvirnega poročila
 

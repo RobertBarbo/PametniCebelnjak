@@ -1,6 +1,7 @@
 #define ENABLE_DATABASE
 
 #include <Arduino.h>
+#include <atomic>
 #include <new>
 #include <dirent.h>
 #include <Adafruit_BME680.h>
@@ -70,6 +71,8 @@ constexpr uint32_t CLOUD_SYNC_REQUEST_MISSING_GRACE_MS = 3 * 1000;  // Čas za a
 constexpr uint32_t CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20 * 1000;  // Najdaljše čakanje na posamezno Firebase zahtevo.
 constexpr uint32_t FIREBASE_NETWORK_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor pred novim Firebase poskusom po omrežni napaki.
 constexpr uint32_t CONTROL_COMMAND_ACK_RETRY_INTERVAL_MS = 30 * 1000;  // Najkrajši premor po zavrnjenem ali neuspelem Firebase ACK-u ukaza; prepreči tesno zanko zahtev.
+constexpr uint32_t CONTROL_STREAM_RETRY_INITIAL_MS = 30 * 1000;  // Začetni premor v ms po napaki stalnega Firebase toka.
+constexpr uint32_t CONTROL_STREAM_RETRY_MAX_MS = 4 * 60 * 1000;  // Najdaljši premor v ms pred vnovično vzpostavitvijo stalnega Firebase toka.
 constexpr uint32_t FIREBASE_APP_LOOP_INTERVAL_MS = 50;  // Perioda obdelave FirebaseClient; 50 ms pomeni največ 20 klicev na sekundo.
 constexpr uint32_t FIREBASE_TASK_TIMEOUT_MS = 12 * 1000;  // Najdaljše dovoljeno trajanje Firebase opravila.
 constexpr size_t MAX_FIREBASE_ASYNC_TASKS = 1;  // Največ hkratnih Firebase opravil; 1 preprečuje zasičenje RAM-a in TCP-ja.
@@ -167,6 +170,8 @@ constexpr uint8_t HX711_READ_SAMPLES = 5;  // Število vzorcev na povprečje; ve
 constexpr uint32_t HX711_READY_TIMEOUT_MS = 250;  // Čas v ms brez novega vzorca, po katerem se običajno branje ali tariranje prekine.
 constexpr uint32_t HX711_STARTUP_TIMEOUT_MS = 1000;  // Čas v ms brez novega vzorca v prvem povprečju po inicializaciji, zaradi stabilizacije HX711.
 constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 15000;  // Največja starost v ms potrjene mase med počasnim omrežnim opravilom; stanje napake HX711 jo zavrne prej.
+constexpr uint32_t HX711_SAMPLER_POLL_MS = 10;  // Razmik v ms med neblokirajočimi preverjanji pripravljenosti HX711 v ločenem opravilu.
+constexpr uint32_t HX711_ARCHIVE_RETRY_MS = 2000;  // Največji čas v ms za svežo maso pred petminutnim zapisom; okoljske meritve se nato vseeno shranijo.
 constexpr float HX711_MAX_STEP_CHANGE_KG = 5.0F;  // Večji skok teže zahteva še eno potrdilno meritev.
 constexpr float HX711_STEP_CONFIRM_TOLERANCE_KG = 1.0F;  // Največja razlika med dvema meritvama za potrditev velikega skoka.
 constexpr float HX711_CALIBRATION_FACTOR = 22845.060F;  // Faktor umerjanja HX711; spremeni ga šele po postopku kalibracije z znano utežjo.
@@ -461,7 +466,15 @@ FirebaseApp app;
 RealtimeDatabase database;
 
 uint32_t lastMeasurementMillis = 0;
+uint32_t activeMeasurementCycleMillis = 0;
+bool measurementCyclePending = false;
+bool bme680ReadingStarted = false;
 uint32_t lastSDMeasurementMillis = 0;
+Measurement pendingArchiveMeasurement;
+uint32_t pendingArchiveStartedMillis = 0;
+uint32_t pendingArchiveCycleMillis = 0;
+bool pendingArchiveMeasurementActive = false;
+bool archiveRefreshAttempted = false;
 uint32_t lastSDStatusMillis = 0;
 uint32_t lastSDStatusCloudAttemptMillis = 0;
 uint32_t lastDeviceHeartbeatMillis = 0;
@@ -517,11 +530,16 @@ bool deviceStatusDirtyDuringFlight = false;
 bool firmwareCommandQueued = false;
 bool timeCommandQueued = false;
 bool controlStreamStarted = false;
+bool controlStreamRestartPending = false;
+uint32_t controlStreamRetryStartedMillis = 0;
+uint32_t controlStreamRetryDelayMillis = 0;
+uint8_t controlStreamConsecutiveFailures = 0;
 bool controlCommandDispatchPending = false;
 bool timeCommandFromCloud = false;
 volatile bool ntpSynchronizationCompleted = false;
 bool ntpSynchronizationPending = false;
-bool firmwareUpdateInProgress = false;
+std::atomic_bool firmwareUpdateInProgress{false};
+std::atomic_bool arduinoOtaActive{false};
 bool queuedFirmwareCommandInvalid = false;
 bool historyDeletionQueued = false;
 bool historyDeletionRequestPending = false;
@@ -536,7 +554,7 @@ bool bme680CalibrationStatusReported = false;
 bool otaHashActive = false;
 bool otaFlashUpdateActive = false;
 bool littlefsUnmountedForOta = false;
-bool localElegantOtaSessionActive = false;
+std::atomic_bool localElegantOtaSessionActive{false};
 bool localElegantOtaAwaitingUpdateStart = false;
 bool littlefsUnmountedForLocalElegantOta = false;
 bool localElegantOtaRestartScheduled = false;
@@ -603,8 +621,24 @@ float loadCellCandidateWeightKg = 0.0F;
 enum class LoadCellSamplingMode { Measuring, Confirming, Taring };
 LoadCellSamplingMode loadCellSamplingMode = LoadCellSamplingMode::Measuring;
 LoadCellSampleWindow loadCellSampleWindow;
+struct LoadCellSamplerResult {
+  uint32_t sequence = 0;
+  uint32_t generation = 0;
+  uint32_t sampledMillis = 0;
+  int32_t average = 0;
+  bool timedOut = false;
+};
+portMUX_TYPE loadCellSamplerMux = portMUX_INITIALIZER_UNLOCKED;
+TaskHandle_t loadCellSamplerTaskHandle = nullptr;
+LoadCellSamplerResult loadCellSamplerResult;
+uint32_t loadCellSamplerGeneration = 1;
+uint32_t loadCellSamplerProcessedSequence = 0;
+uint32_t loadCellSamplerTimeouts = 0;
+uint32_t loadCellSamplerLastAverageMillis = 0;
+uint8_t loadCellSamplerRequestedSamples = HX711_READ_SAMPLES;
+bool loadCellSamplerStopAfterResult = false;
 bool loadCellAutomaticTare = false;
-bool loadCellStartupSampling = false;
+std::atomic_bool loadCellStartupSampling{false};
 // Prvi arhivski zapis po zagonu ali tariranju počaka na prvo potrjeno maso.
 // Če HX711 ne odgovori niti v začetnem časovnem oknu, se okoljski podatki nato še vedno beležijo.
 bool loadCellArchiveAwaitingFirstSample = false;
@@ -612,6 +646,11 @@ bool loadCellCachedWeightValid = false;
 float loadCellCachedWeightKg = 0.0F;
 uint32_t loadCellCachedWeightMillis = 0;
 portMUX_TYPE loadCellReadMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t loadCellLastArchiveMissingTimestamp = 0;
+uint32_t loadCellMissingArchiveCount = 0;
+const char *loadCellLastArchiveMissingReason = "none";
+uint32_t longestLoopGapMillis = 0;
+uint32_t previousLoopStartedMillis = 0;
 const char *loadCellTareStatusMessage = "S ploščadi odstrani vse in nato tariraj tehtnico.";
 bool rtcReady = false;
 bool rtcTimeValid = false;
@@ -1915,13 +1954,27 @@ void resetLoadCellWeightFilter()
   loadCellCandidateWeightKg = 0.0F;
 }
 
+void beginLoadCellSampleWindow(uint8_t samples, bool stopAfterResult = false)
+{
+  const uint32_t now = millis();
+  loadCellSampleWindow.begin(now, samples);
+  portENTER_CRITICAL(&loadCellSamplerMux);
+  ++loadCellSamplerGeneration;
+  loadCellSamplerRequestedSamples = samples;
+  loadCellSamplerStopAfterResult = stopAfterResult;
+  loadCellSamplerProcessedSequence = loadCellSamplerResult.sequence;
+  portEXIT_CRITICAL(&loadCellSamplerMux);
+}
+
 bool initializeLoadCell()
 {
   resetLoadCellWeightFilter();
+  portENTER_CRITICAL(&loadCellReadMux);
   loadCell.begin(HX711_DOUT_PIN, HX711_SCK_PIN);
   digitalWrite(HX711_SCK_PIN, LOW);
   // Vgrajen pull-up prepreči lebdeče DOUT stanje, kadar je HX711 brez napajanja.
   pinMode(HX711_DOUT_PIN, INPUT_PULLUP);
+  portEXIT_CRITICAL(&loadCellReadMux);
   loadCell.set_scale(HX711_CALIBRATION_FACTOR);
   loadCellCachedWeightValid = false;
   loadCellCachedWeightMillis = 0;
@@ -1932,17 +1985,17 @@ bool initializeLoadCell()
     loadCell.set_offset(offset);
     loadCellSamplingMode = LoadCellSamplingMode::Measuring;
     loadCellAutomaticTare = false;
-    loadCellSampleWindow.begin(millis(), HX711_READ_SAMPLES);
+    beginLoadCellSampleWindow(HX711_READ_SAMPLES);
     Serial.printf("HX711 initialized with saved tare offset %ld.\n", offset);
     return true;
   }
 
-  // Tudi začetno tariranje poteka po enem vzorcu v loop(); ploščad mora biti prazna.
+  // Začetno tariranje zbere 20 vzorcev v merilnem opravilu; ploščad mora biti prazna.
   Serial.println("HX711 has no saved tare offset; taring with an empty platform.");
   loadCellSamplingMode = LoadCellSamplingMode::Taring;
   loadCellAutomaticTare = true;
   loadCellTareState = LoadCellTareState::Taring;
-  loadCellSampleWindow.begin(millis(), HX711_TARE_SAMPLES);
+  beginLoadCellSampleWindow(HX711_TARE_SAMPLES, true);
   return true;
 }
 
@@ -2033,7 +2086,7 @@ bool readBme680(float &temperatureC, float &humidityPercent)
     reportComponentFailure(bme680Status, "BME680", "meritev ni mogoča, ker senzor ni dosegljiv");
     return false;
   }
-  if (!bme680.performReading()) {
+  if (!bme680ReadingStarted || !bme680.endReading()) {
     reportComponentFailure(bme680Status, "BME680", "branje meritve ni uspelo");
     if (componentHealth(bme680Status) == ComponentHealth::Error) bme680Ready = false;
     return false;
@@ -2095,16 +2148,101 @@ bool tryReadLoadCellRaw(int32_t &sample)
   return true;
 }
 
+void loadCellSamplerTask(void *)
+{
+  LoadCellSampleWindow window;
+  uint32_t activeGeneration = 0;
+  uint8_t requestedSamples = HX711_READ_SAMPLES;
+  bool stopAfterResult = false;
+  bool waitingForCommand = false;
+  bool wasPaused = false;
+  for (;;) {
+    uint32_t generation;
+    portENTER_CRITICAL(&loadCellSamplerMux);
+    generation = loadCellSamplerGeneration;
+    if (generation != activeGeneration) {
+      requestedSamples = loadCellSamplerRequestedSamples;
+      stopAfterResult = loadCellSamplerStopAfterResult;
+    }
+    portEXIT_CRITICAL(&loadCellSamplerMux);
+
+    const uint32_t now = millis();
+    if (generation != activeGeneration) {
+      activeGeneration = generation;
+      window.begin(now, requestedSamples);
+      waitingForCommand = false;
+      wasPaused = false;
+    }
+
+    // Med zapisovanjem OTA particije ne tekmujemo za procesor; po koncu začnemo
+    // novo povprečje, zato starega delnega okna ne objavimo kot svežo maso.
+    const bool paused = firmwareUpdateInProgress || localElegantOtaSessionActive || arduinoOtaActive;
+    if (paused) {
+      wasPaused = true;
+    } else if (!waitingForCommand) {
+      if (wasPaused) {
+        window.begin(now, requestedSamples);
+        wasPaused = false;
+      }
+      int32_t average = 0;
+      const SampleProgress progress = window.poll(now,
+          loadCellStartupSampling ? HX711_STARTUP_TIMEOUT_MS : HX711_READY_TIMEOUT_MS,
+          tryReadLoadCellRaw, average);
+      if (progress != SampleProgress::Pending) {
+        portENTER_CRITICAL(&loadCellSamplerMux);
+        if (activeGeneration == loadCellSamplerGeneration) {
+          loadCellSamplerResult.sequence++;
+          loadCellSamplerResult.generation = activeGeneration;
+          loadCellSamplerResult.sampledMillis = now;
+          loadCellSamplerResult.average = average;
+          loadCellSamplerResult.timedOut = progress == SampleProgress::Timeout;
+          if (progress == SampleProgress::Timeout) ++loadCellSamplerTimeouts;
+          else loadCellSamplerLastAverageMillis = now;
+        }
+        portEXIT_CRITICAL(&loadCellSamplerMux);
+        waitingForCommand = stopAfterResult;
+        if (!waitingForCommand) window.begin(now, HX711_READ_SAMPLES);
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(HX711_SAMPLER_POLL_MS) > 0 ?
+               pdMS_TO_TICKS(HX711_SAMPLER_POLL_MS) : 1);
+  }
+}
+
 void processLoadCellSampling()
 {
   if (!loadCellReady || firmwareUpdateInProgress || Update.isRunning()) return;
   int32_t average = 0;
-  const uint32_t now = millis();
-  const SampleProgress progress = loadCellSampleWindow.poll(now,
-      loadCellStartupSampling ? HX711_STARTUP_TIMEOUT_MS : HX711_READY_TIMEOUT_MS,
-      tryReadLoadCellRaw, average);
+  uint32_t now = millis();
+  SampleProgress progress;
+  if (loadCellSamplerTaskHandle != nullptr) {
+    LoadCellSamplerResult result;
+    portENTER_CRITICAL(&loadCellSamplerMux);
+    result = loadCellSamplerResult;
+    const bool fresh = result.sequence != loadCellSamplerProcessedSequence &&
+                       result.generation == loadCellSamplerGeneration;
+    if (fresh) loadCellSamplerProcessedSequence = result.sequence;
+    portEXIT_CRITICAL(&loadCellSamplerMux);
+    if (!fresh) return;
+    now = result.sampledMillis;
+    average = result.average;
+    progress = result.timedOut ? SampleProgress::Timeout : SampleProgress::Complete;
+  } else {
+    // Če FreeRTOS opravila zaradi pomanjkanja pomnilnika ni mogoče ustvariti,
+    // ohranimo dosedanje neblokirajoče vzorčenje v glavni zanki.
+    progress = loadCellSampleWindow.poll(now,
+        loadCellStartupSampling ? HX711_STARTUP_TIMEOUT_MS : HX711_READY_TIMEOUT_MS,
+        tryReadLoadCellRaw, average);
+  }
   if (progress == SampleProgress::Pending) return;
+  if (loadCellSamplerTaskHandle == nullptr) {
+    portENTER_CRITICAL(&loadCellSamplerMux);
+    if (progress == SampleProgress::Timeout) ++loadCellSamplerTimeouts;
+    else loadCellSamplerLastAverageMillis = now;
+    portEXIT_CRITICAL(&loadCellSamplerMux);
+  }
   loadCellStartupSampling = false;
+  const bool wasTaring = loadCellSamplingMode == LoadCellSamplingMode::Taring;
 
   if (progress == SampleProgress::Timeout) {
     // Kratek izpad ne zavrže zadnje potrjene mase. readLoadCell() jo uporabi le,
@@ -2120,7 +2258,9 @@ void processLoadCellSampling()
     // Običajno vzorčenje nadaljuje tudi v stanju napake. Tako se HX711 po kratki
     // motnji pobere z naslednjim pripravljenim vzorcem in ne čaka minuto na recovery.
     loadCellSamplingMode = LoadCellSamplingMode::Measuring;
-    loadCellSampleWindow.begin(now, HX711_READ_SAMPLES);
+    if (loadCellSamplerTaskHandle == nullptr || wasTaring) {
+      beginLoadCellSampleWindow(HX711_READ_SAMPLES);
+    }
     return;
   }
 
@@ -2160,7 +2300,9 @@ void processLoadCellSampling()
       // Enako kot pri timeoutu naslednje neblokirajoče vzorčenje ostane aktivno.
     }
   }
-  loadCellSampleWindow.begin(now, HX711_READ_SAMPLES);
+  if (loadCellSamplerTaskHandle == nullptr || wasTaring) {
+    beginLoadCellSampleWindow(HX711_READ_SAMPLES);
+  }
 }
 
 void maintainComponentRecovery(uint32_t currentMillis)
@@ -4488,12 +4630,15 @@ void processControlStreamData(AsyncResult &result)
   if (result.isError()) {
     Serial.printf("Firebase control stream error: %s (%d).\n", result.error().message().c_str(),
                   result.error().code());
+    controlStreamRestartPending = true;
     return;
   }
   if (!result.available()) return;
 
   RealtimeDatabaseResult &stream = result.to<RealtimeDatabaseResult>();
   if (!stream.isStream()) return;
+  controlStreamConsecutiveFailures = 0;
+  controlStreamRetryDelayMillis = 0;
 
   const String event = stream.event();
   if (event != "put" && event != "patch") return;
@@ -4534,9 +4679,26 @@ void maintainControlStream()
       controlStreamSslClient.stop();
       controlStreamStarted = false;
     }
+    controlStreamRestartPending = false;
     return;
   }
+  if (controlStreamRestartPending) {
+    controlStreamClient.stopAsync(true);
+    controlStreamSslClient.stop();
+    controlStreamStarted = false;
+    controlStreamRestartPending = false;
+    if (controlStreamConsecutiveFailures < 8) ++controlStreamConsecutiveFailures;
+    const uint8_t shift = controlStreamConsecutiveFailures > 4 ? 3 :
+                          controlStreamConsecutiveFailures - 1;
+    controlStreamRetryDelayMillis = CONTROL_STREAM_RETRY_INITIAL_MS << shift;
+    if (controlStreamRetryDelayMillis > CONTROL_STREAM_RETRY_MAX_MS) {
+      controlStreamRetryDelayMillis = CONTROL_STREAM_RETRY_MAX_MS;
+    }
+    controlStreamRetryStartedMillis = millis();
+  }
   if (controlStreamStarted || !app.ready()) return;
+  if (controlStreamRetryDelayMillis != 0 &&
+      millis() - controlStreamRetryStartedMillis < controlStreamRetryDelayMillis) return;
 
   controlStreamClient.setSSEFilters("get,put,patch,keep-alive,cancel,auth_revoked");
   database.get(controlStreamClient, controlDatabasePath, processControlStreamData, true, "controlStream");
@@ -4759,7 +4921,7 @@ void processPendingLoadCellTare()
   loadCellSamplingMode = LoadCellSamplingMode::Taring;
   loadCellAutomaticTare = false;
   loadCellStartupSampling = false;
-  loadCellSampleWindow.begin(millis(), HX711_TARE_SAMPLES);
+  beginLoadCellSampleWindow(HX711_TARE_SAMPLES, true);
 }
 
 void processPendingBme680Calibration()
@@ -5434,10 +5596,24 @@ void appendLocalDiagnostics(String &payload)
 {
   FirebaseDiagnostics snapshot;
   LocalRebootState rebootState;
+  uint32_t missingCount;
+  uint32_t missingTimestamp;
+  uint32_t maxLoopGap;
+  const char *missingReason;
   portENTER_CRITICAL(&localDiagnosticsMux);
   snapshot = localFirebaseDiagnostics;
   rebootState = localRebootState;
+  missingCount = loadCellMissingArchiveCount;
+  missingTimestamp = loadCellLastArchiveMissingTimestamp;
+  missingReason = loadCellLastArchiveMissingReason;
+  maxLoopGap = longestLoopGapMillis;
   portEXIT_CRITICAL(&localDiagnosticsMux);
+  uint32_t samplerTimeouts;
+  uint32_t lastAverageMillis;
+  portENTER_CRITICAL(&loadCellSamplerMux);
+  samplerTimeouts = loadCellSamplerTimeouts;
+  lastAverageMillis = loadCellSamplerLastAverageMillis;
+  portEXIT_CRITICAL(&loadCellSamplerMux);
 
   char buffer[320];
   snprintf(buffer, sizeof(buffer),
@@ -5461,6 +5637,14 @@ void appendLocalDiagnostics(String &payload)
                       rebootState == LocalRebootState::Error ? "error" : "idle";
   snprintf(buffer, sizeof(buffer), "}},\"reboot\":{\"state\":\"%s\",\"allowed\":%s,\"boot_id\":%lu}",
       state, snapshot.rebootAllowed ? "true" : "false", static_cast<unsigned long>(localBootId));
+  payload += buffer;
+  snprintf(buffer, sizeof(buffer),
+      ",\"load_cell_diagnostics\":{\"sampler_running\":%s,\"last_average_age_ms\":%lu,\"timeouts\":%lu,\"missing_archives\":%lu,\"last_missing_timestamp\":%lu,\"last_missing_reason\":\"%s\",\"max_loop_gap_ms\":%lu}",
+      loadCellSamplerTaskHandle != nullptr ? "true" : "false",
+      static_cast<unsigned long>(lastAverageMillis == 0 ? 0 : millis() - lastAverageMillis),
+      static_cast<unsigned long>(samplerTimeouts), static_cast<unsigned long>(missingCount),
+      static_cast<unsigned long>(missingTimestamp), missingReason,
+      static_cast<unsigned long>(maxLoopGap));
   payload += buffer;
 }
 
@@ -5534,6 +5718,7 @@ void initializeArduinoOta()
       Update.abort();
       return;
     }
+    arduinoOtaActive = true;
 
     const bool filesystemUpdate = ArduinoOTA.getCommand() == U_SPIFFS;
     littlefsUnmountedForArduinoOta = false;
@@ -5556,8 +5741,12 @@ void initializeArduinoOta()
     arduinoOtaLastReportedProgress = progressPercent;
     Serial.printf("ArduinoOTA: %u %% (%u/%u B).\n", progressPercent, currentBytes, totalBytes);
   });
-  ArduinoOTA.onEnd([]() { Serial.println("ArduinoOTA: update completed; restarting device."); });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("ArduinoOTA: update completed; restarting device.");
+    arduinoOtaActive = false;
+  });
   ArduinoOTA.onError([](ota_error_t error) {
+    arduinoOtaActive = false;
     Serial.printf("ArduinoOTA: update failed (error %u).\n", static_cast<unsigned>(error));
     if (littlefsUnmountedForArduinoOta) {
       littlefsUnmountedForArduinoOta = false;
@@ -7924,12 +8113,94 @@ bool updateDeviceStatus()
   return true;
 }
 
-void sendMeasurements(uint32_t measurementCycleMillis)
+const char *loadCellMissingReason()
 {
-  Measurement measurement{};
-  if (!createMeasurement(measurement)) {
+  if (!loadCellReady) return "sensor_unavailable";
+  if (loadCellTareQueued || loadCellSamplingMode == LoadCellSamplingMode::Taring) return "taring";
+  if (componentHealth(loadCellStatus) == ComponentHealth::Error) return "sensor_error";
+  if (!loadCellCachedWeightValid) return "no_confirmed_sample";
+  if (millis() - loadCellCachedWeightMillis > HX711_CACHE_MAX_AGE_MS) {
+    return loadCellCandidateAvailable ? "stale_filter_pending" : "stale_sample";
+  }
+  return "unknown";
+}
+
+void archiveMeasurement(const Measurement &measurement, uint32_t measurementCycleMillis)
+{
+  archiveRefreshAttempted = false;
+  lastSDMeasurementMillis = measurementCycleMillis;
+  const bool savedToSDCard = appendToSDCard(measurement);
+  if (savedToSDCard) cloudSyncCaughtUp = false;
+  if (!measurement.loadCellValid) {
+    portENTER_CRITICAL(&localDiagnosticsMux);
+    ++loadCellMissingArchiveCount;
+    loadCellLastArchiveMissingTimestamp = measurement.timestamp;
+    loadCellLastArchiveMissingReason = loadCellMissingReason();
+    portEXIT_CRITICAL(&localDiagnosticsMux);
+    Serial.printf("[HX711] Arhivska masa manjka: %s.\n", loadCellLastArchiveMissingReason);
+  }
+  if (!savedToSDCard && isFirebaseReady() &&
+      measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
+    // Ob napaki SD ostane neposredni zapis zgodovine rezervna pot.
+    char historyPath[DATABASE_PATH_LENGTH];
+    snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
+             static_cast<unsigned long>(measurement.timestamp));
+    char jsonPayload[256];
+    serializeMeasurementJson(measurement, jsonPayload, sizeof(jsonPayload));
+    object_t data(jsonPayload);
+    database.set(asyncClient, historyPath, data, processData, "saveMeasurementHistory");
+  }
+}
+
+void processPendingArchiveMeasurement()
+{
+  if (!pendingArchiveMeasurementActive || firmwareUpdateInProgress ||
+      localElegantOtaSessionActive || arduinoOtaActive || Update.isRunning()) return;
+  const uint32_t elapsed = millis() - pendingArchiveStartedMillis;
+  float weightKg = 0.0F;
+  // Kratek ponovni poskus teče samo, dokler je časovni par senzorjev smiseln.
+  const bool freshWeight = readLoadCell(weightKg);
+  if (freshWeight && elapsed > HX711_ARCHIVE_RETRY_MS && !archiveRefreshAttempted) {
+    // Po daljšem zastoju ponovno zajamemo tudi BME680, namesto da bi novo maso
+    // združili s staro temperaturo in vlago ali pustili prazno točko.
+    pendingArchiveMeasurementActive = false;
+    archiveRefreshAttempted = true;
+    lastMeasurementMillis = 0;
     return;
   }
+  if (!freshWeight && elapsed < HX711_ARCHIVE_RETRY_MS && !loadCellTareQueued &&
+      loadCellSamplingMode != LoadCellSamplingMode::Taring) return;
+
+  Measurement measurement = pendingArchiveMeasurement;
+  if (freshWeight) {
+    measurement.weightKg = weightKg;
+    measurement.loadCellValid = true;
+    if (hasLatestMeasurement && latestMeasurement.timestamp == measurement.timestamp) {
+      latestMeasurement = measurement;
+      if (measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) latestMeasurementUploadPending = true;
+    }
+  }
+  pendingArchiveMeasurementActive = false;
+  archiveMeasurement(measurement, pendingArchiveCycleMillis);
+}
+
+void sendMeasurements(uint32_t measurementCycleMillis)
+{
+  if (!measurementCyclePending) {
+    measurementCyclePending = true;
+    activeMeasurementCycleMillis = measurementCycleMillis;
+    bme680ReadingStarted = bme680Ready && bme680.beginReading() != 0;
+    if (bme680ReadingStarted) return;
+  }
+  if (bme680ReadingStarted && bme680.remainingReadingMillis() > 0) return;
+  measurementCyclePending = false;
+  measurementCycleMillis = activeMeasurementCycleMillis;
+  Measurement measurement{};
+  if (!createMeasurement(measurement)) {
+    bme680ReadingStarted = false;
+    return;
+  }
+  bme680ReadingStarted = false;
 
   // NTP se lahko potrdi med enim prehodom zanke; tak zapis je že veljavna prva cloud meritev.
   if (measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
@@ -7942,20 +8213,19 @@ void sendMeasurements(uint32_t measurementCycleMillis)
     latestMeasurementUploadPending = true;
   }
 
-  char jsonPayload[256];
-  serializeMeasurementJson(measurement, jsonPayload, sizeof(jsonPayload));
-  object_t measurements(jsonPayload);
-
-  const bool shouldArchiveMeasurement = !loadCellArchiveAwaitingFirstSample &&
+  const bool shouldArchiveMeasurement = !pendingArchiveMeasurementActive &&
+                                         !loadCellArchiveAwaitingFirstSample &&
                                          (lastSDMeasurementMillis == 0 ||
                                           measurementCycleMillis - lastSDMeasurementMillis >=
                                               sdMeasurementIntervalMs);
-  bool savedToSDCard = false;
   if (shouldArchiveMeasurement) {
-    lastSDMeasurementMillis = measurementCycleMillis;
-    savedToSDCard = appendToSDCard(measurement);
-    if (savedToSDCard) {
-      cloudSyncCaughtUp = false;
+    if (measurement.loadCellValid || !measurement.bme680Valid) {
+      archiveMeasurement(measurement, measurementCycleMillis);
+    } else {
+      pendingArchiveMeasurement = measurement;
+      pendingArchiveCycleMillis = measurementCycleMillis;
+      pendingArchiveStartedMillis = millis();
+      pendingArchiveMeasurementActive = true;
     }
   }
   if (measurement.bme680Valid && measurement.loadCellValid) {
@@ -7968,15 +8238,6 @@ void sendMeasurements(uint32_t measurementCycleMillis)
   } else {
     Serial.printf("Meritev: %s %s, %.2f kg (BME680 ni dosegljiv)\n", measurement.date,
                   measurement.time, measurement.weightKg);
-  }
-  if (isFirebaseReady() && measurement.timestamp >= MIN_VALID_UNIX_TIMESTAMP) {
-    // SD sinhronizacija je običajna pot zgodovine; neposredni zapis je le rezerva ob napaki SD.
-    if (shouldArchiveMeasurement && !savedToSDCard) {
-      char historyPath[DATABASE_PATH_LENGTH];
-      snprintf(historyPath, sizeof(historyPath), "%s/%lu", historyDatabasePath,
-               static_cast<unsigned long>(measurement.timestamp));
-      database.set(asyncClient, historyPath, measurements, processData, "saveMeasurementHistory");
-    }
   }
 }
 
@@ -8016,6 +8277,11 @@ void setup()
   bme680Ready = initializeBme680();
   initializeRtc();
   loadCellReady = initializeLoadCell();
+  if (xTaskCreatePinnedToCore(loadCellSamplerTask, "HX711", 4096, nullptr, 11,
+                              &loadCellSamplerTaskHandle, 1) != pdPASS) {
+    loadCellSamplerTaskHandle = nullptr;
+    Serial.println("HX711 sampling task could not start; using main loop fallback.");
+  }
   connectToWiFi();
   localBootId = esp_random();
   localRebootMutex = xSemaphoreCreateMutex();
@@ -8041,9 +8307,18 @@ void setup()
 
 void loop()
 {
-  // HX711 dobi prvo možnost v vsakem prehodu. Počasno povezovanje Firebase tako
-  // ne odloži že pripravljenega ADC vzorca še za dodaten cel prehod zanke.
+  const uint32_t loopStartedMillis = millis();
+  if (previousLoopStartedMillis != 0) {
+    const uint32_t gap = loopStartedMillis - previousLoopStartedMillis;
+    portENTER_CRITICAL(&localDiagnosticsMux);
+    if (gap > longestLoopGapMillis) longestLoopGapMillis = gap;
+    portEXIT_CRITICAL(&localDiagnosticsMux);
+  }
+  previousLoopStartedMillis = loopStartedMillis;
+  // Ločeno opravilo zbira ADC povprečja tudi med omrežnim zastojem. Tukaj
+  // prevzamemo zadnje povprečje in obdelamo morebitni čakajoči arhivski zapis.
   processLoadCellSampling();
+  processPendingArchiveMeasurement();
   processQueuedWiFiConnectionAttempt();
   updateWiFiConnectionAttempt();
   maintainProvisioningAccessPoint();
@@ -8096,8 +8371,9 @@ void loop()
     // Ob zasedenem kanalu časovnika ne premaknemo in zahtevo neblokirno ponovimo v naslednji zanki.
     // Trenutna meritev ima prednost pred periodičnimi statusi. Tako en sam
     // Firebase kanal ne more preskočiti najnovejše meritve nastavljenega cikla.
-    if (lastMeasurementMillis == 0 || currentMillis - lastMeasurementMillis >= measurementIntervalMs) {
-      lastMeasurementMillis = currentMillis;
+    if (measurementCyclePending || lastMeasurementMillis == 0 ||
+        currentMillis - lastMeasurementMillis >= measurementIntervalMs) {
+      if (!measurementCyclePending) lastMeasurementMillis = currentMillis;
       sendMeasurements(currentMillis);
     }
     processPendingLatestMeasurement();

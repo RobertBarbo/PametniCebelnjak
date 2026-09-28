@@ -27,6 +27,7 @@ pio run
 - **H-06:** cel dan minutnih in petminutnih meritev, večurne vrzeli, meja dneva, neveljavne vrstice, ponovitev brez ACK-a ter veljavna/neveljavna cloud predpona. Test primerja vse urne ključe in števce z neodvisnim pričakovanim rezultatom.
 - **H-07:** brisanje med gradnjo lokalnega indeksa, branjem cloud indeksa in prenosom dni; čakanje na aktivno zahtevo, zaprtje SD ročaja pred brisanjem, izgubljeni callback in timeout. Dodatne statične trditve preverijo, da firmware med brisanjem ne nadaljuje obnove in timeout ni skrit za njenim stanjem.
 - **H-08/F-03:** izpad pred vsakim od 5 oziroma 20 vzorcev, meja timeouta, preliv `millis()`, negativni ADC razpon, točno 25 impulzov, filter velikih skokov, postopno tariranje, ohranitev stare ničle pri napaki NVS, kratek timeout z ohranjeno svežo maso in izločitev prestare mase.
+- **rc.80:** prevzem novega povprečja, ki ga je ločeno opravilo pripravilo med zastojem glavne zanke, zavrnitev rezultata prejšnje generacije po spremembi vzorčenja ter kratek ponovni poskus arhiviranja. Pri pravi odpovedi se po roku ohrani delna meritev; po daljšem zastoju se zahteva nova celotna meritev.
 - **H-10:** 100 zaporednih prekinitev, nič odprtih ročajev in začasnih datotek po čiščenju, ponovljen disconnect, dva sočasna prenosa v isti cilj, uspešen zaključek, zavrnitev avtentikacije, napaka preimenovanja in več datotek v eni zahtevi.
 - **F-02:** uspešen ACK, nato pozen SSE istega ukaza; izgubljeni callback, nov ukaz med ponovitvijo starega ACK-a in uspešno dokončanje obeh ID-jev.
 

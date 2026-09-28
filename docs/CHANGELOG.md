@@ -6,6 +6,10 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Fixed
 
+- Firmware `0.1.0-rc.80` zbira povprečja HX711 v ločenem FreeRTOS opravilu. Počasen Firebase, SD ali HTTP korak zato ne ustavi zajema ADC; glavna zanka še vedno sama filtrira maso, obdeluje tariranje in zapisuje podatke. Če opravila ni mogoče ustvariti, ostane dosedanje neblokirajoče vzorčenje.
+- Petminutni arhivski zapis ob začasno manjkajoči teži do dve sekundi neblokirajoče čaka na sveže povprečje. Po daljšem zastoju enkrat ponovno zajame celotno meritev, da ne združi stare temperature z novo maso. Ob resničnem izpadu HX711 se temperatura in vlaga po kratkem roku še vedno shranita.
+- Branje BME680 uporablja ločen začetek in zaključek meritve, zato glavna zanka ne čaka med pretvorbo. Stalni Firebase control tok po napaki zapre povezavo in poskusi znova z omejenim naraščajočim premorom.
+
 - Firmware `0.1.0-rc.79` prepreči kopičenje lokalnih `/api/status` zahtev: začetno in periodično branje imata omejen čas, periodični osveževalnik pa uporablja največ eno aktivno zahtevo. Enako časovno omejitev imajo posamezni koraki lokalne zgodovine. Prenosi CSV in datotek SD izrecno zaprejo HTTP povezavo po koncu.
 - HX711 vzorčenje se izvede na začetku vsakega prehoda zanke. Zadnja potrjena masa med počasnim omrežnim opravilom velja največ 15 sekund, vendar se ob potrjenem stanju napake HX711 zavrne takoj. Tako nekajsekundno povezovanje Firebase ne ustvari prazne arhivske točke, dejanski izpad tehtnice pa se ne prikrije.
 - Firmware `0.1.0-rc.78` odpravlja F-03: prvi zapis SD zgodovine po zagonu ali tariranju počaka na prvo potrjeno maso HX711. Kratek timeout ali nejasen potrditveni odčitek ne izbriše zadnje potrjene mase, če je mlajša od dveh sekund; tudi pri stanju napake se neblokirajoče vzorčenje nadaljuje, zato se HX711 po kratki motnji pobere takoj in ne šele ob minutni ponovni inicializaciji. Daljši izpad še vedno zapiše `null`.
@@ -19,6 +23,7 @@ Vse pomembne spremembe projekta so dokumentirane v tej datoteki.
 
 ### Added
 
+- Lokalni `/api/status` vrne `load_cell_diagnostics`: delovanje merilnega opravila, starost zadnjega povprečja, število timeoutov, število arhivskih zapisov brez teže, zadnji razlog in največji razmik med prehodi glavne zanke. Novi regresijski testi preverijo prevzem svežega povprečja po zastoju in ponovni poskus arhiviranja.
 - Gostiteljski regresijski testi za H-05, H-06, H-07, H-08 in H-10: `scripts/test_firmware_regressions.py` iz firmware-a izlušči dejanske funkcije ter jih prevede in požene z nadomestnimi GPIO/SD/Firebase vmesniki. Navodila in meje preverjanja so v `test/firmware_regressions/README.md`.
 - Lokalni `/api/status` vsebuje posnetek Firebase diagnostike: vrsto, čakajoče zapise, starost zahtev, zadnje uspešne potrditve, števce obnovitev in zadnjo kodo napake, brez vsebine aktivacijske skrivnosti v diagnostiki.
 - Lokalni `POST /api/reboot` in gumb **Znova zaženi napravo** v slovenščini, hrvaščini in angleščini omogočata ponovni zagon prek Wi-Fi-ja. API zahteva glavo `X-Device-Reboot` z ID-jem trenutnega zagona; po potrditvi in kratkem neblokirajočem zamiku shrani kazalec sinhronizacije ter izvede ponovni zagon. Med OTA ali destruktivnim opravilom se zahteva zavrne oziroma prekliče. Vmesnik potrdi ponovno povezavo šele ob spremenjenem ID-ju zagona.

@@ -82,6 +82,7 @@ struct { template<typename... T> void printf(const char *, T...) {} void println
 uint32_t nowMillis = 1000;
 uint32_t millis() { return nowMillis; }
 bool sdCardReady = true, firmwareUpdateInProgress = false;
+bool localElegantOtaSessionActive = false, arduinoOtaActive = false;
 struct { bool isRunning() { return false; } } Update;
 bool authenticateSdCardRequest(AsyncWebServerRequest *r) { return r->authorized; }
 bool normalizeSdCardPath(const String &s, String &out, bool) { out = s; return true; }
@@ -170,6 +171,13 @@ uint32_t loadCellCachedWeightMillis = 0, lastMeasurementMillis = 1;
 constexpr uint32_t HX711_CACHE_MAX_AGE_MS = 15000, HX711_STARTUP_TIMEOUT_MS = 1000, HX711_READY_TIMEOUT_MS = 250;
 constexpr uint8_t HX711_READ_SAMPLES = 5, HX711_TARE_SAMPLES = 20;
 LoadCellSampleWindow loadCellSampleWindow;
+int loadCellSamplerMux = 0;
+void *loadCellSamplerTaskHandle = nullptr;
+LoadCellSamplerResult loadCellSamplerResult;
+uint32_t loadCellSamplerGeneration = 1, loadCellSamplerProcessedSequence = 0;
+uint32_t loadCellSamplerTimeouts = 0, loadCellSamplerLastAverageMillis = 0;
+uint8_t loadCellSamplerRequestedSamples = HX711_READ_SAMPLES;
+bool loadCellSamplerStopAfterResult = false;
 LoadCellTareState loadCellTareState = LoadCellTareState::Idle;
 ComponentStatus loadCellStatus;
 struct {
@@ -185,6 +193,18 @@ void reportLoadCellTareStatus(const char *) {}
 void reportComponentFailure(ComponentStatus &s, const char *, const char *) { ++s.consecutiveFailures; }
 void reportComponentSuccess(ComponentStatus &s, const char *) { s.consecutiveFailures = 0; }
 ComponentHealth componentHealth(const ComponentStatus &s) { return s.consecutiveFailures >= 5 ? ComponentHealth::Error : ComponentHealth::Ok; }
+constexpr uint32_t HX711_ARCHIVE_RETRY_MS = 2000;
+constexpr time_t MIN_VALID_UNIX_TIMESTAMP = 1700000000;
+Measurement pendingArchiveMeasurement, latestMeasurement, archivedMeasurement;
+uint32_t pendingArchiveStartedMillis = 0, pendingArchiveCycleMillis = 0;
+bool pendingArchiveMeasurementActive = false, archiveRefreshAttempted = false;
+bool hasLatestMeasurement = false, latestMeasurementUploadPending = false;
+int archivedMeasurements = 0;
+void archiveMeasurement(const Measurement &measurement, uint32_t) {
+  archivedMeasurement = measurement;
+  ++archivedMeasurements;
+  archiveRefreshAttempted = false;
+}
 #include "firmware_functions.inc"
 
 void testControlRoot() {
@@ -284,8 +304,79 @@ void testLoadCell() {
   assert(readLoadCell(accepted));
   nowMillis += HX711_CACHE_MAX_AGE_MS + 1;
   assert(!readLoadCell(accepted));
+  // Glavna zanka lahko obstane dlje od starosti cache-a, merilno opravilo pa
+  // medtem objavi novo povprečje, ki ga prevzamemo ob prvem naslednjem prehodu.
+  loadCellSamplerTaskHandle = reinterpret_cast<void *>(1);
+  loadCellSamplerResult = {};
+  loadCellSamplerGeneration = 10;
+  loadCellSamplerProcessedSequence = 0;
+  loadCellSamplerResult.generation = 10;
+  loadCellSamplerResult.sequence = 1;
+  loadCellSamplerResult.sampledMillis = nowMillis;
+  loadCellSamplerResult.average = 110;
+  loadCellStatus.consecutiveFailures = 0;
+  processLoadCellSampling();
+  assert(readLoadCell(accepted) && accepted == 10);
+  assert(loadCellCachedWeightMillis == nowMillis);
+  // Zastarel rezultat iz prejšnje generacije po ukazu za tariranje ni dovoljen.
+  beginLoadCellSampleWindow(HX711_TARE_SAMPLES, true);
+  loadCellSamplerResult.sequence = 2;
+  loadCellSamplerResult.generation = 10;
+  loadCellSamplerResult.average = 999;
+  processLoadCellSampling();
+  assert(loadCell.offset == 100);
+  loadCellSamplerTaskHandle = nullptr;
   puts("H-08: izpad med vsakim vzorcem, preliv ure, ADC znak/impulzi in filter skokov: OK");
   puts("H-08: asinhrono tariranje, napaka NVS, ohranjena nicla in starost meritve: OK");
+}
+
+void testArchiveRetry() {
+  nowMillis = 50000;
+  loadCellReady = true;
+  loadCellTareQueued = false;
+  loadCellSamplingMode = LoadCellSamplingMode::Measuring;
+  loadCellStatus.consecutiveFailures = 0;
+  loadCellCachedWeightValid = true;
+  loadCellCachedWeightKg = 58.2F;
+  loadCellCachedWeightMillis = nowMillis - HX711_CACHE_MAX_AGE_MS - 1;
+  pendingArchiveMeasurement = {};
+  pendingArchiveMeasurement.timestamp = MIN_VALID_UNIX_TIMESTAMP + 1;
+  pendingArchiveMeasurement.bme680Valid = true;
+  pendingArchiveStartedMillis = nowMillis;
+  pendingArchiveMeasurementActive = true;
+  hasLatestMeasurement = true;
+  latestMeasurement = pendingArchiveMeasurement;
+  archivedMeasurements = 0;
+  processPendingArchiveMeasurement();
+  assert(pendingArchiveMeasurementActive && archivedMeasurements == 0);
+  nowMillis += 1500;
+  loadCellCachedWeightMillis = nowMillis;
+  processPendingArchiveMeasurement();
+  assert(!pendingArchiveMeasurementActive && archivedMeasurements == 1);
+  assert(archivedMeasurement.loadCellValid && archivedMeasurement.weightKg == 58.2F);
+  assert(latestMeasurement.loadCellValid && latestMeasurementUploadPending);
+
+  pendingArchiveMeasurementActive = true;
+  pendingArchiveStartedMillis = nowMillis;
+  loadCellCachedWeightValid = false;
+  nowMillis += HX711_ARCHIVE_RETRY_MS + 1;
+  processPendingArchiveMeasurement();
+  assert(archivedMeasurements == 2 && !archivedMeasurement.loadCellValid);
+
+  pendingArchiveMeasurementActive = true;
+  pendingArchiveStartedMillis = nowMillis;
+  loadCellCachedWeightValid = true;
+  nowMillis += 20000;
+  loadCellCachedWeightMillis = nowMillis;
+  lastMeasurementMillis = 1234;
+  processPendingArchiveMeasurement();
+  assert(!pendingArchiveMeasurementActive && archivedMeasurements == 2);
+  assert(archiveRefreshAttempted && lastMeasurementMillis == 0);
+  pendingArchiveMeasurementActive = true;
+  pendingArchiveStartedMillis = nowMillis;
+  processPendingArchiveMeasurement();
+  assert(archivedMeasurements == 3 && archivedMeasurement.loadCellValid);
+  puts("HX711: kratek retry, prava napaka in osvezitev po 20 s zastoju: OK");
 }
 
 void testReconciliation(uint32_t interval, uint32_t count, uint16_t prefix = 0, bool badPrefix = false) {
@@ -435,7 +526,7 @@ void testControlAcknowledgement() {
 }
 
 int main() {
-  testControlRoot(); testLoadCell();
+  testControlRoot(); testLoadCell(); testArchiveRetry();
   testReconciliation(300, 288); testReconciliation(60, 1440);
   testReconciliation(7200, 12); testReconciliation(300, 288, 18);
   testReconciliation(300, 288, 18, true);

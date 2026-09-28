@@ -37,13 +37,15 @@ def main():
 
     types = ["Measurement", "MeasurementAggregate", "DailyReconciliationManifest",
              "HistoryDeletionStep", "CloudReconciliationState", "SdCardUploadContext",
-             "LoadCellTareState", "ComponentHealth", "ComponentStatus"]
+             "LoadCellTareState", "ComponentHealth", "ComponentStatus",
+             "LoadCellSamplerResult"]
     functions = ["addMeasurementToCloudAggregate", "readNextReconciliationMeasurementBatch",
                  "completeCloudHistoryReconciliationRequest", "processPendingHistoryDeletion",
                  "recoverStalledCloudSynchronization", "cleanupSdCardUpload",
                  "handleSdCardUpload", "finishSdCardUpload", "tryReadLoadCellRaw",
-                 "resetLoadCellWeightFilter", "acceptLoadCellWeight", "acceptLoadCellConfirmation",
-                 "readLoadCell", "processLoadCellSampling", "processPendingLoadCellTare"]
+                 "resetLoadCellWeightFilter", "beginLoadCellSampleWindow", "acceptLoadCellWeight", "acceptLoadCellConfirmation",
+                 "readLoadCell", "processLoadCellSampling", "processPendingLoadCellTare",
+                 "processPendingArchiveMeasurement"]
     (output / "firmware_types.inc").write_text("\n".join(extract(t, "type") for t in types), encoding="utf-8")
     (output / "firmware_functions.inc").write_text("\n".join(extract(f) for f in functions), encoding="utf-8")
 
